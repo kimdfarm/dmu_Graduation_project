@@ -28,6 +28,8 @@ dmu_Graduation_project/
     ├── assets/           # 이미지, 아이콘
     ├── package.json      # npm 의존성 목록
     └── README.md         # 프론트엔드 전용 문서
+
+'''    
 ### 🚀 협업 가이드 (Git Flow)
 우리 프로젝트는 안전한 협업을 위해 다음 규칙을 준수합니다.
 
