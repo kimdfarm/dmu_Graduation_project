@@ -33,11 +33,12 @@ my-app/                         # 프로젝트 루트 (여기서 git 관리)
 
 #### 1. 브랜치 전략
 - `main`: 최종 배포용 브랜치 (절대 직접 수정 금지)
-- `feature/기능명`: 각자 기능을 개발하는 브랜치 (예: `feature/login`)
+- `(상위 폴더)/기능명`: 각자 기능을 개발하는 브랜치 (예: `routers/login`)
 
 #### 2. 작업 프로세스
-1. `git checkout main` -> `git pull` (최신 상태 확인)
-2. `git checkout -b feature/기능명` (내 브랜치 생성)
-3. 코드 작성 및 커밋
-4. `git push origin feature/기능명`
-5. GitHub에서 **Pull Request(PR)** 생성 후 팀원 리뷰 요청!
+1. `git checkout main` (main 브랜치로 이동)
+2. `git pull origin main` (최신 코드 가져오기)
+3. `git checkout -b (상위 폴더)/기능명` (새로운 기능 브랜치 생성 및 이동)
+4. 코드 작성 및 커밋
+5. `git push origin (상위 폴더)/기능명`
+6. GitHub 저장소 접속 → Compare & pull request 버튼 클릭 → 변경 사항 설명 작성 후 Create pull request!
