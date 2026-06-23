@@ -40,7 +40,15 @@ dmu_Graduation_project/
 #### 2. 작업 프로세스
 1. `git checkout main` (main 브랜치로 이동)
 2. `git pull origin main` (최신 코드 가져오기)
-3. `git checkout -b (상위 폴더)/기능명` (새로운 기능 브랜치 생성 및 이동)
+3. `git checkout -b (상위 폴더)/기능명` (새로운 기능 브랜치 생성 및 이동) 
+- 만약 처음 브랜치를 만든 거면 (git push --set-upstream origin (상위 폴더)/기능명)
 4. 코드 작성 및 커밋
 5. `git push origin (상위 폴더)/기능명`
 6. GitHub 저장소 접속 → Compare & pull request 버튼 클릭 → 변경 사항 설명 작성 후 Create pull request!
+
+### 3. PYTHON 버전 및 설치
+- 3.12
+1. Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process (터미널에 쉽게 venv 가능하게 해줌)
+2. py -3.12 -m venv venv
+3. .venv\Scripts\Activate.ps1
+4. pip install -r "dmu_Graduation_project\backend\requirements.txt"
