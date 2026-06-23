@@ -6,7 +6,7 @@
 ### 개발자:  마인혁, 이소윤, 김동혁, 이현승
 
 - 목적: IT 전공생의 GitHub와 프로젝트 데이터를 정밀 분석하여 기술 역량을 객관적으로 지표화하고, 이를 바탕으로 개인별 맞춤형 기술을 지원하여 IT 전공생들이 채용 시장에서 차별화된 경쟁력을 갖추도록 하는 데 목적이 있습니다.
-- 
+
 - 용도 : 사용자의 역량에 최적화된 자격증 및 심화 학습 콘텐츠를 추천하는 가이드로 활용될 뿐만 아니라, AI를 통해 기술 중심의 자기소개서와 포트폴리오를 생성하고 기술 면접 예상 질문을 도출함으로써 서류 준비부터 실무 면접까지 전 과정을 통합 관리하는 전문 취업 지원 도구입니다.
 
 ### 전체 프로젝트 구조
@@ -50,5 +50,5 @@ dmu_Graduation_project/
 - 3.12
 1. Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process (터미널에 쉽게 venv 가능하게 해줌)
 2. py -3.12 -m venv venv
-3. .venv\Scripts\Activate.ps1
+3. .\venv\Scripts\Activate.ps1
 4. pip install -r "dmu_Graduation_project\backend\requirements.txt"
