@@ -46,9 +46,14 @@ dmu_Graduation_project/
 5. `git push origin (상위 폴더)/기능명`
 6. GitHub 저장소 접속 → Compare & pull request 버튼 클릭 → 변경 사항 설명 작성 후 Create pull request!
 
-### 3. PYTHON 버전 및 설치
+### 3. 백엔드 PYTHON 버전 및 설치
 - 3.12
 1. Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process (터미널에 쉽게 venv 가능하게 해줌)
 2. py -3.12 -m venv venv
 3. .\venv\Scripts\Activate.ps1
 4. pip install -r "dmu_Graduation_project\backend\requirements.txt"
+
+### 4. 프론트엔트 앱 가동
+- npm install
+#### 로컬 서버 가동하기
+- npm run dev
