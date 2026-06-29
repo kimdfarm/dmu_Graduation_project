@@ -21,14 +21,14 @@ dmu_Graduation_project/
 │   │   ├── main.py       # FastAPI 진입점
 │   │   ├── routers/      # API 라우팅 (기능별 파일 분리)
 │   │   └── database.py   # DB 연결 설정
-│   ├── .env              # 비밀 키 (GitHub 업로드 금지!)
-│   └── requirements.txt  # 파이썬 의존성 목록
-└── frontend/             # [프론트엔드 작업 공간]
-    ├── src/              # React Native 소스
-    ├── assets/           # 이미지, 아이콘
-    ├── package.json      # npm 의존성 목록
-    └── README.md         # 프론트엔드 전용 문서
-
+│   └── .env              # 비밀 키 (GitHub 업로드 금지!)
+│   
+├── frontend/             # [프론트엔드 작업 공간]
+│   ├── src/              # React Native 소스
+│   ├── assets/           # 이미지, 아이콘
+│   ├── package.json      # npm 의존성 목록
+│   └── README.md         # 프론트엔드 전용 문서
+└── requirements.txt  # 파이썬 의존성 목록
 ```   
 ### 🚀 협업 가이드 (Git Flow)
 우리 프로젝트는 안전한 협업을 위해 다음 규칙을 준수합니다.
