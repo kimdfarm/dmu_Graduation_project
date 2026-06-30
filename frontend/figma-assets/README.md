@@ -18,9 +18,9 @@
 
 #### 2. AI 자기소개서 작성 화면
 > 사용자가 자소서를 입력하는 메인 에디터 화면과 AI 피드백 패널의 2단 레이아웃 디자인입니다.
-##1번
+> ## 1번
 <img width="408" height="874" alt="image" src="https://github.com/user-attachments/assets/e4ea3419-16fa-49c7-8ef0-78a53bdb0fca" />
 
-##2번
+> ## 2번
 <img width="401" height="805" alt="초안2번" src="https://github.com/user-attachments/assets/f1ab0d47-5460-4604-9d21-bc5bd71a6b72" />
 
