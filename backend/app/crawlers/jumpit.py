@@ -9,12 +9,12 @@ from dotenv import load_dotenv
 import requests
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+CRAWL_URL = os.getenv("CRAWL_URL")
+CRAWL_KEY = os.getenv("CRAWL_KEY")
 
 # 공식 동기 설정 방식으로 Supabase 클라이언트 생성
 options = ClientOptions(postgrest_client_timeout=10)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+supabase: Client = create_client(CRAWL_URL, CRAWL_KEY, options=options)
 
 TECH_KEYWORDS = [
     "Python", "FastAPI", "Django", "Flask", "Java", "Spring", "Node.js", 

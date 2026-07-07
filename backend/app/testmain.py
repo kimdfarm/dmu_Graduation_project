@@ -22,8 +22,8 @@ from crawlers.rallit import crawl_rallit
 load_dotenv()
 app = FastAPI()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = os.getenv("CRAWL_URL")
+SUPABASE_KEY = os.getenv("CRAWL_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TECH_KEYWORDS = [
