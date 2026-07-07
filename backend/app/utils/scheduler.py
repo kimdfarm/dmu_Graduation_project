@@ -11,9 +11,9 @@ from crawlers.rallit import crawl_rallit
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+CRAWL_URL = os.getenv("CRAWL_URL")
+CRAWL_KEY = os.getenv("CRAWL_KEY")
+supabase: Client = create_client(CRAWL_URL, CRAWL_KEY)
 
 def delete_expired_jobs():
     """
