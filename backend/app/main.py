@@ -3,10 +3,10 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 import asyncio
-from fastapi.concurrency import asynccontextmanager
+from contextlib import asynccontextmanager  # 🎯 추가 필요
+from utils.scheduler import scheduler
 from supabase import create_client, Client
 
-from backend.app.utils import scheduler
 
 load_dotenv()
 
@@ -17,6 +17,7 @@ MAIN_KEY = os.getenv("MAIN_KEY")
 
 CRAWL_URL = os.getenv("CRAWL_URL")
 CRAWL_KEY = os.getenv("CRAWL_KEY")
+
 # 🚀 서버 시작(Startup)과 종료(Shutdown)를 한 번에 관리하는 최신 lifespan 설계
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,8 +33,5 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
         print("🛑 [시스템 종료] 백그라운드 스케줄러가 안전하게 종료되었습니다.")
 
+# FastAPI를 선언할 때 lifespan을 매개변수로 넣어줍니다.
 app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
-
-
-
-
