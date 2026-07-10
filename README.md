@@ -56,4 +56,9 @@ dmu_Graduation_project/
 ### 4. 프론트엔트 앱 가동
 - npm install
 #### 로컬 서버 가동하기
-- npm run dev
+1. cd backend
+2. uvicorn app.main:app --reload
+
+
+##### requirement 저장
+- pip freeze > requirements.txt
