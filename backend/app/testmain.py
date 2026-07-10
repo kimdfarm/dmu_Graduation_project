@@ -1,60 +1,88 @@
 import os
-import sys
-import time# 1. 터미널 위치가 어디든 backend/app 안에서 정상 작동하도록 경로 보정
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-if CURRENT_DIR not in sys.path:
-    sys.path.append(CURRENT_DIR)
-from fastapi import FastAPI, BackgroundTasks
-from supabase import create_client, Client
+
 from dotenv import load_dotenv
-
-# 브라우저 자동화를 위한 라이브러리
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
-
-from crawlers.wanted import run_selenium_crawler
-from crawlers.jumpit import crawl_jumpit
-from crawlers.rallit import crawl_rallit
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, EmailStr
+import asyncio
+from contextlib import asynccontextmanager  # 🎯 추가 필요
+from utils.scheduler import scheduler
+from supabase import create_client, Client
 
 
 load_dotenv()
-app = FastAPI()
 
-SUPABASE_URL = os.getenv("CRAWL_URL")
-SUPABASE_KEY = os.getenv("CRAWL_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-TECH_KEYWORDS = [
-    "Python", "FastAPI", "Django", "Flask", "Java", "Spring", "Node.js", 
-    "Express", "React", "Vue", "TypeScript", "JavaScript", "Next.js",
-    "MySQL", "PostgreSQL", "MongoDB", "Redis", "AWS", "Docker", "Kubernetes",
-    "Git", "GitHub", "Kotlin", "Swift", "Flutter", "Android", "iOS"
-]
+# 1. 환경 변수에서 URL과 KEY 가져오기
+MAIN_URL = os.getenv("MAIN_URL")
+MAIN_KEY = os.getenv("MAIN_KEY")
 
-def extract_skills(text: str) -> list:
-    if not text: return []
-    found_skills = []
-    upper_text = text.upper()
-    for skill in TECH_KEYWORDS:
-        if skill.upper() in upper_text:
-            found_skills.append(skill)
-    return list(set(found_skills))
+CRAWL_URL = os.getenv("CRAWL_URL")
+CRAWL_KEY = os.getenv("CRAWL_KEY")
 
-# main.py에서 분기 처리 예시
-# 1. 파일 상단에 프로그래머스 크롤러 임포트 추가
-  # 👈 추가!
+# 🚀 서버 시작(Startup)과 종료(Shutdown)를 한 번에 관리하는 최신 lifespan 설계
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # [Startup 영역] 서버가 켜질 때 실행될 로직
+    if not scheduler.running:
+        scheduler.start()
+        print("📡 [시스템 가동] 백그라운드 실시간 수집 및 3개월 만료 삭제 엔진이 정상 시작되었습니다.")
+        
+    yield  # 💡 서버가 가동 중인 동안은 여기서 대기합니다 (다른 API들 정상 작동)
+    
+    # [Shutdown 영역] 서버가 꺼질 때 실행될 로직
+    if scheduler.running:
+        scheduler.shutdown()
+        print("🛑 [시스템 종료] 백그라운드 스케줄러가 안전하게 종료되었습니다.")
 
-@app.post("/api/v1/crawl", response_model=None)
-def trigger_crawling(background_tasks: BackgroundTasks, site: str = "all", limit: int = 10):
+# FastAPI를 선언할 때 lifespan을 매개변수로 넣어줍니다.
+app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
+
+
+
+if not MAIN_URL or not MAIN_KEY:
+    raise ValueError("Supabase URL 또는 Key가 .env 파일에 설정되지 않았습니다.")
+
+supabase: Client = create_client(MAIN_URL, MAIN_KEY)
+
+# 요청 데이터 포맷 정의 (Pydantic Schema)
+class SignUpRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+@app.post("/auth/signup", status_code=status.HTTP_201_CREATED, tags=["Auth"])
+def sign_up(user_data: SignUpRequest):
     """
-    🎯 IT 공고를 백그라운드에서 중복 없이 자동으로 수집합니다. (기본 10개)
+    Supabase Auth를 이용한 회원가입 API입니다.
+    이메일과 비밀번호를 받아 사용자를 생성합니다.
     """
-    if site == "wanted" or site == "all":
-        background_tasks.add_task(run_selenium_crawler, limit)
-    if site == "jumpit" or site == "all":
-        background_tasks.add_task(crawl_jumpit, limit)
-    if site == "rallit" or site == "all":
-        background_tasks.add_task(crawl_rallit, limit) # 👈 추가!
-    return {"status": "success", "message": f"{site} 플랫폼에서 최대 {limit}개 수집을 시작합니다."}
+    try:
+        # Supabase 가입 API 호출
+        response = supabase.auth.sign_up({
+            "email": user_data.email,
+            "password": user_data.password
+        })
+        
+        # 가입 성공 시 유저 정보 반환
+        if response.user:
+            return {
+                "message": "회원가입이 성공적으로 완료되었습니다.",
+                "user_id": response.user.id,
+                "email": response.user.email
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="회원가입에 실패했습니다. 입력 정보를 확인하세요."
+            )
+            
+    except Exception as e:
+        # 중복 이메일 등의 에러 처리
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+# 서버 실행 테스트용 메인 루트
+@app.get("/", tags=["Root"])
+def read_root():
+    return {"message": "FastAPI 서버가 정상 작동 중입니다. /docs 로 이동하세요."}
