@@ -7,8 +7,8 @@ from pydantic import BaseModel, EmailStr
 from app.core.config import supabase
 import uuid
 router = APIRouter(
-    prefix="/auth",
-    tags=["Auth"]
+    prefix="/sign",
+    tags=["sign"]
 )
 
 # --- 구글 SMTP 설정 (여기에 본인 정보 입력) ---
@@ -102,7 +102,7 @@ def signup_final(user_data: FinalSignUpRequest):
         if not result.data or not result.data[0]["is_approved"]:
             raise HTTPException(status_code=400, detail="이메일 인증(emailok)을 먼저 완료해 주세요.")
             
-        # 2. 💡 Supabase Auth 대신, 우리가 직접 유저 고유 ID(UUID)를 생성합니다!
+        # 2. 💡 Supabase sign 대신, 우리가 직접 유저 고유 ID(UUID)를 생성합니다!
         new_user_uuid = str(uuid.uuid4())
         
         # 3. 내 public.members 테이블 저장
@@ -126,7 +126,7 @@ def signup_final(user_data: FinalSignUpRequest):
         
         return {
             "status": "success", 
-            "message": "Supabase Auth 없이 회원가입이 완벽하게 완료되었습니다!",
+            "message": "Supabase sign 없이 회원가입이 완벽하게 완료되었습니다!",
             "user_id": new_user_uuid
         }
         

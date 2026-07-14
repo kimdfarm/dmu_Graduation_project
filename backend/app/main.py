@@ -1,12 +1,14 @@
 import os
 from fastapi import FastAPI
-from app.routers import auth
+from app.routers import sign
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 import asyncio
 from contextlib import asynccontextmanager  # 🎯 추가 필요
 from app.utils.scheduler import scheduler
 from supabase import create_client, Client
+from fastapi.middleware.cors import CORSMiddleware
+from app.routers import github_data
 
 
 load_dotenv()
@@ -35,11 +37,22 @@ async def lifespan(app: FastAPI):
         print("🛑 [시스템 종료] 백그라운드 스케줄러가 안전하게 종료되었습니다.")
 
 # FastAPI를 선언할 때 lifespan을 매개변수로 넣어줍니다.
-app = FastAPI(title="Graduation Project AI App API")
-
-# ⭐ 핵심: auth 파일 안에 있는 router를 수하로 등록(조립)합니다.
-app.include_router(auth.router)
+app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # 배포 시 실제 React 도메인으로 교체 권장
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ⭐ 핵심: sign 파일 안에 있는 router를 수하로 등록(조립)합니다.
+app.include_router(sign.router)
+app.include_router(github_data.router)
 
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
