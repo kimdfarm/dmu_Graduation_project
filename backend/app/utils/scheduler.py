@@ -5,9 +5,9 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 
 # 기존에 만들어둔 크롤러 엔진 임포트 (경로에 맞게 확인해주세요)
-from crawlers.wanted import run_selenium_crawler
-from crawlers.jumpit import crawl_jumpit
-from crawlers.rallit import crawl_rallit
+from app.crawlers.wanted import run_selenium_crawler
+from app.crawlers.jumpit import crawl_jumpit
+from app.crawlers.rallit import crawl_rallit
 
 load_dotenv()
 

@@ -51,9 +51,14 @@ dmu_Graduation_project/
 1. Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process (터미널에 쉽게 venv 가능하게 해줌)
 2. py -3.12 -m venv venv
 3. .\venv\Scripts\Activate.ps1
-4. pip install -r "dmu_Graduation_project\backend\requirements.txt"
+4. pip install -r "requirements.txt"
 
 ### 4. 프론트엔트 앱 가동
 - npm install
 #### 로컬 서버 가동하기
-- npm run dev
+1. cd backend
+2. uvicorn app.main:app --reload
+
+
+##### requirement 저장
+- pip freeze > requirements.txt
