@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager  # 🎯 추가 필요
 from app.utils.scheduler import scheduler
 from supabase import create_client, Client
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import github_data
+from app.routers.github_data import github_groq_data
 
 
 load_dotenv()
@@ -47,7 +47,7 @@ app.add_middleware(
 )
 # ⭐ 핵심: sign 파일 안에 있는 router를 수하로 등록(조립)합니다.
 app.include_router(sign.router)
-app.include_router(github_data.router)
+app.include_router(github_groq_data.router)
 
 @app.get("/", tags=["Root"])
 def read_root():
