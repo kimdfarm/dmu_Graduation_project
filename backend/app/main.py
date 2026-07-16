@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 from app.routers import sign
+from app.routers import login 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 import asyncio
@@ -9,7 +10,6 @@ from app.utils.scheduler import scheduler
 from supabase import create_client, Client
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.github_data import github_groq_data
-
 
 load_dotenv()
 
@@ -48,6 +48,7 @@ app.add_middleware(
 # ⭐ 핵심: sign 파일 안에 있는 router를 수하로 등록(조립)합니다.
 app.include_router(sign.router)
 app.include_router(github_groq_data.router)
+app.include_router(login.router)
 
 @app.get("/", tags=["Root"])
 def read_root():
