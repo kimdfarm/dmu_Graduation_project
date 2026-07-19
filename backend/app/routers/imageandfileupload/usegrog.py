@@ -3,7 +3,9 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from app.core.config import SUPABASE_KEY, SUPABASE_URL
-
+import pytesseract
+# 보통 아래 경로에 설치됩니다. 경로가 다르면 본인 설치 경로로 수정하세요.
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 import io
 import uuid
 import base64
@@ -109,24 +111,24 @@ def extract_text_from_image(file_content: bytes) -> str:
             detail=f"OCR 텍스트 추출 중 오류가 발생했습니다: {str(e)}"
         )
 
-def filter_valid_data(items: list, member_id: str) -> list:
-    """추출된 정보 중 핵심 내용이 존재하는 유효한 데이터만 필터링하여 member_id와 결합"""
+def filter_valid_data(items: list, member_id: str, resume_id: str) -> list:
     valid_list = []
     for item in items:
         item_dict = item.dict()
-        # is_current를 제외한 유효한 다른 텍스트 입력값이나 수치 정보가 하나라도 포함되어 있는지 검증
         has_value = any(v is not None and str(v).strip() != "" for k, v in item_dict.items() if k != "is_current")
         if has_value:
-            # None 값을 제외한 키-값 쌍만 필터링하여 DB Null Default 작동 보장
             cleaned_item = {k: v for k, v in item_dict.items() if v is not None}
+            
+            # 모든 테이블의 외래키(FK) 역할로 두 ID를 같이 심어줍니다.
             cleaned_item["member_id"] = member_id
+            cleaned_item["resume_id"] = resume_id  # 공통 UUID 주입
+            
             valid_list.append(cleaned_item)
     return valid_list
 
 
-@router.post("/resumes/analyze-and-save")
-async def analyze_and_save_resume(
-    member_id: str = Form(...),
+@router.post("/analyze")
+async def analyze_resume(
     file: UploadFile = File(...)
 ):
     try:
@@ -134,28 +136,17 @@ async def analyze_and_save_resume(
         file_extension = file.filename.split(".")[-1].lower()
         
         resume_text = ""
-        
-        # 1. 파일 확장자에 맞는 텍스트 추출 (PDF vs 이미지)
         if file_extension == "pdf":
             resume_text = extract_text_from_pdf(file_content)
-            # 만약 스캔본 PDF 등의 이유로 텍스트가 안 뽑힐 경우 이미지 OCR 유도 또는 PDF 내 이미지 OCR 연동 가능
-            if not resume_text.strip():
-                raise HTTPException(
-                    status_code=400, 
-                    detail="PDF에서 텍스트를 추출할 수 없습니다. 스캔된 PDF라면 이미지 파일(JPG, PNG)로 업로드해 주세요."
-                )
-                
         elif file_extension in ["png", "jpg", "jpeg"]:
-            # pytesseract 호출하여 이미지에서 한글/영어 텍스트 추출
             resume_text = extract_text_from_image(file_content)
-            
         else:
-            raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. (pdf, png, jpg, jpeg만 지원)")
+            raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
 
         if not resume_text.strip():
             raise HTTPException(status_code=400, detail="추출된 이력서 내용이 비어있습니다.")
 
-        # 2. Groq Llama 3를 활용하여 추출한 비정형 텍스트를 Pydantic 구조로 변환
+        # Groq 분석 실행 (Pydantic 객체로 받아옴)
         parsed_data: ParsedResume = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             response_model=ParsedResume,
@@ -163,63 +154,79 @@ async def analyze_and_save_resume(
                 {
                     "role": "system", 
                     "content": (
-    "너는 이력서 비정형 텍스트를 파싱하여 인사 데이터로 구조화하는 전문가야.\n"
-    "제공된 이력서 텍스트에서 아래 5가지 카테고리의 정보를 찾아 매핑해줘:\n\n"
-    
-    "1. 학력(educations): school_name(학교명), major(전공), education_level(학위구분), status(졸업상태), admission_date(입학일), graduation_date(졸업일)\n"
-    "2. 경력(careers): company_name(회사명), department(부서), job_title(직급/직책), start_date(시작일), end_date(종료일), is_current(재직여부), description(업무요약)\n"
-    "3. 자격증(certificates): certificate_name(자격증명), issuing_organization(발급기관), certificate_number(일련번호), acquisition_date(취득일)\n"
-    "4. 어학 성적(language_scores): language_name(외국어종류), test_name(시험종류), score_or_level(점수/등급), test_date(응시일), expiration_date(만료일)\n"
-    "5. 기술 스택(member_skills): skill_name(기술명), skill_level(숙련도)\n\n"
-    
-    " [주의 사항]\n"
-    "- 모든 날짜(date) 필드는 이력서에 표기된 형식을 바탕으로 반드시 'YYYY-MM-DD' 형식으로 통일해서 추출해줘. (예: 2024.03 -> 2024-03-01)\n"
-    "- 이력서에 명시되지 않았거나 확실치 않은 정보는 절대 임의로 추측하여 채우지 말고 반드시 빈 값(None)으로 둬야 해."
-)
+                        "너는 이력서 비정형 텍스트를 파싱하여 인사 데이터로 구조화하는 전문가야.\n"
+                        "제공된 이력서 텍스트에서 각 카테고리 정보를 찾아 매핑해줘.\n\n"
+                        "[주의 사항]\n"
+                        "- 모든 날짜(date) 필드는 이력서에 표기된 형식을 바탕으로 반드시 'YYYY-MM-DD' 형식으로 통일해서 추출해줘. (예: 2024.03 -> 2024-03-01)\n"
+                        "- 이력서에 명시되지 않았거나 확실치 않은 정보는 절대 임의로 추측하여 채우지 말고 반드시 빈 값(None)으로 둬야 해."
+                    )
                 },
-                {"role": "user", "content": f"다음 이력서 텍스트를 분석해서 유연하게 구조화해줘:\n\n{resume_text}"}
+                {"role": "user", "content": f"다음 이력서를 분석해서 구조화된 양식으로 변환해줘:\n\n{resume_text}"}
             ]
         )
 
-        # 3. 유효 데이터 체크 후 Supabase 각각의 테이블에 유연하게 Insert
+        # 분석된 원본 데이터를 그대로 JSON으로 리턴합니다.
+        return {
+            "message": "이력서 분석 완료. 데이터를 확인 후 수정하여 저장 API로 보내주세요.",
+            "parsed_data": parsed_data.dict() # 프론트엔드가 받아서 화면에 뿌려줄 데이터
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"분석 중 오류 발생: {str(e)}")
+    
+
+    # 최종 저장을 위해 프론트엔드로부터 받을 JSON 구조 정의 (member_id 포함)
+class SaveResumeRequest(ParsedResume):
+    member_id: str
+
+# [2단계] 사용자가 확인 및 편집을 완료한 데이터를 넘겨받아 최종 DB 저장
+@router.post("/save")
+async def save_edited_resume(request_data: SaveResumeRequest):
+    try:
+        member_id = request_data.member_id
+        resume_id = request_data.resume_id # 공통 이력서 UUID
         inserted_results = {}
 
-        # 학력 저장
-        valid_edus = filter_valid_data(parsed_data.educations, member_id)
+        # 1. 학력 저장
+        valid_edus = filter_valid_data(request_data.educations, member_id, resume_id)
         if valid_edus:
             edu_res = supabase.table("educations").insert(valid_edus).execute()
             inserted_results["educations"] = edu_res.data
 
-        # 경력 저장
-        valid_careers = filter_valid_data(parsed_data.careers, member_id)
+        # 2. 경력 저장
+        valid_careers = filter_valid_data(request_data.careers, member_id, resume_id)
         if valid_careers:
             career_res = supabase.table("careers").insert(valid_careers).execute()
             inserted_results["careers"] = career_res.data
 
-        # 자격증 저장
-        valid_certs = filter_valid_data(parsed_data.certificates, member_id)
+        # 3. 자격증 저장
+        valid_certs = filter_valid_data(request_data.certificates, member_id, resume_id)
         if valid_certs:
             cert_res = supabase.table("certificates").insert(valid_certs).execute()
             inserted_results["certificates"] = cert_res.data
 
-        # 어학 성적 저장
-        valid_languages = filter_valid_data(parsed_data.language_scores, member_id)
+        # 4. 어학 성적 저장
+        valid_languages = filter_valid_data(request_data.language_scores, member_id, resume_id)
         if valid_languages:
             lang_res = supabase.table("language_scores").insert(valid_languages).execute()
             inserted_results["language_scores"] = lang_res.data
 
-        # 기술 스택 저장
-        valid_skills = filter_valid_data(parsed_data.member_skills, member_id)
+        # 5. 기술 스택 저장
+        valid_skills = filter_valid_data(request_data.member_skills, member_id, resume_id)
         if valid_skills:
             skill_res = supabase.table("member_skills").insert(valid_skills).execute()
             inserted_results["member_skills"] = skill_res.data
 
         return {
-            "message": "이력서 분석 및 맞춤형 저장이 성공적으로 완료되었습니다.",
-            "extracted_text_preview": resume_text[:200] + "...", # 디버깅용 텍스트 프리뷰
-            "inserted_tables": list(inserted_results.keys()),
-            "inserted_data": inserted_results
+            "message": "사용자가 검토한 이력서 정보가 공통 resume_id로 묶여 최종 저장되었습니다.",
+            "resume_id": resume_id,
+            "inserted_tables": list(inserted_results.keys())
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"처리 중 예상치 못한 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"DB 저장 중 오류 발생: {str(e)}")
+
+
+
+
+

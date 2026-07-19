@@ -94,7 +94,7 @@ async def analyze_rich_repo_with_groq(username: str, repo_info: Dict) -> str:
                 temperature=0.3,
             )
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip() , response._raw_response.headers.get('x-ratelimit-remaining-requests'), response._raw_response.headers.get('x-ratelimit-remaining-tokens')
     except Exception as e:
         raise RuntimeError(f"Groq API 호출 실패: {str(e)}")
 
@@ -242,7 +242,7 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
             print(f"[{repo_name}] 이력서용 경력 항목 변환 가공 중...")
             
             try:
-                ai_resume_experience = await analyze_rich_repo_with_groq(username, repo_rich_info)
+                ai_resume_experience , remaining_requests , remaining_tokens= await analyze_rich_repo_with_groq(username, repo_rich_info)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"AI 분석 처리 실패: {str(e)}")
 
@@ -260,7 +260,7 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
                 "data_source": repo['url']
             }
             careers_to_insert.append(career_data)
-            
+            print(f"[{repo_name}] 경력 항목 변환 완료. 남은 Groq API 요청 가능 횟수: {remaining_requests}, 남은 토큰: {remaining_tokens}")
             await asyncio.sleep(2)  # API Rate Limit 준수용 대기
 
         # Supabase 반영 (트랜잭션 세이프)
