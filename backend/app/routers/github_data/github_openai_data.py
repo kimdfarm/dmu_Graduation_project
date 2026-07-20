@@ -1,159 +1,152 @@
 import os
-import json
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+import asyncio
+from typing import List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import httpx
 from dotenv import load_dotenv
 
-# ⭐ 핵심: 이미 설정된 supabase 및 openai 클라이언트를 가져옵니다.
+# 기존 설정된 supabase 클라이언트 가져오기
 from app.core.config import supabase
-
-# AI 분석을 위한 라이브러리 설치 필요: pip install openai
+# 💡 [변경 포인트] OpenAI 라이브러리 임포트
 from openai import OpenAI
 
 load_dotenv()
 
-# APIRouter 선언
 router = APIRouter(
     prefix="/github",
-    tags=["GitHub Data (AI Enhanced)"]
+    tags=["GitHub Data (Resume Work Experience Template)"]
 )
 
-# 환경 변수 및 설정
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") # 발급받은 API Key를 .env에 꼭 추가해 주세요.
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# 💡 [변경 포인트] OpenAI API 설정
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 class AnalyzeRequest(BaseModel):
-    member_id: str          # 내 서비스의 회원 ID
-    github_username: str    # 분석할 사용자의 GitHub ID
-    github_token: str       # 테스트용 또는 프론트엔드에서 넘겨받을 토큰
+    member_id: str          
+    github_username: str    
+    github_token: str       
 
 
-# 💡 [함수 추가] 수집된 원시 데이터를 AI가 분석하여 정성적인 멘트를 생성하는 함수
-async def analyze_contribution_pattern_with_ai(
-    username: str, 
-    repo_stats: List[Dict], 
-    contribution_raw_data: Dict
-) -> str:
-    """
-    OpenAI 모델을 사용하여 사용자의 GitHub 활동 패턴을 정성적으로 분석합니다.
-    """
-    if not OPENAI_API_KEY:
-        return "OpenAI API Key가 설정되지 않아 AI 분석을 수행할 수 없습니다."
+# 💡 [변경 포인트] OpenAI 기반의 이력서 가공 함수
+async def analyze_rich_repo_with_openai(username: str, repo_info: Dict) -> str:
+    if not openai_client:
+        raise RuntimeError("OpenAI API Key가 시스템에 설정되지 않았습니다.")
 
-    # 1. AI에게 던질 데이터 가공 (너무 많은 Raw 데이터를 던지면 토큰 비용이 폭발하므로 핵심 위주로 요약)
-    # 주요 저장소 요약
-    top_repos = repo_stats[:3] # 최근 업데이트된 상위 3개
-    repo_context = []
-    for r in top_repos:
-        repo_context.append(
-            f" - '{r['name']}': 주 언어={r['lang']}, 총 커밋={r['commit_count']}, 최근작업='{r['recent_commit_msg']}'"
-        )
-    repo_summary_text = "\n".join(repo_context)
+    commit_str = "\n".join([f"- {c}" for c in repo_info['commits']]) if repo_info['commits'] else "최근 커밋 기록 없음"
+    issue_str = "\n".join([f"- [{i['state']}] {i['title']}" for i in repo_info['issues']]) if repo_info['issues'] else "최근 관련 이슈 없음"
+    pr_str = "\n".join([f"- [{p['state']}] {p['title']}" for p in repo_info['prs']]) if repo_info['prs'] else "최근 Pull Request 없음"
 
-    # 활동 캘린더 데이터 요약
-    cal_data = contribution_raw_data.get("contributionCalendar", {})
-    total_commits = contribution_raw_data.get("totalCommitContributions", 0)
-    total_issues = contribution_raw_data.get("totalIssueContributions", 0)
-    total_prs = contribution_raw_data.get("totalPullRequestContributions", 0)
-    
-    # AI에게 보낼 최종 프롬프트 구성
     prompt = f"""
-    당신은 전문 기술 면접관이자 커리어 코치입니다. 다음 GitHub 원시 데이터를 바탕으로 개발자 '{username}'의 성향과 전문성을 분석하여 정성적인 '총평'을 작성해 주세요.
+    당신은 IT 전문 테크 채용 담당자이자 시니어 백엔드 엔지니어입니다.
+    개발자 '{username}'의 '{repo_info['name']}' 저장소 활동 로그를 기반으로, 
+    팩트(Fact)를 왜곡하지 않으면서 군더더기 없이 간결한 이력서용 '수행 업무 및 성과'를 작성해 주세요.
 
-    [제공되는 원시 데이터]
-    1. 주요 저장소 패턴:
-    {repo_summary_text}
-    
-    2. 다각적인 활동 통계 (지난 1년):
-    - 총 커밋 기여: {total_commits}회
-    - 이슈 생성: {total_issues}회
-    - PR 생성 및 기여: {total_prs}회
+    [저장소 메타데이터]
+    - 저장소 이름: {repo_info['name']}
+    - 사용 기술 스택: {repo_info['lang']}
+    - 프로젝트 설명: {repo_info['raw_desc']}
 
-    [분석 요청 사항]
-    - 단순히 숫자를 나열하지 말고, 정성적으로 분석하세요. (예: "총 100커밋 했군요" (X) -> "꾸준한 커밋 패턴을 보아 성실성이 돋보이며..." (O))
-    - 어떤 종류의 프로젝트를 선호하는지, 어떤 언어에 강점이 있는지 유추하세요.
-    - 이슈 및 PR 활동을 통해 협업이나 오픈소스 기여에 적극적인지 분석하세요. (이슈/PR 숫자가 적다면 커밋 위주의 단독 개발 성향임을 언급해도 좋습니다.)
-    - 최근 작업 내용을 보아 현재 어떤 기술에 관심을 두고 있는지 유추하세요.
-    - 전체적으로 이 개발자를 한마디로 정의하는 '핵심 키워드'와 함께, 매끄러운 2~3문장 이내의 총평을 작성해 주세요. (한국어로 작성)
+    [★ 이력서 작성 필수 제약 조건 ★]
+    1. 종결어미 통제 (명사형/개조식 서술형)
+       - 모든 문장은 '~함', '~임', '~ 구축', '~ 완료', '~ 설계', '~ 구현'으로만 끝나야 합니다.
+       - '~하였습니다', '~했습니다', '~인 것으로 보입니다' 같은 구어체나 추측성 서술은 절대 금지합니다.
+
+    2. 오타 및 번역체 교정
+       - 데이터 '크로링'과 같은 번역 오류나 오타는 반드시 '크롤링(Crawling)'으로 올바르게 수정하여 기술하십시오.
+
+    3. 행동(Action) + 방식(How) + 결과(Result) 구조화
+       - 단순히 "무엇을 구현함"에 그치지 말고, 어떤 기술을 활용해서 어떻게 개선했는지 기술적 맥락을 담아 서술하십시오.
+
+    4. 중복 제거 및 압축 (최대 2개 제한)
+       - 비슷한 성과가 여러 번 나열되지 않도록 가장 핵심적인 기여 2가지만 선정해 팩트 위주로 압축 요약하십시오.
+
+    [출력 포맷 (반드시 지켜야 함)]
+    오직 아래 항목만 출력하고, 서론/결론/코드블록 마크다운 등 다른 부가적인 멘트는 일절 배제하고 핵심 기술 성과를 작성해 주세요.
+
+    [{repo_info['name']}에서의 활동 경력]
+    • [첫 번째 핵심 기술 성과 작성]
+    • [두 번째 핵심 기술 성과 작성]
+
+    [실제 개발 활동 로그]
+    1. 커밋 메시지 내역:
+    {commit_str}
+
+    2. 참여 및 생성한 이슈(Issue) 내역:
+    {issue_str}
+
+    3. 생성 및 처리한 풀 리퀘스트(PR) 내역:
+    {pr_str}
     """
 
     try:
-        # AI 모델 호출 (GPT-3.5-turbo 기준)
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7, # 창의성 조절 (0.7은 적당한 수준)
-            max_tokens=250,  # 답변 길이 제한
+        # 비동기 환경에서 동기 OpenAI 라이브러리를 안전하게 실행하기 위해 run_in_executor 사용
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: openai_client.chat.completions.create(
+                model="gpt-4o-mini",  # 💡 비용 효율적이고 강력한 최신 mini 모델 사용
+                messages=[
+                    {"role": "system", "content": "You are a professional Korean resume writer. Write only in Korean."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
         )
-        # AI가 내놓은 분석 멘트 추출
-        ai_comment = response.choices[0].message.content.strip()
-        return ai_comment
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"AI 분석 중 오류가 발생했습니다: {str(e)}"
+        raise RuntimeError(f"OpenAI API 호출 실패: {str(e)}")
 
 
 @router.post("/analyze")
-async def analyze_github_with_ai(request: AnalyzeRequest):
+async def analyze_github_each_repo(request: AnalyzeRequest):
     username = request.github_username
     member_id = request.member_id
     github_token = request.github_token
 
-    # 지난 1년간의 데이터를 가져오기 위한 날짜 계산
-    today = datetime.utcnow()
-    one_year_ago = (today - timedelta(days=365)).isoformat() + "Z" # ISO8601 형식
-
-    # 1. 넘겨받은 GitHub 토큰으로 헤더 설정
     headers = {
         "Authorization": f"Bearer {github_token}",
         "Content-Type": "application/json",
     }
 
-    # 💡 [GraphQL 쿼리 확장] 단순 커밋 10개가 아닌, 1년간의 Contribution Calendar 전체 데이터를 가져옵니다.
     graphql_query = """
-    query($login: String!, $from: DateTime!) {
+    query($login: String!) {
       user(login: $login) {
-        # 1. 사용자의 지난 1년간 상세 활동 통계 (Contribution Calendar) - 추가됨
-        contributionsCollection(from: $from) {
-          totalCommitContributions
-          totalIssueContributions
-          totalPullRequestContributions
-          contributionCalendar {
-            totalContributions
-            weeks {
-              contributionDays {
-                contributionCount
-                date
-                weekday
-              }
-            }
-          }
-        }
-        
-        # 2. 저장소 정보 (기존 구조 유지하되 AI 피딩용으로 데이터 살짝 추가)
-        repositories(first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        repositories(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             name
             description
+            isFork
             createdAt
             updatedAt
             url
             owner { login __typename }
             primaryLanguage { name }
-            stargazerCount # 추가: 저장소의 인기도
             defaultBranchRef {
               target {
                 ... on Commit {
-                  history(first: 1) { # AI에게 보낼 최근 커밋 1개 메세지만
-                    totalCount
-                    nodes { message }
+                  history(first: 10) {
+                    nodes { 
+                      message 
+                      author {
+                        name
+                        user {
+                          login
+                        }
+                      }
+                    }
                   }
                 }
               }
+            }
+            issues(first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
+              nodes { title state }
+            }
+            pullRequests(first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
+              nodes { title state }
             }
           }
         }
@@ -161,18 +154,27 @@ async def analyze_github_with_ai(request: AnalyzeRequest):
     }
     """
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            GITHUB_GRAPHQL_URL,
-            json={"query": graphql_query, "variables": {"login": username, "from": one_year_ago}},
-            headers=headers
-        )
+    # 헤비 유저 데이터 수집을 위해 GitHub GraphQL 타임아웃 60초 설정
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.post(
+                GITHUB_GRAPHQL_URL,
+                json={"query": graphql_query, "variables": {"login": username}},
+                headers=headers
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"GitHub API 통신 오류 (타임아웃 의심): {type(e).__name__} - {str(e)}"
+            )
 
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="GitHub GraphQL API 호출 실패")
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"GitHub GraphQL API 호출 실패 (상태 코드: {response.status_code})"
+            )
 
         result_data = response.json()
-        
         if "errors" in result_data:
             raise HTTPException(status_code=400, detail=result_data["errors"][0]["message"])
 
@@ -180,95 +182,115 @@ async def analyze_github_with_ai(request: AnalyzeRequest):
         if not user_data:
             raise HTTPException(status_code=404, detail="GitHub 유저를 찾을 수 없습니다.")
 
-        # 데이터 파싱
-        contribution_raw_data = user_data["contributionsCollection"]
         repos_raw_data = user_data["repositories"]["nodes"]
-        
         if not repos_raw_data:
             return {"message": "분석할 저장소가 없습니다.", "inserted_count": 0}
 
-        # 💡 [로직 수정] AI 분석 함수에 던지기 위한 중간 데이터 가공 및 저장소별 description_summary 생성
-        repo_processed_stats = []
-        careers_to_insert = []
+        valid_repos = []
 
-        # 저장소 반복문
+        # 1차 필터링: 활동 내역이 존재하는 유효 저장소 추출
         for repo in repos_raw_data:
             repo_name = repo["name"]
-            repo_desc = repo["description"] or "설명 없음"
-            start_date = repo["createdAt"].split("T")[0]
-            end_date = repo["updatedAt"].split("T")[0]
+            is_fork = repo.get("isFork", False)
             
-            company_name = repo["owner"]["login"] if repo["owner"]["__typename"] == "Organization" else "Personal Project"
-            lang = repo["primaryLanguage"]["name"] if repo["primaryLanguage"] else "Unknown"
-            
-            commit_count = 0
-            recent_commit_msg = "기록 없음"
+            commit_messages = []
             if repo.get("defaultBranchRef") and repo["defaultBranchRef"].get("target"):
-                history = repo["defaultBranchRef"]["target"]["history"]
-                commit_count = history.get("totalCount", 0)
-                if history.get("nodes"):
-                    recent_commit_msg = history["nodes"][0]["message"]
+                commit_nodes = repo["defaultBranchRef"]["target"]["history"].get("nodes")
+                if commit_nodes:
+                    for c in commit_nodes:
+                        commit_author_login = None
+                        if c.get("author") and c["author"].get("user"):
+                            commit_author_login = c["author"]["user"].get("login")
+                        
+                        if (commit_author_login and commit_author_login.lower() == username.lower()) or \
+                           (c.get("author") and c["author"].get("name", "").lower() == username.lower()):
+                            commit_messages.append(c["message"])
 
-            # AI 분석용 중간 데이터 수집
-            repo_processed_stats.append({
-                "name": repo_name,
-                "lang": lang,
-                "commit_count": commit_count,
-                "recent_commit_msg": recent_commit_msg,
-                "stargazers": repo["stargazerCount"]
+            issue_list = []
+            if repo.get("issues") and repo["issues"].get("nodes"):
+                issue_list = [{"title": i["title"], "state": i["state"]} for i in repo["issues"]["nodes"]]
+
+            pr_list = []
+            if repo.get("pullRequests") and repo["pullRequests"].get("nodes"):
+                pr_list = [{"title": p["title"], "state": p["state"]} for p in repo["pullRequests"]["nodes"]]
+
+            if is_fork and not commit_messages and not issue_list and not pr_list:
+                continue
+
+            if not commit_messages and not issue_list and not pr_list:
+                continue
+
+            valid_repos.append({
+                "repo_data": repo,
+                "commits": commit_messages,
+                "issues": issue_list,
+                "prs": pr_list
             })
 
-            # 개별 저장소용 설명 요약 (기존과 유사)
-            individual_summary = (
-                f"[프로젝트] {repo_name}\n"
-                f"[설명] {repo_desc}\n"
-                f"[기술 스택] {lang}\n"
-                f"[활동 요약] 총 {commit_count}개의 커밋 기여 (★{repo['stargazerCount']})\n"
-                f"[최근 작업] {recent_commit_msg}\n"
-                f"[링크] {repo['url']}"
-            )
+        # OpenAI 토큰 및 비용 방지를 위해 최근 활동 기준 상위 최대 10개만 제한 분석
+        target_repos = valid_repos[:10]
+        careers_to_insert = []
+
+        for item in target_repos:
+            repo = item["repo_data"]
+            repo_name = repo["name"]
+            raw_desc = repo["description"] or "작성된 설명 없음"
+            start_date = repo["createdAt"].split("T")[0]
+            end_date = repo["updatedAt"].split("T")[0]
+            company_name = repo["owner"]["login"] if repo["owner"]["__typename"] == "Organization" else "Personal Project"
+            lang = repo["primaryLanguage"]["name"] if repo["primaryLanguage"] else "Unknown"
+
+            repo_rich_info = {
+                "name": repo_name,
+                "lang": lang,
+                "raw_desc": raw_desc,
+                "commits": item["commits"],
+                "issues": item["issues"],
+                "prs": item["prs"]
+            }
+
+            print(f"[{repo_name}] OpenAI로 이력서 경력 항목 가공 중...")
+            
+            try:
+                # 💡 [변경 포인트] OpenAI 기반 함수 호출
+                ai_resume_experience = await analyze_rich_repo_with_openai(username, repo_rich_info)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"AI 분석 처리 실패: {str(e)}")
+
+            final_description = f"{ai_resume_experience}\n\n"
 
             career_data = {
                 "member_id": member_id,
                 "company_name": company_name,
-                "department": "GitHub GraphQL Engine",
-                "job_title": "Open Source Contributor" if company_name != "Personal Project" else "Main Developer",
+                "department": "Github", 
+                "job_title": "Software Engineer", 
                 "start_date": start_date,
                 "end_date": end_date,
                 "is_current": False,
-                "description": individual_summary # 개별 저장소 요약 우선 저장
+                "description": final_description,
+                "data_source": repo['url']
             }
             careers_to_insert.append(career_data)
+            
+            await asyncio.sleep(1)  # OpenAI는 Rate limit이 널널하므로 대기 시간을 1초로 축소
 
-        # 💡 [핵심 추가] AI를 활용한 전체 활동 패턴 정성 분석 수행
-        # 이 분석은 비동기로 OpenAI API를 호출하므로 시간이 살짝 걸립니다. (Swagger 테스트 시 느려짐 주의)
-        print(f"[{username}] 사용자 AI 활동 분석 시작...")
-        ai_qualitative_comment = await analyze_contribution_pattern_with_ai(username, repo_processed_stats, contribution_raw_data)
-        print(f"[{username}] AI 분석 완료: {ai_qualitative_comment[:30]}...") # 일부만 출력
-
-
-        # 💡 [로직 수정] 생성된 AI 분석 총평을 최종 데이터의 description_summary 맨 위에 얹어줍니다.
-        for career in careers_to_insert:
-            final_summary = (
-                f"[AI가 분석한 개발 성향 총평]\n"
-                f"☞ {ai_qualitative_comment}\n\n"
-                f"--- [상세 프로젝트 정보] ---\n"
-                f"{career['description']}"
-            )
-            career['description'] = final_summary # AI 분석 결과 반영
-
+        # Supabase 반영 (트랜잭션)
         try:
-            # 새로운 데이터를 넣기 전에, 이 유저(member_id)의 기존 이력 데이터를 먼저 삭제합니다. (초기화)
-            supabase.table("careers").delete().eq("member_id", member_id).execute()
-
-            # 새로운 데이터 일괄 저장 (Bulk Insert)
-            supabase_response = supabase.table("careers").insert(careers_to_insert).execute()
+            # 💡 [보존 로직] 다른 수동 입력 및 사진/파일 데이터를 위해 department='Github'만 선택 삭제
+            supabase.table("careers") \
+                .delete() \
+                .eq("member_id", member_id) \
+                .eq("department", "Github") \
+                .execute()
+            
+            if careers_to_insert:
+                supabase.table("careers").insert(careers_to_insert).execute()
             
             return {
                 "status": "success",
-                "message": "AI 기반 정성 분석을 완료하고 최신 정보를 업데이트했습니다.",
-                "ai_comment_snippet": ai_qualitative_comment, # Swagger에서 바로 볼 수 있게 리턴값에 추가
-                "inserted_count": len(careers_to_insert)
+                "message": "기존 파일 및 사진 경력은 보존하고, OpenAI(gpt-4o-mini) 기반 Github 경력만 갱신했습니다.",
+                "inserted_count": len(careers_to_insert),
+                "return": careers_to_insert
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Supabase 데이터 처리 오류: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Supabase 반영 중 오류 발생: {str(e)}")

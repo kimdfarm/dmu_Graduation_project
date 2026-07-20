@@ -1,6 +1,5 @@
 import os
 import asyncio
-from datetime import datetime
 from typing import List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -9,7 +8,9 @@ from dotenv import load_dotenv
 
 # 기존 설정된 supabase 클라이언트 가져오기
 from app.core.config import supabase
-import google.generativeai as genai
+# 💡 [변경 포인트] 최신 Google GenAI 라이브러리 임포트
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -20,10 +21,9 @@ router = APIRouter(
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
-# Gemini API 설정
+# 💡 [변경 포인트] Gemini API 클라이언트 초기화
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 class AnalyzeRequest(BaseModel):
@@ -32,30 +32,47 @@ class AnalyzeRequest(BaseModel):
     github_token: str       
 
 
-# 이력서 내 경력 사항(Experience) 포맷으로 가공하는 AI 함수
+# 💡 [변경 포인트] Gemini 기반의 이력서 가공 함수
 async def analyze_rich_repo_with_gemini(username: str, repo_info: Dict) -> str:
-    """
-    구글 제미나이를 활용하여 개발자의 저장소 활동 기록을 이력서 경력 란에 바로 들어갈 수 있는 
-    '주요 업무 및 성과' 텍스트로 요약 및 가공합니다.
-    """
-    if not GEMINI_API_KEY:
-        return "Gemini API Key가 설정되지 않았습니다."
+    if not gemini_client:
+        raise RuntimeError("GEMINI_API_KEY가 시스템에 설정되지 않았습니다.")
 
     commit_str = "\n".join([f"- {c}" for c in repo_info['commits']]) if repo_info['commits'] else "최근 커밋 기록 없음"
     issue_str = "\n".join([f"- [{i['state']}] {i['title']}" for i in repo_info['issues']]) if repo_info['issues'] else "최근 관련 이슈 없음"
     pr_str = "\n".join([f"- [{p['state']}] {p['title']}" for p in repo_info['prs']]) if repo_info['prs'] else "최근 Pull Request 없음"
 
     prompt = f"""
-    당신은 IT 전문 커리어 코치이자 채용 담당자입니다.
-    개발자 '{username}'의 '{repo_info['name']}' 저장소 내 활동 데이터(Commit, Issue, PR)를 분석하여, 
-    이 프로젝트가 어떤 프로젝트인지 요약하고, 개발자가 달성한 기여를 **이력서 내 경력(Experience) 항목의 '주요 수행 업무 및 성과'로 바로 삽입할 수 있게** 작성해 주세요.
+    당신은 IT 전문 테크 채용 담당자이자 시니어 백엔드 엔지니어입니다.
+    개발자 '{username}'의 '{repo_info['name']}' 저장소 활동 로그를 기반으로, 
+    팩트(Fact)를 왜곡하지 않으면서 군더더기 없이 간결한 이력서용 '수행 업무 및 성과'를 작성해 주세요.
 
     [저장소 메타데이터]
     - 저장소 이름: {repo_info['name']}
     - 사용 기술 스택: {repo_info['lang']}
     - 프로젝트 설명: {repo_info['raw_desc']}
 
-    [상세 개발 활동 로그]
+    [★ 이력서 작성 필수 제약 조건 ★]
+    1. 종결어미 통제 (명사형/개조식 서술형)
+       - 모든 문장은 '~함', '~임', '~ 구축', '~ 완료', '~ 설계', '~ 구현'으로만 끝나야 합니다.
+       - '~하였습니다', '~했습니다', '~인 것으로 보입니다' 같은 구어체나 추측성 서술은 절대 금지합니다.
+
+    2. 오타 및 번역체 교정
+       - 데이터 '크로링'과 같은 번역 오류나 오타는 반드시 '크롤링(Crawling)'으로 올바르게 수정하여 기술하십시오.
+
+    3. 행동(Action) + 방식(How) + 결과(Result) 구조화
+       - 단순히 "무엇을 구현함"에 그치지 말고, 어떤 기술을 활용해서 어떻게 개선했는지 기술적 맥락을 담아 서술하십시오.
+
+    4. 중복 제거 및 압축 (최대 2개 제한)
+       - 비슷한 성과가 여러 번 나열되지 않도록 가장 핵심적인 기여 2가지만 선정해 팩트 위주로 압축 요약하십시오.
+
+    [출력 포맷 (반드시 지켜야 함)]
+    오직 아래 항목만 출력하고, 서론/결론/코드블록 마크다운 등 다른 부가적인 멘트는 일절 배제하고 핵심 기술 성과를 작성해 주세요.
+
+    [{repo_info['name']}에서의 활동 경력]
+    • [첫 번째 핵심 기술 성과 작성]
+    • [두 번째 핵심 기술 성과 작성]
+
+    [실제 개발 활동 로그]
     1. 커밋 메시지 내역:
     {commit_str}
 
@@ -64,42 +81,26 @@ async def analyze_rich_repo_with_gemini(username: str, repo_info: Dict) -> str:
 
     3. 생성 및 처리한 풀 리퀘스트(PR) 내역:
     {pr_str}
-
-    [이력서 경력 항목 작성 가이드라인]
-    1. **이력서 경력란 전용 어조 사용 (★필수)**
-       - 제3자의 평가적 관점(~한 것으로 보임, ~기여를 함)은 절대 배제합니다.
-       - 개발자 본인의 주도적 행동을 나타내는 **개조식 서술어 종결 표현(~함, ~임, ~ 구축, ~ 완료)**을 사용해 주세요.
-       - (예시) "데이터를 정제하는 역할을 수행한 것으로 추정됩니다" (X) -> "데이터 파이프라인 정제 프로세스를 설계하고 가공 모듈을 직접 구현함" (O)
-
-    2. **정성적 성과 추론 및 구체화**
-       - 단순 작업 수량 나열("커밋 10번 함")은 제외하고, 커밋 메시지와 이슈/PR 목적을 분석하여 **어떤 기술적 문제를 해결했는지, 어떤 핵심 기능을 설계/개선했는지** 직관적으로 드러나게 작성해 주세요.
-
-    3. **출력 구조 (이력서 포맷)**
-       - 오직 아래의 항목과 불릿 포인트(•) 형태로만 구성해 주세요. 다른 서론이나 맺음말은 전부 제외해 주세요.
-       
-       **[프로젝트 개요]**
-       - {repo_info['name']} 프로젝트에 대한 한 줄 요약 정의
-       
-       **[수행 업무 및 성과 (Key Tasks & Accomplishments)]**
-       - 수집된 실제 로그 기반 성과 2~3개를 명확한 개조식 불릿 포인트로 작성 (사용 스택 명시)
-
-    [출력 예시]
-    **[프로젝트 개요]**
-    - {repo_info['lang']} 기반 실시간 데이터 분석 인프라 구축 프로젝트
-    
-    **[수행 업무 및 성과]**
-    - {repo_info['lang']}을 활용한 API 비동기 라우터 설계 및 대용량 트래픽 처리 성능 고도화 수행
-    - 시스템 예외 처리 로직 및 예기치 못한 API 연결 끊김 이슈에 대응하는 트러블슈팅을 주도하여 서버 안정성을 향상시킴
-    - 브랜치 관리 전략 하에 다수의 코드 리뷰 및 PR 피드백을 반영하며 코드 가독성 개선 및 리팩토링 진행
     """
 
     try:
-        model = genai.GenerativeModel("gemini-3.5-flash")
+        # 비동기 환경에서 동기 SDK 호출 시 블로킹을 방지하기 위해 run_in_executor 사용
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, model.generate_content, prompt)
-        return response.text.strip()
+        response = await loop.run_in_executor(
+            None,
+            lambda: gemini_client.models.generate_content(
+                model="gemini-2.5-flash",  # 💡 속도와 가성비가 가장 뛰어난 최신 2.5 flash 모델 적용
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are a professional Korean resume writer. Write only in Korean.",
+                    temperature=0.3
+                )
+            )
+        )
+        usage = response.usage_metadata
+        return response.text.strip() , usage
     except Exception as e:
-        return f"이력서 경력 기술 가공 실패: {str(e)}"
+        raise RuntimeError(f"Gemini API 호출 실패: {str(e)}")
 
 
 @router.post("/analyze")
@@ -116,10 +117,11 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
     graphql_query = """
     query($login: String!) {
       user(login: $login) {
-        repositories(first: 6, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        repositories(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             name
             description
+            isFork
             createdAt
             updatedAt
             url
@@ -129,7 +131,15 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
               target {
                 ... on Commit {
                   history(first: 10) {
-                    nodes { message }
+                    nodes { 
+                      message 
+                      author {
+                        name
+                        user {
+                          login
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -146,15 +156,24 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
     }
     """
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            GITHUB_GRAPHQL_URL,
-            json={"query": graphql_query, "variables": {"login": username}},
-            headers=headers
-        )
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.post(
+                GITHUB_GRAPHQL_URL,
+                json={"query": graphql_query, "variables": {"login": username}},
+                headers=headers
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"GitHub API 통신 오류 (타임아웃 의심): {type(e).__name__} - {str(e)}"
+            )
 
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="GitHub GraphQL API 호출 실패")
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"GitHub GraphQL API 호출 실패 (상태 코드: {response.status_code})"
+            )
 
         result_data = response.json()
         if "errors" in result_data:
@@ -168,21 +187,25 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
         if not repos_raw_data:
             return {"message": "분석할 저장소가 없습니다.", "inserted_count": 0}
 
-        careers_to_insert = []
+        valid_repos = []
 
+        # 1차 필터링: 활동 내역이 존재하는 유효 저장소 추출
         for repo in repos_raw_data:
             repo_name = repo["name"]
-            raw_desc = repo["description"] or "작성된 설명 없음"
-            start_date = repo["createdAt"].split("T")[0]
-            end_date = repo["updatedAt"].split("T")[0]
-            company_name = repo["owner"]["login"] if repo["owner"]["__typename"] == "Organization" else "Personal Project"
-            lang = repo["primaryLanguage"]["name"] if repo["primaryLanguage"] else "Unknown"
+            is_fork = repo.get("isFork", False)
             
             commit_messages = []
             if repo.get("defaultBranchRef") and repo["defaultBranchRef"].get("target"):
                 commit_nodes = repo["defaultBranchRef"]["target"]["history"].get("nodes")
                 if commit_nodes:
-                    commit_messages = [c["message"] for c in commit_nodes]
+                    for c in commit_nodes:
+                        commit_author_login = None
+                        if c.get("author") and c["author"].get("user"):
+                            commit_author_login = c["author"]["user"].get("login")
+                        
+                        if (commit_author_login and commit_author_login.lower() == username.lower()) or \
+                           (c.get("author") and c["author"].get("name", "").lower() == username.lower()):
+                            commit_messages.append(c["message"])
 
             issue_list = []
             if repo.get("issues") and repo["issues"].get("nodes"):
@@ -192,53 +215,83 @@ async def analyze_github_each_repo(request: AnalyzeRequest):
             if repo.get("pullRequests") and repo["pullRequests"].get("nodes"):
                 pr_list = [{"title": p["title"], "state": p["state"]} for p in repo["pullRequests"]["nodes"]]
 
+            if is_fork and not commit_messages and not issue_list and not pr_list:
+                continue
+
+            if not commit_messages and not issue_list and not pr_list:
+                continue
+
+            valid_repos.append({
+                "repo_data": repo,
+                "commits": commit_messages,
+                "issues": issue_list,
+                "prs": pr_list
+            })
+
+        # Gemini API 호출 안정성과 컨텍스트 관리를 위해 최근 활동 기준 상위 최대 10개만 분석
+        target_repos = valid_repos[:10]
+        careers_to_insert = []
+
+        for item in target_repos:
+            repo = item["repo_data"]
+            repo_name = repo["name"]
+            raw_desc = repo["description"] or "작성된 설명 없음"
+            start_date = repo["createdAt"].split("T")[0]
+            end_date = repo["updatedAt"].split("T")[0]
+            company_name = repo["owner"]["login"] if repo["owner"]["__typename"] == "Organization" else "Personal Project"
+            lang = repo["primaryLanguage"]["name"] if repo["primaryLanguage"] else "Unknown"
+
             repo_rich_info = {
                 "name": repo_name,
                 "lang": lang,
                 "raw_desc": raw_desc,
-                "commits": commit_messages,
-                "issues": issue_list,
-                "prs": pr_list
+                "commits": item["commits"],
+                "issues": item["issues"],
+                "prs": item["prs"]
             }
 
-            print(f"[{repo_name}] 이력서용 경력 항목 변환 가공 중...")
-            ai_resume_experience = await analyze_rich_repo_with_gemini(username, repo_rich_info)
+            print(f"[{repo_name}] Gemini로 이력서 경력 항목 가공 중...")
+            
+            try:
+                # 💡 [변경 포인트] Gemini 분석 호출
+                ai_resume_experience , usage = await analyze_rich_repo_with_gemini(username, repo_rich_info)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"AI 분석 처리 실패: {str(e)}")
 
-            final_description = (
-                f"{ai_resume_experience}\n\n"
-                f"[추가 메타데이터]\n"
-                f"- 주요 사용 기술: {lang}\n"
-                f"- GitHub Repository: {repo['url']}"
-            )
+            final_description = f"{ai_resume_experience}\n\n"
 
             career_data = {
                 "member_id": member_id,
                 "company_name": company_name,
-                "department": "R&D", 
+                "department": "Github", 
                 "job_title": "Software Engineer", 
                 "start_date": start_date,
                 "end_date": end_date,
                 "is_current": False,
-                "description": final_description
+                "description": final_description,
+                "data_source": repo['url']
             }
             careers_to_insert.append(career_data)
-            
-            await asyncio.sleep(0.8)
+            print(f"[{repo_name}] 경력 항목 변환 완료. Gemini API 사용량: {usage.total_token_count}")
+            await asyncio.sleep(1)  # 분당 요청 한도(RPM) 안전성 관리를 위한 1초 대기
 
-        # 💡 [해결 핵심 포인트] Supabase v2 파싱 에러(columns parameter) 우회
-        # delete()와 insert() 뒤에 데이터베이스 기본 키 또는 전체(*)를 명시적으로 셀렉트하는 `.select("id")` 등을 추가하거나,
-        # 빈 컬럼 파싱 문제를 막기 위해 명시적 체이닝을 구성했습니다.
+        # Supabase 반영 (트랜잭션 세이프)
         try:
-            # 1. 기존 데이터 초기화 (영향받는 행의 ID만 선택 반환하여 파싱 오류 해결)
-            supabase.table("careers").delete().eq("member_id", member_id).select("id").execute()
+            # 💡 [보존 로직] 타 수동 입력 및 사진/파일 데이터를 위해 department='Github'만 선택 삭제
+            supabase.table("careers") \
+                .delete() \
+                .eq("member_id", member_id) \
+                .eq("department", "Github") \
+                .execute()
             
-            # 2. 신규 데이터 대량 추가
-            supabase.table("careers").insert(careers_to_insert).execute()
+            if careers_to_insert:
+                supabase.table("careers").insert(careers_to_insert).execute()
             
             return {
                 "status": "success",
-                "message": "각 저장소별 깃허브 활동 로그를 분석하여 이력서 '경력 사항' 규격에 맞춰 Supabase에 등록을 완료했습니다.",
-                "inserted_count": len(careers_to_insert)
+                "message": "기존 파일 및 사진 경력은 완전히 보존하고, Gemini(gemini-2.5-flash) 기반 Github 경력만 갱신했습니다.",
+                "inserted_count": len(careers_to_insert),
+                "return": careers_to_insert
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Supabase 반영 중 오류 발생: {str(e)}")
