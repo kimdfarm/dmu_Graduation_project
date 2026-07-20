@@ -178,10 +178,11 @@ async def analyze_resume(
     # 최종 저장을 위해 프론트엔드로부터 받을 JSON 구조 정의 (member_id 포함)
 class SaveResumeRequest(ParsedResume):
     member_id: str
+    resume_id: uuid
 
 # [2단계] 사용자가 확인 및 편집을 완료한 데이터를 넘겨받아 최종 DB 저장
 @router.post("/save")
-async def save_edited_resume(request_data: SaveResumeRequest):
+async def save_edited_resume(resume_id: uuid, request_data: SaveResumeRequest):
     try:
         member_id = request_data.member_id
         resume_id = request_data.resume_id # 공통 이력서 UUID
