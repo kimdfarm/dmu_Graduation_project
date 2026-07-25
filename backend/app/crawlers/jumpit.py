@@ -94,6 +94,7 @@ def crawl_jumpit(limit_count: int = 10):
     
     for url in target_urls:
         try:
+        
             driver.get(url)
             time.sleep(3)
             
