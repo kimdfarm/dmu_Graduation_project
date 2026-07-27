@@ -7,7 +7,7 @@ import pytesseract
 # 보통 아래 경로에 설치됩니다. 경로가 다르면 본인 설치 경로로 수정하세요.
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 import io
-import uuid
+from uuid import UUID
 import base64
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException ,APIRouter
@@ -178,11 +178,11 @@ async def analyze_resume(
     # 최종 저장을 위해 프론트엔드로부터 받을 JSON 구조 정의 (member_id 포함)
 class SaveResumeRequest(ParsedResume):
     member_id: str
-    resume_id: uuid
+    resume_id: UUID
 
 # [2단계] 사용자가 확인 및 편집을 완료한 데이터를 넘겨받아 최종 DB 저장
 @router.post("/save")
-async def save_edited_resume(resume_id: uuid, request_data: SaveResumeRequest):
+async def save_edited_resume(resume_id: UUID, request_data: SaveResumeRequest):
     try:
         member_id = request_data.member_id
         resume_id = request_data.resume_id # 공통 이력서 UUID
