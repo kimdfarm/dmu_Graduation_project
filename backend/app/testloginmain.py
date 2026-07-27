@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, EmailStr
 import asyncio
 from contextlib import asynccontextmanager  # 🎯 추가 필요
-from utils.scheduler import scheduler
+from app.utils.scheduler import scheduler
 from supabase import create_client, Client
 import secrets
 
@@ -43,6 +43,9 @@ class SignUpRequest(BaseModel):
     email: EmailStr
     password: str
     name: str  # 사용자의 실제 이름
+
+
+
 @app.post("/auth/signup", status_code=status.HTTP_201_CREATED, tags=["Auth"])
 def sign_up(user_data: SignUpRequest):
     try:

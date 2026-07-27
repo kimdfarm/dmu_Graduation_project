@@ -56,9 +56,13 @@ dmu_Graduation_project/
 ### 4. 프론트엔트 앱 가동
 - npm install
 #### 로컬 서버 가동하기
-1. cd backend
-2. uvicorn app.main:app --reload
-
-
+##### WEBSITE
+1. cd backend/website
+2. npm install
+3. npm install @supabase/supabase-js axios
+###### 모바일
+- cd mobile
+- npm install axios
+- npx expo start
 ##### requirement 저장
 - pip freeze > requirements.txt
