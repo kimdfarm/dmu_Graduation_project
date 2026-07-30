@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Home, FileText, UserCheck, Sparkles, Settings, 
-  Trash2, Plus, Menu, File, ExternalLink 
-} from 'lucide-react'; // <-- Github import 완전히 제거
+  Trash2, Plus, Menu, File, ExternalLink, LogIn, LogOut 
+} from 'lucide-react';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -11,6 +11,14 @@ export default function Dashboard() {
   const [activeNav, setActiveNav] = useState('home');
   // 문서 필터 탭 (전체 / 이력서 / 자소서)
   const [filter, setFilter] = useState('all');
+  const [user, setUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('전체');
+
 
   const sidebarItems = [
     { id: 'home', label: '홈', icon: Home, path: '/' },
@@ -32,6 +40,73 @@ export default function Dashboard() {
     return true;
   });
 
+  useEffect(() => {
+    const userId = localStorage.getItem('userId');
+
+    // 1. userId가 없는 경우 (로그아웃 / 비로그인 상태)
+    if (!userId) {
+      setIsLoggedIn(false);
+      setUserName('게스트');
+      setUserEmail('');
+      setLoading(false);
+      return;
+    }
+
+    // 2. userId가 있는 경우 (로그인 상태) -> 프로필 정보 조회
+    const fetchUserData = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/users/${userId}`);
+        const result = await response.json();
+
+        if (response.ok && result.status === 'success') {
+          const data = result.data;
+          setUserName(data.name || '사용자');
+          setUserEmail(data.email || '');
+          setIsLoggedIn(true);
+        } else {
+          // 백엔드 조회 실패 시 (만료되거나 삭제된 계정 등)
+          handleLogoutSilently();
+        }
+      } catch (error) {
+        console.error('대시보드 유저 정보 로딩 에러:', error);
+        // 로컬스토리지 백업 데이터 확인
+        const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+        if (storedUser.name) {
+          setUserName(storedUser.name);
+          setIsLoggedIn(true);
+        } else {
+          setIsLoggedIn(false);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
+// 로그아웃 처리 함수
+  const handleLogout = () => {
+    if (window.confirm('로그아웃 하시겠습니까?')) {
+      localStorage.removeItem('userId');
+      localStorage.removeItem('user');
+      setIsLoggedIn(false);
+      setUserName('게스트');
+      setUserEmail('');
+      navigate('/login');
+    }
+  };
+
+  const handleLogoutSilently = () => {
+    localStorage.removeItem('userId');
+    localStorage.removeItem('user');
+    setIsLoggedIn(false);
+    setUserName('게스트');
+    setUserEmail('');
+  };
+
+  // user가 없거나 name이 없을 때 안전하게 처리
+  const userInitial = user?.name ? user.name.charAt(0) : '게';
   return (
     <div className="flex h-screen bg-[#09081e] text-slate-100 font-sans overflow-hidden">
       
@@ -70,139 +145,181 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col p-8 overflow-y-auto max-w-6xl mx-auto w-full">
         
         {/* 상단 프로필 헤더 */}
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#171544] to-[#1e1b5e] rounded-3xl p-6 mb-8 border border-indigo-800/40 shadow-xl">
-          <div className="flex items-center gap-5">
-            <div className="w-16 h-16 bg-gradient-to-tr from-amber-500 to-amber-300 rounded-2xl flex items-center justify-center text-xl font-bold text-slate-900 shadow-md">
-              홍
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-white">홍길동 님</h1>
-                <span className="px-2.5 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">PRO</span>
-              </div>
-              <p className="text-slate-400 text-sm mt-0.5">AI 기반 이력서 및 자소서 통합 관리 대시보드</p>
-            </div>
-          </div>
+        {/* 1. 메인 인사말 배너 (프로필 동그라미 & 톤앤매너) */}
+{/* 메인 인사말 배너 (프로필 설정 & 로그아웃/로그인 버튼 추가) */}
+<div className="bg-[#0f0c2e]/80 border border-indigo-800/40 rounded-2xl p-5 md:p-6 shadow-xl mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+  
+  {/* 왼쪽: 아바타 + 인사말 */}
+  <div className="flex items-center gap-4">
+    {/* 프로필 아바타 동그라미 */}
+    <div className="relative flex-shrink-0">
+      <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg md:text-xl shadow-md shadow-indigo-500/20 ring-2 ring-indigo-400/30">
+        {isLoggedIn ? (userName ? userName.charAt(0) : 'D') : 'G'}
+      </div>
+      <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[#0f0c2e] ${isLoggedIn ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+    </div>
 
-          {/* 우측 액션 버튼들 */}
+    {/* 텍스트 정보 */}
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+          isLoggedIn 
+            ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' 
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+        }`}>
+          {isLoggedIn ? 'Welcome Back' : 'Guest Mode'}
+        </span>
+      </div>
 
-          <div className="flex items-center gap-3">
-            {/* 로그인 페이지로 가는 버튼 */}
-            <button 
-              onClick={() => navigate('/login')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#0f0d2d] hover:bg-[#1a174a] text-slate-300 text-sm font-medium rounded-xl border border-indigo-800/40 transition"
-            >
-              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-              </svg>
-              <span>로그인하러 가기</span>
-            </button>
+      <h2 className="text-lg md:text-xl font-bold text-white tracking-tight flex items-center gap-1.5">
+        안녕하세요, <span className={isLoggedIn ? "text-indigo-300 font-extrabold" : "text-rose-300 font-extrabold"}>
+          {isLoggedIn ? `${userName} 님` : '게스트 님'}
+        </span>! 👋
+      </h2>
 
-            <button 
-              onClick={() => navigate('/resume')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition transform hover:-translate-y-0.5"
-            >
-              <Plus size={18} />
-              <span>새 문서 작성</span>
-            </button>
-          </div>
-          <div className="flex items-center gap-3">
-            
+      <p className="text-xs md:text-sm font-medium text-indigo-200/70">
+        {isLoggedIn 
+          ? '오늘 작성할 이력서와 자소서를 확인하고 관리해 보세요.' 
+          : '모든 기능과 저장 기능을 이용하시려면 로그인이 필요합니다.'}
+      </p>
+    </div>
+  </div>
 
+  {/* 오른쪽: 프로필 설정 & 로그아웃 / 로그인 버튼 */}
+  <div className="flex items-center gap-2 self-end md:self-center">
+    {isLoggedIn ? (
+      <>
+        {/* 프로필 설정 버튼 */}
+        <button
+          onClick={() => navigate('/ProfileSettings')}
+          title="프로필 설정"
+          className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/50 text-indigo-300 hover:text-white hover:bg-indigo-900/60 transition-all shadow-sm"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
 
+        {/* 로그아웃 버튼 */}
+        <button
+          onClick={handleLogout} // 기존 로그아웃 함수 연결
+          title="로그아웃"
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-950/30 border border-rose-800/40 text-rose-300 hover:text-white hover:bg-rose-900/50 transition-all text-xs font-semibold shadow-sm"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden sm:inline">로그아웃</span>
+        </button>
+      </>
+    ) : (
+      /* 게스트 모드일 때 로그인 버튼 */
+      <button
+        onClick={() => navigate('/login')}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all text-xs font-semibold shadow-md shadow-indigo-600/30"
+      >
+        <LogIn className="w-4 h-4" />
+        <span>로그인 하기</span>
+      </button>
+    )}
+  </div>
 
+</div>
 
-            
-            <button 
-              onClick={() => window.open('https://github.com', '_blank')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#0f0d2d] hover:bg-[#1a174a] text-slate-300 text-sm font-medium rounded-xl border border-indigo-800/40 transition"
-            >
-              {/* GitHub SVG 아이콘으로 구현 */}
-              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-              </svg>
-              <span>GitHub 연동</span>
-              <ExternalLink size={12} className="text-slate-500" />
-            </button>
-            <button 
-              onClick={() => navigate('/resume')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition transform hover:-translate-y-0.5"
-            >
-              <Plus size={18} />
-              <span>새 문서 작성</span>
-            </button>
-          </div>
-        </div>
+{/* 2. 탭 메뉴 & 생성 버튼 영역 (복구 완료!) */}
+
 
         {/* 3. 문서 리스트 헤더 & 필터 탭 */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">내 문서 목록</h2>
-          
-          <div className="flex bg-[#121033] p-1 rounded-xl border border-indigo-900/40">
-            {[
-              { id: 'all', label: '전체' },
-              { id: 'resume', label: '이력서' },
-              { id: 'coverletter', label: '자기소개서' }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setFilter(tab.id)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-medium transition ${
-                  filter === tab.id
-                    ? 'bg-indigo-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+
+
+      {/* 2. Main Banner (메인 영역) */}
+      <main className="p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        
+        {/* 탭 메뉴 (전체 / 이력서 / 자소서) */}
+        <div className="flex items-center gap-1.5 p-1 bg-[#0d0a2b] border border-indigo-900/50 rounded-xl w-fit">
+          {[
+            { label: '전체', value: 'all' },
+            { label: '이력서', value: 'resume' },
+            { label: '자소서', value: 'coverletter' },
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setFilter(tab.value)}
+              className={`px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all ${
+                filter === tab.value
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-indigo-200 hover:bg-indigo-950/40'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
+        {/* 새로 만들기 버튼 */}
+        <button 
+          onClick={() => navigate('/editor/new')}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs md:text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/20 transition transform hover:-translate-y-0.5"
+        >
+          <Plus className="w-4 h-4" />
+          <span>새 문서 만들기</span>
+        </button>
+      </div>
+      </main>
+
+
         {/* 4. 문서 카드 리스트 */}
-        <div className="flex flex-col gap-3">
-          {filteredDocs.map((doc) => (
+        <div className="space-y-4">
+        {filteredDocs.length > 0 ? (
+          filteredDocs.map((doc) => (
             <div
               key={doc.id}
               onClick={() => navigate(doc.path)}
-              className="group bg-[#121033]/60 hover:bg-[#171442] border border-indigo-900/30 hover:border-indigo-600/50 rounded-2xl p-5 flex items-center justify-between cursor-pointer transition-all duration-200 shadow-md"
+              className="group bg-[#120d36]/70 border border-indigo-900/40 hover:border-indigo-500/50 rounded-2xl p-5 transition-all duration-200 hover:shadow-lg hover:shadow-indigo-900/20 flex items-center justify-between cursor-pointer"
             >
               <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
-                  doc.type === 'resume' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-purple-500/10 text-purple-400'
-                }`}>
-                  <File size={22} />
+                {/* 카드 아이콘 */}
+                <div className="w-12 h-12 rounded-xl bg-indigo-950/80 border border-indigo-800/40 flex items-center justify-center group-hover:bg-indigo-600 transition-colors">
+                  <FileText className="w-6 h-6 text-indigo-300 group-hover:text-white" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition">{doc.title}</h3>
-                    <span className={`px-2 py-0.5 text-[11px] font-medium rounded ${
-                      doc.type === 'resume' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800' : 'bg-purple-950 text-purple-300 border border-purple-800'
-                    }`}>
+
+                {/* 문서 정보 */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
+                      {doc.title}
+                    </h3>
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-indigo-950 border border-indigo-700/50 text-indigo-300">
                       {doc.category}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">{doc.desc}</p>
+                  <p className="text-xs md:text-sm text-indigo-200/60 font-medium">
+                    {doc.desc}
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition">
+              {/* 액션 버튼 그룹 */}
+              <div className="flex items-center gap-2 text-indigo-400/60 opacity-80 group-hover:opacity-100">
                 <button 
-                  onClick={(e) => { e.stopPropagation(); }}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-indigo-900/50 rounded-lg transition"
+                  onClick={(e) => { e.stopPropagation(); /* 설정 로직 */ }}
+                  className="p-2 hover:bg-indigo-900/40 hover:text-white rounded-lg transition"
                 >
-                  <Settings size={16} />
+                  <Settings className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); }}
-                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
+                  onClick={(e) => { e.stopPropagation(); /* 삭제 로직 */ }}
+                  className="p-2 hover:bg-rose-950/40 hover:text-rose-400 rounded-lg transition"
                 >
-                  <Trash2 size={16} />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
-          ))}
-        </div>
+          ))
+        ) : (
+          /* 선택한 필터에 문서가 없는 경우 */
+          <div className="text-center py-12 border border-dashed border-indigo-900/40 rounded-2xl bg-[#0d0a2b]/40">
+            <p className="text-indigo-300/60 text-sm">해당하는 문서가 없습니다.</p>
+          </div>
+        )}
+      </div>
 
       </div>
     </div>

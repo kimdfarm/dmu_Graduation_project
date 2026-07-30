@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import Resume from './pages/Resume';
 import CoverLetter from './pages/CoverLetter';
 import Login from './pages/login/Login'; // 추가
+import ProfileSettings from './pages/ProfileSettings'; // 추가
 export default function App() {
   return (
     <BrowserRouter>
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/resume" element={<Resume />} />
         <Route path="/cover-letter" element={<CoverLetter />} />
+        <Route path="/ProfileSettings" element={<ProfileSettings />} />
       </Routes>
     </BrowserRouter>
   );
