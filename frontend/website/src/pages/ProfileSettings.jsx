@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, Calendar, Camera, ArrowLeft, Save, Shield, CheckCircle } from 'lucide-react';
+import { 
+  User, 
+  Mail, 
+  Phone, 
+  Calendar, 
+  Camera, 
+  ArrowLeft, 
+  Save, 
+  Shield, 
+  CheckCircle,
+  GraduationCap, 
+  Award, 
+  Plus, 
+  Trash2, 
+  Building 
+} from 'lucide-react';
 
 export default function ProfileSettings() {
   const navigate = useNavigate();
@@ -18,6 +33,26 @@ export default function ProfileSettings() {
     gender: 'M',
     avatar_url: ''
   });
+const [educations, setEducations] = useState([]);
+  const [newEdu, setNewEdu] = useState({
+    school_name: '',
+    major: '',
+    education_level: '학사',
+    status: '졸업',
+    admission_date: '',
+    graduation_date: '',
+  });
+
+  const [certificates, setCertificates] = useState([]);
+  const [newCert, setNewCert] = useState({
+    certificate_name: '',
+    issuing_organization: '',
+    certificate_number: '',
+    acquisition_date: '',
+  });
+
+
+
 
   // 1. 프로필 조회
   useEffect(() => {
@@ -54,6 +89,7 @@ export default function ProfileSettings() {
     };
 
     fetchProfile();
+    fetchEducationsAndCertificates();
   }, [navigate]);
 
   const handleChange = (e) => {
@@ -64,6 +100,99 @@ export default function ProfileSettings() {
     }));
   };
 
+  const handleAddEdu = async (e) => {
+    e.preventDefault();
+    if (!newEdu.school_name || !newEdu.major) return alert('학교명과 전공을 입력해주세요.');
+
+    try {
+      // TODO: FastAPI POST 요청 ( /api/educations )
+      const savedEdu = { ...newEdu, id: Date.now().toString() };
+      setEducations([...educations, savedEdu]);
+
+      setNewEdu({
+        school_name: '',
+        major: '',
+        education_level: '학사',
+        status: '졸업',
+        admission_date: '',
+        graduation_date: '',
+      });
+    } catch (error) {
+      console.error('학력 추가 오류:', error);
+    }
+  };
+
+  const handleDeleteEdu = async (id) => {
+    try {
+      // TODO: FastAPI DELETE 요청 ( /api/educations/{id} )
+      setEducations(educations.filter((edu) => edu.id !== id));
+    } catch (error) {
+      console.error('학력 삭제 오류:', error);
+    }
+  };
+
+  const handleAddCert = async (e) => {
+    e.preventDefault();
+    if (!newCert.certificate_name) return alert('자격증 이름을 입력해주세요.');
+
+    try {
+      // TODO: FastAPI POST 요청 ( /api/certificates )
+      const savedCert = { ...newCert, id: Date.now().toString() };
+      setCertificates([...certificates, savedCert]);
+
+      setNewCert({
+        certificate_name: '',
+        issuing_organization: '',
+        certificate_number: '',
+        acquisition_date: '',
+      });
+    } catch (error) {
+      console.error('자격증 추가 오류:', error);
+    }
+  };
+
+  const handleDeleteCert = async (id) => {
+    try {
+      // TODO: FastAPI DELETE 요청 ( /api/certificates/{id} )
+      setCertificates(certificates.filter((cert) => cert.id !== id));
+    } catch (error) {
+      console.error('자격증 삭제 오류:', error);
+    }
+  };
+
+  const fetchEducationsAndCertificates = async () => {
+    try {
+      // FastAPI 백엔드 연동 예시:
+      // const eduRes = await fetch('/api/educations');
+      // const certRes = await fetch('/api/certificates');
+      // setEducations(await eduRes.json());
+      // setCertificates(await certRes.json());
+
+      // 임시 초기 테스트 데이터
+      setEducations([
+        {
+          id: '1',
+          school_name: '한국대학교',
+          major: '컴퓨터공학과',
+          education_level: '학사',
+          status: '졸업',
+          admission_date: '2020-03-02',
+          graduation_date: '2024-02-20',
+        },
+      ]);
+      setCertificates([
+        {
+          id: '1',
+          certificate_name: '정보처리기사',
+          issuing_organization: '한국산업인력공단',
+          certificate_number: '2023-12345',
+          acquisition_date: '2023-11-15',
+        },
+      ]);
+    } catch (error) {
+      console.error('학력 및 자격증 로딩 실패:', error);
+    }
+  };
   // 2. 변경사항 저장
   const handleSaveProfile = async (e) => {
     e.preventDefault();
@@ -114,9 +243,14 @@ export default function ProfileSettings() {
     );
   }
 
+
+
+
+
+
   return (
     <div className="min-h-screen bg-[#07051d] text-slate-100 p-6 md:p-10 font-sans">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto p-6 space-y-8 text-slate-100">
         
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-8">
@@ -293,7 +427,239 @@ export default function ProfileSettings() {
           </div>
 
         </form>
+        
       </div>
+      <div className="max-w-4xl mx-auto p-6 space-y-8 text-slate-100">
+
+      {/* =================================================================== */}
+      {/* 1. 기존 프로필 기본 정보 설정 영역 (기존 작성된 JSX 컴포넌트 유지) */}
+      {/* =================================================================== */}
+
+      {/* =================================================================== */}
+      {/* 2. 🎓 학력 (Educations) 섹션 추가 */}
+      {/* =================================================================== */}
+      <div className="bg-[#0f0c2e]/80 border border-indigo-800/40 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex items-center gap-3 border-b border-indigo-900/50 pb-4">
+          <div className="p-2.5 bg-indigo-950 border border-indigo-800/40 rounded-xl text-indigo-400">
+            <GraduationCap className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold">학력 사항</h2>
+            <p className="text-xs text-indigo-200/60">최종 학력 및 재학/졸업 정보를 관리합니다.</p>
+          </div>
+        </div>
+
+        {/* 학력 목록 */}
+        <div className="space-y-3">
+          {educations.map((edu) => (
+            <div
+              key={edu.id}
+              className="bg-[#14103d]/60 border border-indigo-900/40 rounded-xl p-4 flex items-center justify-between hover:border-indigo-700/50 transition-all"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-base text-white">{edu.school_name}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 border border-indigo-700/40 text-indigo-300">
+                    {edu.education_level} · {edu.status}
+                  </span>
+                </div>
+                <p className="text-xs md:text-sm text-indigo-200/70">
+                  전공: <span className="text-white font-medium">{edu.major}</span>
+                </p>
+                {(edu.admission_date || edu.graduation_date) && (
+                  <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    {edu.admission_date} ~ {edu.graduation_date || '재학 중'}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleDeleteEdu(edu.id)}
+                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
+                title="삭제"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* 학력 추가 입력폼 */}
+        <form onSubmit={handleAddEdu} className="bg-[#0b0824]/50 p-4 border border-indigo-950 rounded-xl space-y-3">
+          <h3 className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> 학력 정보 추가
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
+            <input
+              type="text"
+              placeholder="학교명 (예: 한국대학교)"
+              value={newEdu.school_name}
+              onChange={(e) => setNewEdu({ ...newEdu, school_name: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+            <input
+              type="text"
+              placeholder="전공 (예: 컴퓨터공학과)"
+              value={newEdu.major}
+              onChange={(e) => setNewEdu({ ...newEdu, major: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+            <select
+              value={newEdu.education_level}
+              onChange={(e) => setNewEdu({ ...newEdu, education_level: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="고등학교">고등학교</option>
+              <option value="전문학사">전문학사</option>
+              <option value="학사">학사</option>
+              <option value="석사">석사</option>
+              <option value="박사">박사</option>
+            </select>
+            <select
+              value={newEdu.status}
+              onChange={(e) => setNewEdu({ ...newEdu, status: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="재학">재학</option>
+              <option value="휴학">휴학</option>
+              <option value="졸업예정">졸업예정</option>
+              <option value="졸업">졸업</option>
+              <option value="중퇴">중퇴</option>
+            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs flex-shrink-0">입학:</span>
+              <input
+                type="date"
+                value={newEdu.admission_date}
+                onChange={(e) => setNewEdu({ ...newEdu, admission_date: e.target.value })}
+                className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs flex-shrink-0">졸업:</span>
+              <input
+                type="date"
+                value={newEdu.graduation_date}
+                onChange={(e) => setNewEdu({ ...newEdu, graduation_date: e.target.value })}
+                className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs transition shadow-md shadow-indigo-600/20"
+          >
+            학력 추가하기
+          </button>
+        </form>
+      </div>
+
+      {/* =================================================================== */}
+      {/* 3. 📜 자격증 (Certificates) 섹션 추가 */}
+      {/* =================================================================== */}
+      <div className="bg-[#0f0c2e]/80 border border-indigo-800/40 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex items-center gap-3 border-b border-indigo-900/50 pb-4">
+          <div className="p-2.5 bg-indigo-950 border border-indigo-800/40 rounded-xl text-purple-400">
+            <Award className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold">자격증 및 면허</h2>
+            <p className="text-xs text-indigo-200/60">취득한 자격증 정보를 입력해 주세요.</p>
+          </div>
+        </div>
+
+        {/* 자격증 목록 */}
+        <div className="space-y-3">
+          {certificates.map((cert) => (
+            <div
+              key={cert.id}
+              className="bg-[#14103d]/60 border border-indigo-900/40 rounded-xl p-4 flex items-center justify-between hover:border-indigo-700/50 transition-all"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-base text-white">{cert.certificate_name}</span>
+                  {cert.certificate_number && (
+                    <span className="text-[11px] text-indigo-300 font-mono bg-indigo-950 px-2 py-0.5 rounded border border-indigo-800/40">
+                      No. {cert.certificate_number}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-indigo-200/70">
+                  {cert.issuing_organization && (
+                    <span className="flex items-center gap-1">
+                      <Building className="w-3 h-3" /> {cert.issuing_organization}
+                    </span>
+                  )}
+                  {cert.acquisition_date && (
+                    <span className="flex items-center gap-1 text-slate-400">
+                      <Calendar className="w-3 h-3" /> 취득: {cert.acquisition_date}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleDeleteCert(cert.id)}
+                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
+                title="삭제"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* 자격증 추가 입력폼 */}
+        <form onSubmit={handleAddCert} className="bg-[#0b0824]/50 p-4 border border-indigo-950 rounded-xl space-y-3">
+          <h3 className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> 자격증 추가
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
+            <input
+              type="text"
+              placeholder="자격증 명 (예: 정보처리기사)"
+              value={newCert.certificate_name}
+              onChange={(e) => setNewCert({ ...newCert, certificate_name: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            />
+            <input
+              type="text"
+              placeholder="발급 기관 (예: 한국산업인력공단)"
+              value={newCert.issuing_organization}
+              onChange={(e) => setNewCert({ ...newCert, issuing_organization: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            />
+            <input
+              type="text"
+              placeholder="자격증 번호/합격 번호 (선택)"
+              value={newCert.certificate_number}
+              onChange={(e) => setNewCert({ ...newCert, certificate_number: e.target.value })}
+              className="bg-[#120e36] border border-indigo-900/60 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            />
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs flex-shrink-0">취득일:</span>
+              <input
+                type="date"
+                value={newCert.acquisition_date}
+                onChange={(e) => setNewCert({ ...newCert, acquisition_date: e.target.value })}
+                className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-xl text-xs transition shadow-md shadow-purple-600/20"
+          >
+            자격증 추가하기
+          </button>
+        </form>
+      </div>
+
     </div>
+    </div>
+    
   );
 }

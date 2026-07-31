@@ -176,38 +176,55 @@ export default function Login() {
         </form>
 
         {/* 하단 메뉴 */}
-        <div style={{
-          width: '100%',
-          backgroundColor: '#1b174a',
-          border: '1px solid rgba(99, 102, 241, 0.3)',
-          borderRadius: '16px',
-          padding: '12px 8px',
-          display: 'flex',
-          justifyContent: 'space-around',
-          alignItems: 'center',
-          boxSizing: 'border-box'
-        }}>
-          <button type="button" onClick={() => alert('ID 찾기')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <div style={{ width: '32px', height: '32px', backgroundColor: '#493e9e', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e0e7ff' }}>
-              <Search size={15} />
-            </div>
-            <span style={{ fontSize: '11px', color: '#c7d2fe' }}>ID 찾기</span>
-          </button>
+        <div className="w-full bg-[#1b174a] border border-indigo-500/30 rounded-2xl p-3 flex justify-between items-center box-border">
+  {/* ID 찾기 */}
+  <button
+  type="button"
+  onClick={() => navigate('/find-id')} // 💡 /find-id 로 이동
+  className="flex-1 flex flex-col items-center justify-center gap-1.5 border-none bg-transparent cursor-pointer group"
+>
+  <div className="w-8 h-8 bg-[#493e9e] group-hover:bg-indigo-600 rounded-full flex items-center justify-center text-indigo-100 transition-colors">
+    <Search size={15} />
+  </div>
+  <span className="text-[11px] text-indigo-200 group-hover:text-white transition-colors">
+    ID 찾기
+  </span>
+</button>
 
-          <button type="button" onClick={() => alert('비밀번호 찾기')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', items: 'center', gap: '4px' }}>
-            <div style={{ width: '32px', height: '32px', backgroundColor: '#493e9e', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e0e7ff' }}>
-              <Key size={15} />
-            </div>
-            <span style={{ fontSize: '11px', color: '#c7d2fe' }}>비밀번호 찾기</span>
-          </button>
+  {/* 구분선 (선택사항, 깔끔함 추가) */}
+  <div className="w-[1px] h-6 bg-indigo-500/20" />
 
-          <button type="button" onClick={() => alert('회원가입')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', items: 'center', gap: '4px' }}>
-            <div style={{ width: '32px', height: '32px', backgroundColor: '#493e9e', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e0e7ff' }}>
-              <UserPlus size={15} />
-            </div>
-            <span style={{ fontSize: '11px', color: '#c7d2fe' }}>회원가입</span>
-          </button>
-        </div>
+  {/* 비밀번호 찾기 */}
+  <button
+    type="button"
+    onClick={() => navigate('/find-password')} // 💡 /find-password 로 이동
+    className="flex-1 flex flex-col items-center justify-center gap-1.5 border-none bg-transparent cursor-pointer group"
+  >
+    <div className="w-8 h-8 bg-[#493e9e] group-hover:bg-indigo-600 rounded-full flex items-center justify-center text-indigo-100 transition-colors">
+      <Key size={15} />
+    </div>
+    <span className="text-[11px] text-indigo-200 group-hover:text-white transition-colors">
+      비밀번호 찾기
+    </span>
+  </button>
+
+  {/* 구분선 (선택사항, 깔끔함 추가) */}
+  <div className="w-[1px] h-6 bg-indigo-500/20" />
+
+  {/* 회원가입 */}
+  <button
+    type="button"
+    onClick={() => navigate('/sign-up')}
+    className="flex-1 flex flex-col items-center justify-center gap-1.5 border-none bg-transparent cursor-pointer group"
+  >
+    <div className="w-8 h-8 bg-[#493e9e] group-hover:bg-indigo-600 rounded-full flex items-center justify-center text-indigo-100 transition-colors">
+      <UserPlus size={15} />
+    </div>
+    <span className="text-[11px] text-indigo-200 group-hover:text-white transition-colors">
+      회원가입
+    </span>
+  </button>
+</div>
 
       </div>
     </div>

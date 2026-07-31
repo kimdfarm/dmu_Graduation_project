@@ -5,6 +5,9 @@ import Resume from './pages/Resume';
 import CoverLetter from './pages/CoverLetter';
 import Login from './pages/login/Login'; // 추가
 import ProfileSettings from './pages/ProfileSettings'; // 추가
+import FindId from './pages/login/FindId'; // 추가
+import FindPassword from './pages/login/FindPassword'; // 추가
+import SignUp from './pages/login/SignUp'; // 추가
 export default function App() {
   return (
     <BrowserRouter>
@@ -17,6 +20,9 @@ export default function App() {
         <Route path="/resume" element={<Resume />} />
         <Route path="/cover-letter" element={<CoverLetter />} />
         <Route path="/ProfileSettings" element={<ProfileSettings />} />
+        <Route path="/find-id" element={<FindId />} />
+        <Route path="/find-password" element={<FindPassword />} />
+        <Route path="/sign-up" element={<SignUp />} />
       </Routes>
     </BrowserRouter>
   );

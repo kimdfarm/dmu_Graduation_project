@@ -174,3 +174,63 @@ def signup_final(user_data: FinalSignUpRequest):
         if "duplicate key" in str(e).lower():
             raise HTTPException(status_code=400, detail="이미 가입된 이메일 주소입니다.")
         raise HTTPException(status_code=400, detail=f"최종 회원가입 실패: {str(e)}")
+
+# 1️⃣ 아이디(members.name) 중복 확인 API
+@router.get("/check-name")
+def check_name_duplicate(name: str):
+    # members 테이블에서 name 조회
+    response = supabase.table("members").select("name").eq("name", name).execute()
+    
+    # DB에 해당 name이 이미 있는 경우
+    if response.data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이미 사용 중인 이름입니다."
+        )
+        
+    # DB에 없는 경우 (사용 가능)
+    return {"message": "사용 가능한 이름입니다."}
+
+# 2️⃣ 최종 회원가입 요청 데이터 스키마
+class SignupFinalSchema(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+# 3️⃣ 최종 회원가입 API
+@router.post("/signup-final")
+def signup_final(user_data: SignupFinalSchema):
+    # ① OTP 승인 여부 (is_approved) 확인
+    otp_response = (
+        supabase.table("email_otps")
+        .select("is_approved")
+        .eq("email", user_data.email)
+        .eq("purpose", "signup")
+        .execute()
+    )
+
+    # 기록이 없거나 approval 조건이 False인 경우
+    if not otp_response.data or not otp_response.data[0].get("is_approved"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이메일 인증이 완료되지 않았습니다."
+        )
+
+    # ② members 테이블에 회원정보 등록 (비밀번호는 해싱 후 저장 권장)
+    insert_response = supabase.table("members").insert({
+        "name": user_data.name,
+        "email": user_data.email,
+        "password": user_data.password,  # 해싱된 비밀번호 사용 권장
+    }).execute()
+
+    if not insert_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="회원가입 처리 중 오류가 발생했습니다."
+        )
+
+    # ③ 가입 완료 후 사용한 OTP 레코드 삭제 또는 초기화
+    supabase.table("email_otps").delete().eq("email", user_data.email).execute()
+
+    return {"message": "회원가입이 완료되었습니다."}

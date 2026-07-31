@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.github_data import github_groq_data
 from app.routers.imageandfileupload.usegrog import router as usegrog_router
 from app.routers.imageandfileupload import usegrog
-from app.routers.profilesetting import router as settings_router
+from app.routers.setting.profilesetting import router as settings_router
 load_dotenv()
 
 
