@@ -13,6 +13,10 @@ from app.routers.github_data import github_groq_data
 from app.routers.imageandfileupload.usegrog import router as usegrog_router
 from app.routers.imageandfileupload import usegrog
 from app.routers.setting.profilesetting import router as settings_router
+from app.routers.setting import educersetting
+
+
+
 load_dotenv()
 
 
@@ -54,6 +58,8 @@ app.include_router(login.router)
 
 app.include_router(usegrog_router)
 app.include_router(settings_router)
+app.include_router(educersetting.router)
+
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}

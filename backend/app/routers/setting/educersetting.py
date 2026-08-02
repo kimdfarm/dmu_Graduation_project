@@ -20,8 +20,8 @@ class EducationBase(BaseModel):
     school_name: str
     major: str
     education_level: Optional[str] = "학사"
-    status: Optional[str] = "졸업"
-    admission_date: Optional[date] = None
+    status: Optional[str] = "재학"
+    admission_date: date  # 💡 DB의 NOT NULL 제약조건 반영 (필수값)
     graduation_date: Optional[date] = None
 
 class EducationCreate(EducationBase):
@@ -30,7 +30,7 @@ class EducationCreate(EducationBase):
 class EducationResponse(EducationBase):
     id: str
     member_id: str
-    created_at: Optional[datetime] = None
+    created_at: Optional[str] = None  # 💡 DB 문자열 응답 유연성 확보
 
     class Config:
         from_attributes = True
@@ -49,7 +49,7 @@ class CertificateCreate(CertificateBase):
 class CertificateResponse(CertificateBase):
     id: str
     member_id: str
-    created_at: Optional[datetime] = None
+    created_at: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -71,13 +71,13 @@ def get_educations(member_id: str):
 def create_education(member_id: str, edu: EducationCreate):
     """학력 정보 추가"""
     try:
-        data = edu.model_dump() # Pydantic v2 지원
+        data = edu.model_dump(exclude_none=True) # 💡 None 필드는 제외하고 전송
         data["member_id"] = member_id
         
         # date 타임을 ISO 문자열로 변환
-        if data["admission_date"]: 
+        if "admission_date" in data and data["admission_date"]: 
             data["admission_date"] = data["admission_date"].isoformat()
-        if data["graduation_date"]: 
+        if "graduation_date" in data and data["graduation_date"]: 
             data["graduation_date"] = data["graduation_date"].isoformat()
 
         response = supabase.table("educations").insert(data).execute()
@@ -113,10 +113,10 @@ def get_certificates(member_id: str):
 def create_certificate(member_id: str, cert: CertificateCreate):
     """자격증 정보 추가"""
     try:
-        data = cert.model_dump()
+        data = cert.model_dump(exclude_none=True)
         data["member_id"] = member_id
         
-        if data["acquisition_date"]: 
+        if "acquisition_date" in data and data["acquisition_date"]: 
             data["acquisition_date"] = data["acquisition_date"].isoformat()
 
         response = supabase.table("certificates").insert(data).execute()

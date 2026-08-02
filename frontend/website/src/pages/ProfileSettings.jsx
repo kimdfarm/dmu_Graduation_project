@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   User, 
@@ -14,7 +15,9 @@ import {
   Award, 
   Plus, 
   Trash2, 
-  Building 
+  Building ,
+  AlertTriangle,
+  UserX, Loader2, X
 } from 'lucide-react';
 
 export default function ProfileSettings() {
@@ -50,9 +53,38 @@ const [educations, setEducations] = useState([]);
     certificate_number: '',
     acquisition_date: '',
   });
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
+const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+const userId = localStorage.getItem('userId');
 
+const fetchEducations = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/profile-settings/educations/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setEducations(data);
+      }
+    } catch (error) {
+      console.error('학력 조회 에러:', error);
+    }
+  };
 
-
+  // 자격증 목록 조회
+  const fetchCertificates = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/profile-settings/certificates/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCertificates(data);
+      }
+    } catch (error) {
+      console.error('자격증 조회 에러:', error);
+    }
+  };
 
   // 1. 프로필 조회
   useEffect(() => {
@@ -66,10 +98,14 @@ const [educations, setEducations] = useState([]);
     const fetchProfile = async () => {
       try {
         const response = await fetch(`http://localhost:8000/users/${userId}`);
-        const result = await response.json();
+        
+        if (response.ok) {
+          const result = await response.json();
 
-        if (response.ok && result.status === 'success') {
-          const data = result.data;
+          // 백엔드가 { status: 'success', data: {...} } 형태이든, 
+          // 또는 유저 객체 {...} 를 직접 반환하든 둘 다 대응할 수 있도록 처리합니다.
+          const data = result.data ? result.data : result;
+
           setFormData({
             email: data.email || '',
             role: data.role || 'USER',
@@ -80,6 +116,8 @@ const [educations, setEducations] = useState([]);
             gender: data.gender || 'M',
             avatar_url: data.avatar_url || ''
           });
+        } else {
+          console.error('프로필 요청 실패 Status:', response.status);
         }
       } catch (error) {
         console.error('프로필 로딩 에러:', error);
@@ -89,8 +127,146 @@ const [educations, setEducations] = useState([]);
     };
 
     fetchProfile();
-    fetchEducationsAndCertificates();
+    fetchEducations();
+    fetchCertificates();
   }, [navigate]);
+
+const handleEduChange = (e) => {
+    const { name, value } = e.target;
+    setNewEdu((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // 자격증 입력폼 바인딩
+  const handleCertChange = (e) => {
+    const { name, value } = e.target;
+    setNewCert((prev) => ({ ...prev, [name]: value }));
+  };
+  // ---------------------------------------------------------------------------
+  // 🎓 학력 CRUD (handleAddEdu, handleDeleteEdu)
+  // ---------------------------------------------------------------------------
+  const handleAddEdu = async (e) => {
+    e.preventDefault();
+    if (!newEdu.school_name || !newEdu.major || !newEdu.admission_date) {
+      return alert('학교명, 전공, 입학일은 필수 입력 항목입니다.');
+    }
+    if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
+
+    try {
+      const response = await fetch(`/api/profile-settings/educations/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          school_name: newEdu.school_name,
+          major: newEdu.major,
+          education_level: newEdu.education_level || '학사',
+          status: newEdu.status || '재학',
+          admission_date: newEdu.admission_date, // YYYY-MM-DD
+          graduation_date: newEdu.graduation_date || null,
+        }),
+      });
+
+      if (response.ok) {
+        const createdEdu = await response.json();
+        setEducations((prev) => [createdEdu, ...prev]);
+        setNewEdu({
+          school_name: '',
+          major: '',
+          education_level: '학사',
+          status: '재학',
+          admission_date: '',
+          graduation_date: '',
+        });
+        alert('학력 정보가 추가되었습니다.');
+      } else {
+        const errData = await response.json();
+        alert(`추가 실패: ${errData.detail || '오류 발생'}`);
+      }
+    } catch (error) {
+      console.error('학력 추가 실패:', error);
+      alert('서버 통신 오류가 발생했습니다.');
+    }
+  };
+
+  const handleDeleteEdu = async (educationId) => {
+    if (!window.confirm('해당 학력 정보를 삭제하시겠습니까?')) return;
+
+    try {
+      const response = await fetch(`/api/profile-settings/educations/${educationId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.status === 204 || response.ok) {
+        setEducations((prev) => prev.filter((edu) => edu.id !== educationId));
+      } else {
+        alert('삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('학력 삭제 실패:', error);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // 📜 자격증 CRUD (handleAddCert, handleDeleteCert)
+  // ---------------------------------------------------------------------------
+const handleAddCert = async (e) => {
+    e.preventDefault();
+    
+    // 💡 DB DDL의 NOT NULL 조건에 맞춘 검증 (자격증명, 발급기관, 취득일 필수)
+    if (!newCert.certificate_name || !newCert.issuing_organization || !newCert.acquisition_date) {
+      return alert('자격증명, 발급기관, 취득일은 필수 입력 항목입니다.');
+    }
+    if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
+
+    try {
+      const response = await fetch(`/api/profile-settings/certificates/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          certificate_name: newCert.certificate_name,
+          issuing_organization: newCert.issuing_organization, // 필수
+          certificate_number: newCert.certificate_number || null,
+          acquisition_date: newCert.acquisition_date, // 필수 (YYYY-MM-DD)
+        }),
+      });
+
+      if (response.ok) {
+        const createdCert = await response.json();
+        setCertificates((prev) => [createdCert, ...prev]);
+        setNewCert({
+          certificate_name: '',
+          issuing_organization: '',
+          certificate_number: '',
+          acquisition_date: '',
+        });
+        alert('자격증 정보가 추가되었습니다.');
+      } else {
+        const errData = await response.json();
+        alert(`추가 실패: ${errData.detail || '오류 발생'}`);
+      }
+    } catch (error) {
+      console.error('자격증 추가 실패:', error);
+      alert('서버 통신 오류가 발생했습니다.');
+    }
+  };
+
+  const handleDeleteCert = async (certificateId) => {
+    if (!window.confirm('해당 자격증 정보를 삭제하시겠습니까?')) return;
+
+    try {
+      const response = await fetch(`/api/profile-settings/certificates/${certificateId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.status === 204 || response.ok) {
+        setCertificates((prev) => prev.filter((cert) => cert.id !== certificateId));
+      } else {
+        alert('삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('자격증 삭제 실패:', error);
+    }
+  };
+// ---------------------------------------------------------------------------
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -100,99 +276,6 @@ const [educations, setEducations] = useState([]);
     }));
   };
 
-  const handleAddEdu = async (e) => {
-    e.preventDefault();
-    if (!newEdu.school_name || !newEdu.major) return alert('학교명과 전공을 입력해주세요.');
-
-    try {
-      // TODO: FastAPI POST 요청 ( /api/educations )
-      const savedEdu = { ...newEdu, id: Date.now().toString() };
-      setEducations([...educations, savedEdu]);
-
-      setNewEdu({
-        school_name: '',
-        major: '',
-        education_level: '학사',
-        status: '졸업',
-        admission_date: '',
-        graduation_date: '',
-      });
-    } catch (error) {
-      console.error('학력 추가 오류:', error);
-    }
-  };
-
-  const handleDeleteEdu = async (id) => {
-    try {
-      // TODO: FastAPI DELETE 요청 ( /api/educations/{id} )
-      setEducations(educations.filter((edu) => edu.id !== id));
-    } catch (error) {
-      console.error('학력 삭제 오류:', error);
-    }
-  };
-
-  const handleAddCert = async (e) => {
-    e.preventDefault();
-    if (!newCert.certificate_name) return alert('자격증 이름을 입력해주세요.');
-
-    try {
-      // TODO: FastAPI POST 요청 ( /api/certificates )
-      const savedCert = { ...newCert, id: Date.now().toString() };
-      setCertificates([...certificates, savedCert]);
-
-      setNewCert({
-        certificate_name: '',
-        issuing_organization: '',
-        certificate_number: '',
-        acquisition_date: '',
-      });
-    } catch (error) {
-      console.error('자격증 추가 오류:', error);
-    }
-  };
-
-  const handleDeleteCert = async (id) => {
-    try {
-      // TODO: FastAPI DELETE 요청 ( /api/certificates/{id} )
-      setCertificates(certificates.filter((cert) => cert.id !== id));
-    } catch (error) {
-      console.error('자격증 삭제 오류:', error);
-    }
-  };
-
-  const fetchEducationsAndCertificates = async () => {
-    try {
-      // FastAPI 백엔드 연동 예시:
-      // const eduRes = await fetch('/api/educations');
-      // const certRes = await fetch('/api/certificates');
-      // setEducations(await eduRes.json());
-      // setCertificates(await certRes.json());
-
-      // 임시 초기 테스트 데이터
-      setEducations([
-        {
-          id: '1',
-          school_name: '한국대학교',
-          major: '컴퓨터공학과',
-          education_level: '학사',
-          status: '졸업',
-          admission_date: '2020-03-02',
-          graduation_date: '2024-02-20',
-        },
-      ]);
-      setCertificates([
-        {
-          id: '1',
-          certificate_name: '정보처리기사',
-          issuing_organization: '한국산업인력공단',
-          certificate_number: '2023-12345',
-          acquisition_date: '2023-11-15',
-        },
-      ]);
-    } catch (error) {
-      console.error('학력 및 자격증 로딩 실패:', error);
-    }
-  };
   // 2. 변경사항 저장
   const handleSaveProfile = async (e) => {
     e.preventDefault();
@@ -243,9 +326,118 @@ const [educations, setEducations] = useState([]);
     );
   }
 
+// 💡 supabase import 제거!
+
+const handleDeleteAccount = async () => {
+  const confirmed = window.confirm(
+    "정말로 회원탈퇴를 진행하시겠습니까?\n모든 데이터가 영구적으로 삭제됩니다."
+  );
+  if (!confirmed) return;
+
+  try {
+    setIsDeleting(true);
+
+    // 1. 로그인 시 localStorage나 Context/State에 저장해둔 userId 사용
+    // (예: localStorage.getItem('userId') 또는 세션 객체에서 가져오기)
+    const userId = localStorage.getItem("userId") || session?.user?.id;
+
+    if (!userId) {
+      alert("로그인 정보를 찾을 수 없습니다. 다시 로그인해 주세요.");
+      return;
+    }
+
+    // 2. FastAPI 백엔드로 바로 탈퇴 요청
+    const response = await fetch("http://localhost:8000/login/delete", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: userId,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.detail || "탈퇴 처리 중 오류가 발생했습니다.");
+    }
+
+    // 3. 로컬 저장소 정돈 및 로그인 페이지로 이동
+    localStorage.removeItem("userId");
+    localStorage.removeItem("token");
+    
+    alert("회원탈퇴가 성공적으로 완료되었습니다.");
+    navigate("/login");
+
+  } catch (err) {
+    console.error("회원탈퇴 실패:", err);
+    alert(err.message);
+  } finally {
+    setIsDeleting(false);
+  }
+};
+// 버튼 클릭 시 파일 선택 창 열기
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  // 사용자가 파일을 선택했을 때 실행되는 업로드 함수
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 이미지 용량 및 확장자 1차 체크 (5MB 제한)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("파일 크기는 5MB 이하만 가능합니다.");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const userId = localStorage.getItem("userId") || session?.user?.id;
+
+      if (!userId) {
+        alert("사용자 정보를 찾을 수 없습니다.");
+        return;
+      }
+
+      // FormData 객체 생성 (파일 + user_id)
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      uploadFormData.append("user_id", userId);
+
+      // FastAPI 업로드 API 호출
+      const response = await fetch("http://localhost:8000/login/upload-avatar", {
+        method: "POST",
+        body: uploadFormData, // multipart/form-data 전송 시 headers 설정 생략
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "이미지 업로드에 실패했습니다.");
+      }
+
+      // 업로드 완료 후 반환받은 Public URL을 state에 반영
+      setFormData(prev => ({ ...prev, avatar_url: result.avatar_url }));
+      alert("프로필 이미지가 변경되었습니다.");
+
+    } catch (err) {
+      console.error("업로드 에러:", err);
+      alert(err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
 
-
+  // 모달 열기 핸들러
+  const handleImageClick = () => {
+    if (formData.avatar_url) {
+      setIsImageModalOpen(true);
+    }
+  };
 
 
   return (
@@ -264,6 +456,7 @@ const [educations, setEducations] = useState([]);
           </button>
           <h1 className="text-xl font-bold text-white">회원 프로필 설정</h1>
         </div>
+       
 
         {/* 성공 토스트 알림 */}
         {successMessage && (
@@ -276,31 +469,98 @@ const [educations, setEducations] = useState([]);
         <form onSubmit={handleSaveProfile} className="space-y-6">
           
           {/* 상단 프로필 배너 카드리 */}
-          <div className="bg-[#14103d] border border-indigo-800/40 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center gap-6 relative overflow-hidden">
-            <div className="relative group">
-              <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-indigo-500 to-sky-400 flex items-center justify-center text-3xl font-bold text-white overflow-hidden shadow-lg border-2 border-indigo-400/30">
-                {formData.avatar_url ? (
-                  <img src={formData.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  formData.name ? formData.name.charAt(0) : 'U'
-                )}
-              </div>
-              <button 
-                type="button"
-                onClick={() => {
-                  const url = prompt('프로필 이미지 URL을 입력하세요:', formData.avatar_url);
-                  if (url !== null) setFormData(prev => ({ ...prev, avatar_url: url }));
-                }}
-                className="absolute -bottom-2 -right-2 p-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white shadow-lg transition"
-                title="아바타 변경"
-              >
-                <Camera size={16} />
-              </button>
-            </div>
+    <div className="bg-[#14103d] border border-indigo-800/40 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center gap-6 relative overflow-hidden">
+            <div className="relative inline-block">
+      <div className="relative inline-block">
+      {formData.avatar_url ? (
+        /* 1. 업로드된 아바타 이미지가 있을 때 */
+        <img
+  src={formData.avatar_url}
+  alt="프로필 이미지"
+  onClick={handleImageClick}
+  /* 💡 Tailwind 클래스 수정/추출 */
+  className="w-24 h-24 rounded-full object-cover border-2 border-indigo-500 shadow-md 
+             cursor-pointer transition-all duration-150 ease-in-out
+             hover:brightness-90 hover:scale-[1.02]
+             active:scale-95 active:border-indigo-600 active:shadow-inner"
+  title="원본 크기로 보기"
+/>
+      ) : (
+        /* 2. 이미지가 없을 때: 깔끔한 기본 아이콘 Placeholder */
+        <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center border-2 border-indigo-400/50 shadow-md">
+          {formData.name ? (
+            /* 이름이 있으면 첫 글자 이니셜 표시 */
+            <span className="text-3xl font-bold text-white">
+              {formData.name.charAt(0).toUpperCase()}
+            </span>
+          ) : (
+            /* 이름도 없으면 기본 사람 아이콘 표시 */
+            <User className="w-12 h-12 text-indigo-100" />
+          )}
+        </div>
+      )}
+
+      {/* 숨겨진 파일 선택 Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/jpeg, image/png, image/webp"
+        className="hidden"
+      />
+
+      {/* 아바타 변경 버튼 */}
+      <button
+        type="button"
+        onClick={handleAvatarClick}
+        disabled={isUploading}
+        className="absolute -bottom-1 -right-1 p-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white shadow-lg transition disabled:opacity-50 border border-indigo-400/30"
+        title="아바타 변경"
+      >
+        {isUploading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Camera className="w-4 h-4" />
+        )}
+      </button>
+    </div>
+    {isImageModalOpen && (
+      <div 
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-fade-in"
+        onClick={() => setIsImageModalOpen(false)} // 배경 클릭 시 닫기
+      >
+        <div 
+          className="relative p-4 flex flex-col items-center"
+          onClick={(e) => e.stopPropagation()} // 이미지 영역 클릭 시 안 닫히게 방지
+        >
+          {/* 닫기 버튼 */}
+          <button
+            onClick={() => setIsImageModalOpen(false)}
+            className="absolute -top-12 right-2 text-white/70 hover:text-white p-2 rounded-full bg-white/10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+
+          {/* 원본 비율 유지 확대 이미지 (모서리만 둥글게) */}
+          <img
+            src={formData.avatar_url}
+            alt="프로필 원본 이미지"
+            className="max-w-[85vw] max-h-[85vh] rounded-3xl object-contain border-4 border-white/10 shadow-2xl"
+          />
+          
+          {formData.name && (
+            <p className="mt-5 text-indigo-100 text-xl font-bold tracking-tight bg-black/40 px-4 py-1.5 rounded-xl">
+              {formData.name} 원본 프로필
+            </p>
+          )}
+        </div>
+      </div>
+    )}
+    </div>
 
             <div className="flex-1 text-center md:text-left space-y-1">
               <div className="flex items-center justify-center md:justify-start gap-2">
-                <h2 className="text-xl font-bold text-white">{formData.name || '이름 미등록'}</h2>
+                <h2 className="text-xl font-bold text-white">{formData.name || '이름 미등록 돌아가서 로그인 하시오'}</h2>
                 <span className="px-2.5 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30 flex items-center gap-1">
                   <Shield size={12} />
                   {formData.role}
@@ -656,6 +916,29 @@ const [educations, setEducations] = useState([]);
             자격증 추가하기
           </button>
         </form>
+      </div>
+       <div className="mt-10 pt-6 border-t border-rose-900/40">
+        <div className="bg-rose-950/20 border border-rose-900/40 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-rose-400 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              회원 탈퇴
+            </h3>
+            <p className="text-xs text-rose-300/70">
+              계정을 삭제하면 작성한 모든 문서 및 프로필 정보가 완전히 삭제됩니다.
+            </p>
+          </div>
+
+          {/* 탈퇴 버튼 */}
+          <button
+            onClick={handleDeleteAccount}
+            disabled={isDeleting}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 text-white text-xs font-semibold shadow-lg shadow-rose-900/30 transition-all flex-shrink-0"
+          >
+            <UserX className="w-4 h-4" />
+            <span>{isDeleting ? '탈퇴 처리 중...' : '회원 탈퇴'}</span>
+          </button>
+        </div>
       </div>
 
     </div>
