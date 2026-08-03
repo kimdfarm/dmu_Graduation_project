@@ -53,16 +53,23 @@ dmu_Graduation_project/
 3. .\venv\Scripts\Activate.ps1
 4. pip install -r "requirements.txt"
 
+
 ### 4. 프론트엔트 앱 가동
 - npm install
 #### 로컬 서버 가동하기
+1. cd backend
+2. uvicorn app.main:app --reload
+
 ##### WEBSITE
-1. cd backend/website
+1. cd frontend/website
 2. npm install
 3. npm run dev
 ###### 모바일
-- cd mobile
+- cd frontend/mobile
 - npm install axios
 - npx expo start
 ##### requirement 저장
 - pip freeze > requirements.txt
+
+##### 자동 가상 화성화
+(Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned) ; (& c:\_proj\project\dmu_Graduation_project\venv\Scripts\Activate.ps1)

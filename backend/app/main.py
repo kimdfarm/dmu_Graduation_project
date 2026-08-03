@@ -12,6 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.github_data import github_groq_data
 from app.routers.imageandfileupload.usegrog import router as usegrog_router
 from app.routers.imageandfileupload import usegrog
+from app.routers.setting.profilesetting import router as settings_router
+from app.routers.setting import educersetting
+
+
 
 load_dotenv()
 
@@ -42,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # 배포 시 실제 React 도메인으로 교체 권장
+    allow_origins=["http://localhost:5173", "http://localhost:3000"], # 배포 시 실제 React 도메인으로 교체 권장
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,6 +57,9 @@ app.include_router(github_groq_data.router)
 app.include_router(login.router)
 
 app.include_router(usegrog_router)
+app.include_router(settings_router)
+app.include_router(educersetting.router)
+
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}
