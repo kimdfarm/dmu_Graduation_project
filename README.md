@@ -59,7 +59,7 @@ dmu_Graduation_project/
 ##### WEBSITE
 1. cd backend/website
 2. npm install
-3. npm install @supabase/supabase-js axios
+3. npm run dev
 ###### 모바일
 - cd mobile
 - npm install axios
