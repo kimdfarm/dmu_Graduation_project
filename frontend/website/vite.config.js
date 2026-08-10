@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
@@ -10,25 +9,26 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      // 💡 FastAPI의 /sign 엔드포인트 우회 설정
       '/sign': {
-        target: 'http://localhost:8000', // 본인의 FastAPI 포트 (기본 8000)
-        changeOrigin: true,
-        secure: false,
-      },
-      // 💡 프로필 설정 등 /api 엔드포인트 우회 설정
-      '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
-
-      // 💡 로그인 엔드포인트 우회 설정
+      '/api': {
+        target: 'http://localhost:8000', // 사용 중인 백엔드 서버 주소 및 포트
+        changeOrigin: true,
+        secure: false,
+      },
       '/login': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
+      '/users': {  // 👈 GET /users/{user_id} 프록시 대상 추가
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      }
     },
   },
 })

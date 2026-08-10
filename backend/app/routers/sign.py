@@ -4,7 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from app.core.config import supabase
+from app.core.config import get_supabase
 import uuid
 from typing import Optional
 router = APIRouter(
@@ -39,6 +39,7 @@ class FinalSignUpRequest(BaseModel):
 @router.post("/send-otp")
 def send_otp_email(payload: EmailVerifyRequest):
     try:
+        supabase = get_supabase()
         # [CASE A] 회원가입인 경우: 이미 가입된 이메일(ID)인지 체크
         if payload.purpose == "signup":
             result = supabase.table("members").select("email").eq("email", payload.email).execute()
@@ -89,6 +90,7 @@ def send_otp_email(payload: EmailVerifyRequest):
 @router.post("/emailok")
 def check_email_ok(payload: EmailCheckRequest):
     try:
+        supabase = get_supabase()
         result = supabase.table("email_otps").select("*").eq("email", payload.email).execute()
         if not result.data:
             raise HTTPException(status_code=400, detail="인증 요청 내역이 존재하지 않습니다.")
@@ -134,6 +136,7 @@ def check_email_ok(payload: EmailCheckRequest):
 @router.post("/signup-final")
 def signup_final(user_data: FinalSignUpRequest):
     try:
+        supabase = get_supabase()   
         # 1. 우리 DB에서 승인된 이메일인지 체크
         result = supabase.table("email_otps").select("is_approved").eq("email", user_data.email).execute()
         
@@ -178,6 +181,7 @@ def signup_final(user_data: FinalSignUpRequest):
 # 1️⃣ 아이디(members.name) 중복 확인 API
 @router.get("/check-name")
 def check_name_duplicate(name: str):
+    supabase = get_supabase()
     # members 테이블에서 name 조회
     response = supabase.table("members").select("name").eq("name", name).execute()
     
@@ -202,6 +206,7 @@ class SignupFinalSchema(BaseModel):
 @router.post("/signup-final")
 def signup_final(user_data: SignupFinalSchema):
     # ① OTP 승인 여부 (is_approved) 확인
+    supabase = get_supabase()
     otp_response = (
         supabase.table("email_otps")
         .select("is_approved")

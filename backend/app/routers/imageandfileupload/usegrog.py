@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from app.core.config import SUPABASE_KEY, SUPABASE_URL
+from app.core.config import get_supabase, GROQ_API_KEY
 import pytesseract
 # 보통 아래 경로에 설치됩니다. 경로가 다르면 본인 설치 경로로 수정하세요.
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -68,7 +68,7 @@ router = APIRouter(
 )
 
 # Supabase & Groq 설정
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase = get_supabase()
 load_dotenv()  # .env 파일에서 환경 변수 로드
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = instructor.from_groq(

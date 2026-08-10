@@ -4,7 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from fastapi import APIRouter, HTTPException, Query, status, UploadFile, File, Form
 from pydantic import BaseModel, EmailStr
-from app.core.config import supabase
+from app.core.config import get_supabase
 import uuid
 router = APIRouter(
     prefix="/login",
@@ -92,6 +92,7 @@ def delete_account(payload: DeleteAccountRequest):
     회원 탈퇴 API: members 테이블에서 해당 user_id 삭제
     """
     try:
+        supabase = get_supabase()
         # DB의 members 테이블에서 user_id 삭제
         response = supabase.from_('members').delete().eq('id', payload.user_id).execute()
         
@@ -119,6 +120,7 @@ async def upload_avatar(
     file: UploadFile = File(...)
 ):
     try:
+        supabase = get_supabase()
         # 1. 기존 DB에서 유저의 기존 avatar_url 가져오기 (이전 이미지 삭제용)
         existing_profile = supabase.from_("member_profiles") \
             .select("avatar_url") \
@@ -176,7 +178,8 @@ async def get_my_info(user_id: str):
     try:
         if not user_id or user_id == "null" or user_id == "undefined":
             raise HTTPException(status_code=400, detail="유효하지 않은 user_id입니다.")
-
+        
+        supabase = get_supabase()
         response = (
             supabase.table("member_profiles")
             .select("*")

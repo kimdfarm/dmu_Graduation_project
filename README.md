@@ -63,7 +63,7 @@ dmu_Graduation_project/
 ##### WEBSITE
 1. cd frontend/website
 2. npm install
-3. npm start
+3. npm run dev
 ###### 모바일
 - cd frontend/mobile
 - npm install axios
