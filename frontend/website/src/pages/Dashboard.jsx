@@ -25,7 +25,7 @@ export default function Dashboard() {
     { id: 'home', label: '홈', icon: Home, path: '/' },
     { id: 'resume', label: '이력서', icon: FileText, path: '/resume' },
     { id: 'coverletter', label: '자소서', icon: UserCheck, path: '/cover-letter' },
-    { id: 'ai_cover', label: 'AI 자소서', icon: Sparkles, path: '/cover-letter' },
+    { id: 'ai_cover', label: '채용', icon: Sparkles, path: '/cover-letter' },
   ];
 
   const docList = [

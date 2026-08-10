@@ -1,13 +1,17 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
-import Resume from './pages/Resume';
+import Resume from './pages/resume/Resume';
 import CoverLetter from './pages/CoverLetter';
 import Login from './pages/login/Login'; // 추가
 import ProfileSettings from './pages/ProfileSettings'; // 추가
 import FindId from './pages/login/FindId'; // 추가
 import FindPassword from './pages/login/FindPassword'; // 추가
 import SignUp from './pages/login/SignUp'; // 추가
+import ResumeNew from './pages/resume/ResumeNew'; // 👈 추가
+import ResumeDetail from './pages/resume/ResumeDetail'; // 👈 추가
+import ResumeEdit from './pages/resume/ResumeEdit'; // 👈 추가
+import GithubCallback from './pages/github/GithubCallback';
 export default function App() {
   return (
     <BrowserRouter>
@@ -23,6 +27,10 @@ export default function App() {
         <Route path="/find-id" element={<FindId />} />
         <Route path="/find-password" element={<FindPassword />} />
         <Route path="/sign-up" element={<SignUp />} />
+        <Route path="/resume/new" element={<ResumeNew />} />
+        <Route path="/resume/:resumeId" element={<ResumeDetail />} />
+        <Route path="/resume/:resumeId/edit" element={<ResumeEdit />} />
+        <Route path="/auth/github/callback" element={<GithubCallback />} />
       </Routes>
     </BrowserRouter>
   );

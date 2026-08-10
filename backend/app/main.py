@@ -1,68 +1,76 @@
 import os
-from fastapi import FastAPI
-from app.routers import sign
-from app.routers import login 
+import asyncio
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-import asyncio
-from contextlib import asynccontextmanager  # 🎯 추가 필요
-from app.utils.scheduler import scheduler
-from supabase import create_client, Client
 from fastapi.middleware.cors import CORSMiddleware
+
+# 스케줄러 및 설정 로드
+from app.utils.scheduler import scheduler
+
+# 라우터 임포트
+from app.routers import sign
+from app.routers import login
+from app.routers import resume
 from app.routers.github_data import github_groq_data
 from app.routers.imageandfileupload.usegrog import router as usegrog_router
-from app.routers.imageandfileupload import usegrog
+from app.routers.imageandfileupload import savepile
 from app.routers.setting.profilesetting import router as settings_router
 from app.routers.setting import educersetting
-
-
-
+from app.routers.github_data import github_data
 load_dotenv()
 
-
-# 1. 환경 변수에서 URL과 KEY 가져오기
+# 환경 변수 로드
 MAIN_URL = os.getenv("MAIN_URL")
 MAIN_KEY = os.getenv("MAIN_KEY")
-
 CRAWL_URL = os.getenv("CRAWL_URL")
 CRAWL_KEY = os.getenv("CRAWL_KEY")
 
-# 🚀 서버 시작(Startup)과 종료(Shutdown)를 한 번에 관리하는 최신 lifespan 설계
+
+# 🚀 서버 시작(Startup)과 종료(Shutdown) Lifespan 설계
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # [Startup 영역] 서버가 켜질 때 실행될 로직
+    # [Startup] 서버 가동 시 스케줄러 시작
     if not scheduler.running:
         scheduler.start()
-        print("📡 [시스템 가동] 백그라운드 실시간 수집 및 3개월 만료 삭제 엔진이 정상 시작되었습니다.")
+        print("📡 [시스템 가동] 백그라운드 실시간 수집 및 만료 삭제 엔진이 정상 시작되었습니다.")
         
-    yield  # 💡 서버가 가동 중인 동안은 여기서 대기합니다 (다른 API들 정상 작동)
+    yield  # 서버 실행 유지
     
-    # [Shutdown 영역] 서버가 꺼질 때 실행될 로직
+    # [Shutdown] 서버 종료 시 스케줄러 안전 종료
     if scheduler.running:
         scheduler.shutdown()
         print("🛑 [시스템 종료] 백그라운드 스케줄러가 안전하게 종료되었습니다.")
 
-# FastAPI를 선언할 때 lifespan을 매개변수로 넣어줍니다.
+
 app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
+
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"], # 배포 시 실제 React 도메인으로 교체 권장
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ⭐ 핵심: sign 파일 안에 있는 router를 수하로 등록(조립)합니다.
-app.include_router(sign.router)
-app.include_router(github_groq_data.router)
-app.include_router(login.router)
 
+# 라우터 등록
+app.include_router(sign.router)
+app.include_router(login.router)
+app.include_router(github_groq_data.router)
 app.include_router(usegrog_router)
 app.include_router(settings_router)
 app.include_router(educersetting.router)
+app.include_router(resume.router)
+app.include_router(savepile.router)  # /api/resumes/upload 엔드포인트 담당
+app.include_router(github_data.router)  # /api/auth/github 엔드포인트 담당
+# ❌ file_parser.router 제거 완료 (유틸리티 모듈이므로 라우터 등록 안 함)
+
 
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}
+
 
 if __name__ == "__main__":
     import uvicorn
