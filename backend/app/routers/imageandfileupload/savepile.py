@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException, status
 from groq import Groq, RateLimitError, AuthenticationError, APIError
 
 # 설정 파일에서 Supabase 클라이언트 및 GROQ Key 로드
-from app.core.config import supabase, GROQ_API_KEY
+from app.core.config import get_supabase, GROQ_API_KEY
 
 # 동일 디렉토리 내 file_parser.py에서 상대 경로로 임포트
 from .file_parser import extract_text_from_file
@@ -124,6 +124,7 @@ async def upload_resume_file(
             "doc_type": parsed_result.get("doc_type", "RESUME"),
             "category": category
         }
+        supabase = get_supabase()
         doc_res = supabase.table("documents").insert(doc_payload).execute()
 
         if not doc_res.data:
@@ -146,6 +147,7 @@ async def upload_resume_file(
             })
 
         if sections_payload:
+            supabase = get_supabase()
             sec_res = supabase.table("document_sections").insert(sections_payload).execute()
             if not sec_res.data:
                 raise HTTPException(status_code=500, detail="document_sections 테이블 저장 실패")
@@ -161,6 +163,7 @@ async def upload_resume_file(
     except Exception as e:
         if created_document_id:
             try:
+                supabase = get_supabase()
                 supabase.table("documents").delete().eq("id", created_document_id).execute()
             except Exception as rollback_err:
                 print(f"Rollback failed: {rollback_err}")
