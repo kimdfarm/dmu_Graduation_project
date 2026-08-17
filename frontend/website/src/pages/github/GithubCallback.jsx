@@ -40,23 +40,28 @@ export default function GithubCallback() {
 
         const data = await response.json();
 
-        // 💡 1. GitHub Access Token(API 키)을 쿠키에 저장 (7일간 유효, 전역 path=/)
+        // 쿠키 및 localStorage 저장 로직...
         if (data.access_token) {
-          const maxAge = 60 * 60 * 24 * 7; // 7일 (초 단위)
-          document.cookie = `github_access_token=${data.access_token}; path=/; max-age=${maxAge}; SameSite=Lax`;
+        document.cookie = `github_access_token=${data.access_token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
         }
-
-        // 💡 2. 프로필 정보도 쿠키 및 localStorage에 업데이트
         if (data.github_id) {
-          document.cookie = `github_id=${data.github_id}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
-          localStorage.setItem('github_id', data.github_id);
+        document.cookie = `github_id=${data.github_id}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+        localStorage.setItem('github_id', data.github_id);
         }
         if (data.github_avatar_url) {
-          localStorage.setItem('github_avatar_url', data.github_avatar_url);
+        localStorage.setItem('github_avatar_url', data.github_avatar_url);
         }
 
         alert('GitHub 계정이 성공적으로 연동되었습니다!');
-        navigate('/profileSettings');
+
+        // 💡 저장해둔 이전 페이지 경로 읽기 (없으면 기본값 '/profileSettings')
+        const redirectPath = sessionStorage.getItem('redirectAfterGithubAuth') || '/profileSettings';
+
+        // 사용한 sessionStorage 데이터 삭제
+        sessionStorage.removeItem('redirectAfterGithubAuth');
+
+        // 저장된 이전 페이지 경로로 이동
+        navigate(redirectPath, { replace: true });
 
       } catch (error) {
         console.error('GitHub Auth Callback Error:', error);
