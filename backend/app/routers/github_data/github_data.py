@@ -6,10 +6,11 @@ from pydantic import BaseModel
 import httpx
 from supabase import Client
 from groq import Groq, RateLimitError, AuthenticationError, APIError
-from datetime import datetime, timedelta, timezone,time
+from datetime import datetime, timedelta, timezone, time
 from app.core.config import get_supabase, GROQ_API_KEY
 import requests
 import traceback
+
 router = APIRouter(
     prefix="/api",
     tags=["github-resumes"]
@@ -79,6 +80,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
         title
         state
         mergedAt
+        createdAt
         additions
         deletions
         reviewDecision
@@ -95,23 +97,20 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 """
 
 GITHUB_CAREER_PROMPT = """
-너는 개발자의 GitHub 실제 기여 내역(Commit, Issue, PR)을 바탕으로 이력서용 성과 문장을 생성하는 전문 라이터다.
-제시된 '본인 실제 기여 데이터'만을 분석하여 4~6개의 구체적인 성과 불렛포인트로 작성해라.
+[지시사항]
+제시된 'GitHub 본인 기여 데이터'를 분석하여 개발자의 이력서용 성과 문장(불렛포인트 4~6개)을 작성해라.
 
 [GitHub 본인 기여 데이터]
 {github_graphql_data}
 
-[작성 규칙]
-1. 없는 내용을 지어내지 말고, 제시된 본인 커밋/이슈/PR 내역에 근거해서만 작성해라.
-2. "~ 구축하여 성능 개선", "~ 리팩토링으로 유지보수성 확보", "~ 기능 구현" 형태의 능동적 어조를 사용해라.
-3. JSON 형식으로 `role_summary`와 `achievements` 배열을 반환해라.
+[작성 규칙 - 엄격 준수]
+1. **언어 일치 원칙**: 입력된 기여 데이터의 주된 언어(한국어 등)로 작성해라. 입력 내용이 한국어 기반이라면 결과물(`role_summary`, `achievements`)도 반드시 **한국어**로 작성되어야 한다. 절대 영어로 반환하지 마라.
+2. **사실 기반 작성**: 없는 내용을 지어내지 말고, 제시된 본인 커밋/이슈/PR 내역에 근거해서만 작성해라.
+3. **어조**: "~ 구축하여 성능 개선", "~ 리팩토링으로 유지보수성 확보", "~ 기능 구현" 형태의 능동적 어조를 사용해라.
+4. **출력 형식**: 반드시 지정된 JSON 구조(`role_summary`와 `achievements` 배열)로 반환해라.
 """
 
-
-# ------------------------------------------------------------------
-# Groq 모델 설정 (원하는 모델의 주석을 해제하여 사용)
-# ------------------------------------------------------------------
-GROQ_MODEL_NAME = "llama-3.1-8b-instant"  # 70B 대체 추천 모델
+GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
 def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
     if not groq_client:
@@ -127,24 +126,30 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
     try:
         raw_str = json.dumps(graphql_data, ensure_ascii=False, indent=2)
         response = groq_client.chat.completions.create(
-            model=GROQ_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are a professional Korean tech resume writer. Generate achievements based ONLY on the user's actual contributions in valid JSON with schema: {\"role_summary\": \"string\", \"achievements\": [\"string\"]}"},
-                {"role": "user", "content": GITHUB_CAREER_PROMPT.format(github_graphql_data=raw_str)}
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
+    model=GROQ_MODEL_NAME,
+    messages=[
+        {
+            "role": "system", 
+            "content": (
+                "당신은 개발자의 GitHub 활동 데이터를 바탕으로 전문적인 이력서를 작성하는 라이터입니다. "
+                "제시된 기여 데이터의 주요 사용 언어(한국어 등)를 자동으로 감지하여 반드시 해당 언어로 결과를 작성해야 합니다. "
+                "결과는 오직 다음 JSON 스키마 형식으로만 응답하세요: "
+                "{\"role_summary\": \"string\", \"achievements\": [\"string\"]}"
+            )
+        },
+        {"role": "user", "content": GITHUB_CAREER_PROMPT.format(github_graphql_data=raw_str)}
+    ],
+    temperature=0.2,  # 일관성을 위해 temperature를 0.3에서 0.2로 낮추는 것을 권장합니다.
+    response_format={"type": "json_object"}
+)
         
         res_json = json.loads(response.choices[0].message.content)
         role_summary = res_json.get("role_summary", "기여 개발자")
         achievements = res_json.get("achievements", [])
 
-        # 💡 [핵심 수정] achievements 요소가 dict나 str 어떤 형태든 안전하게 처리
         formatted_list = []
         for item in achievements:
             if isinstance(item, dict):
-                # 딕셔너리로 반환된 경우 내부 첫 번째 값(value)을 추출
                 text = str(next(iter(item.values()), "")) if item else ""
             else:
                 text = str(item)
@@ -193,8 +198,27 @@ class GithubResumeGenerateRequest(BaseModel):
     analysis_data: Optional[Dict[str, Any]] = None
 
 
+# 날짜 범위 체크 헬퍼 함수
+def is_within_date_range(date_str: str, start_dt: Optional[datetime], end_dt: Optional[datetime]) -> bool:
+    if not date_str:
+        return True
+    try:
+        clean_date_str = date_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_date_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        if start_dt and dt < start_dt:
+            return False
+        if end_dt and dt > end_dt:
+            return False
+        return True
+    except Exception:
+        return True
+
+
 # ------------------------------------------------------------------
-# 2. [핵심] 본인 기여 데이터만 추출 및 검증 로직 적용
+# 2. 본인 기여 데이터 추출 + 선택한 기간 내 내역 필터링
 # ------------------------------------------------------------------
 @router.post("/github/analyze")
 async def analyze_repository_graphql(
@@ -207,6 +231,32 @@ async def analyze_repository_graphql(
     token = authorization.split(" ")[1]
     target_user = payload.github_id.lower()
 
+    # 기간 설정 파싱 (start_date ~ end_date)
+    start_datetime = None
+    end_datetime = None
+
+    if payload.start_date:
+        try:
+            s_dt = datetime.strptime(payload.start_date, "%Y-%m-%d")
+            start_datetime = datetime.combine(s_dt.date(), time.min, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    if payload.end_date:
+        try:
+            e_dt = datetime.strptime(payload.end_date, "%Y-%m-%d")
+            end_datetime = datetime.combine(e_dt.date(), time.max, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    target_owner = payload.github_id
+    target_repo_name = payload.repo_name
+
+    if "/" in payload.repo_name:
+        parts = payload.repo_name.split("/")
+        target_owner = parts[0]      # 예: "owner_name"
+        target_repo_name = parts[1] # 예: "repo_name"
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://api.github.com/graphql",
@@ -217,8 +267,8 @@ async def analyze_repository_graphql(
             json={
                 "query": GRAPHQL_REPO_QUERY,
                 "variables": {
-                    "owner": payload.github_id,
-                    "name": payload.repo_name
+                    "owner": target_owner,        # 정제된 owner 적용
+                    "name": target_repo_name      # 순수 저장소 이름 적용
                 }
             }
         )
@@ -235,7 +285,7 @@ async def analyze_repository_graphql(
         if not repo_data:
             raise HTTPException(status_code=404, detail="저장소 정보를 찾을 수 없습니다.")
 
-        # 💡 A. 커밋 중 본인이 작성한 커밋만 필터링 (Null-safe 처리)
+        # A. 커밋 중 본인 작성 & 기간 내 작성 필터링
         user_commits = []
         default_branch = repo_data.get("defaultBranchRef") or {}
         target = default_branch.get("target") or {}
@@ -246,34 +296,39 @@ async def analyze_repository_graphql(
             author_dict = c.get("author") or {}
             author_user = author_dict.get("user") or {}
             author_login = author_user.get("login", "").lower()
+            commit_date = c.get("committedDate", "")
             
-            if author_login == target_user:
+            if author_login == target_user and is_within_date_range(commit_date, start_datetime, end_datetime):
                 user_commits.append({
                     "message": c.get("messageHeadline", ""),
-                    "date": c.get("committedDate", ""),
+                    "date": commit_date,
                     "changes": f"+{c.get('additions', 0)} / -{c.get('deletions', 0)}"
                 })
 
-        # 💡 B. 본인이 직접 생성한 Issue만 필터링 (Null-safe 처리)
+        # B. 이슈 중 본인 생성 & 기간 내 생성 필터링
         user_issues = []
         issues_data = repo_data.get("issues") or {}
         for i in issues_data.get("nodes") or []:
             author_dict = i.get("author") or {}
             author_login = author_dict.get("login", "").lower()
-            if author_login == target_user:
+            issue_date = i.get("createdAt", "")
+
+            if author_login == target_user and is_within_date_range(issue_date, start_datetime, end_datetime):
                 user_issues.append({
                     "title": i.get("title", ""),
                     "state": i.get("state", ""),
                     "labels": [l["name"] for l in (i.get("labels") or {}).get("nodes") or []]
                 })
 
-        # 💡 C. 본인이 직접 작성한 PR만 필터링 (Null-safe 처리)
+        # C. PR 중 본인 작성 & 기간 내 작성 필터링
         user_prs = []
         prs_data = repo_data.get("pullRequests") or {}
         for pr in prs_data.get("nodes") or []:
             author_dict = pr.get("author") or {}
             author_login = author_dict.get("login", "").lower()
-            if author_login == target_user:
+            pr_date = pr.get("createdAt", "")
+
+            if author_login == target_user and is_within_date_range(pr_date, start_datetime, end_datetime):
                 user_prs.append({
                     "title": pr.get("title", ""),
                     "state": pr.get("state", ""),
@@ -282,14 +337,18 @@ async def analyze_repository_graphql(
                     "labels": [l["name"] for l in (pr.get("labels") or {}).get("nodes") or []]
                 })
 
-        # 💡 D. 본인의 직접 기여 내역이 0건이면 400 반환
+        # D. 설정된 기간 내 본인의 기여 내역이 0건이면 400 반환
         if not user_commits and not user_issues and not user_prs:
+            date_info = ""
+            if payload.start_date or payload.end_date:
+                date_info = f" 설정 기간({payload.start_date or '시작일 미지정'} ~ {payload.end_date or '종료일 미지정'}) 내에"
+
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"'{payload.repo_name}' 저장소에 사용자 '{payload.github_id}'님의 기여 활동 내역(Commit, PR, Issue)이 존재하지 않습니다."
+                detail=f"'{payload.repo_name}' 저장소에 사용자 '{payload.github_id}'님의{date_info} 기여 활동 내역(Commit, PR, Issue)이 존재하지 않습니다."
             )
 
-        # 언어 비율 계산 (Null-safe 처리)
+        # 언어 비율 계산
         lang_data = repo_data.get("languages") or {}
         total_size = lang_data.get("totalSize") or 1
         languages_percentage = {}
@@ -315,9 +374,9 @@ async def analyze_repository_graphql(
             "user_pull_requests": user_prs
         }
 
-    
+
 # ------------------------------------------------------------------
-# 2. 다중 저장소 이력서 생성 엔드포인트 수정
+# 다중 저장소 이력서 생성 엔드포인트
 # ------------------------------------------------------------------
 @router.post("/resumes/github-generate")
 async def generate_github_resume(
@@ -330,7 +389,6 @@ async def generate_github_resume(
         analysis_data = payload.analysis_data or {}
         projects_data = analysis_data.get("projects_data", [])
 
-        # 프론트엔드에서 넘어온 분석 결과가 배열 형태가 아니거나 단건인 경우 호환 처리
         if not projects_data and analysis_data.get("repo_name"):
             projects_data = [analysis_data]
 
@@ -340,13 +398,11 @@ async def generate_github_resume(
                 detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
             )
 
-        # 1. 선택된 각 저장소별로 AI 분석을 수행하여 details 카드 리스트 구축
         details_list = []
         for idx, repo_analytics in enumerate(projects_data, start=1):
             card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx)
             details_list.append(card_detail)
 
-        # 2. documents 메인 레코드 생성
         doc_payload = {
             "member_id": payload.member_id,
             "title": payload.title,
@@ -360,7 +416,6 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        # 3. document_sections 단일 레코드에 모든 저장소 detail 항목(card_1, card_2...) 추가
         columns = ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
         
         section_payload = {
@@ -369,7 +424,7 @@ async def generate_github_resume(
             "section_title": "경력 및 주요 프로젝트 성과",
             "display_order": 1,
             "columns": columns,
-            "details": details_list  # [card_1, card_2, ...] 여러 항목이 들어감
+            "details": details_list
         }
 
         sec_res = db.table("document_sections").insert(section_payload).execute()
@@ -406,8 +461,13 @@ def get_github_repositories(
     authorization: str = Header(None)
 ):
     try:
+        # 1. 필수 토큰 검증
         if not authorization:
             raise HTTPException(status_code=401, detail="Authorization 토큰이 필요합니다.")
+
+        # 💡 [핵심 추가] 시작일이나 종료일이 전달되지 않았으면 아무것도 안 나오게 (빈 배열) 처리
+        if not start_date or not end_date:
+            return {"repositories": []}
 
         token = authorization.replace("Bearer ", "").strip()
         headers = {
@@ -415,7 +475,11 @@ def get_github_repositories(
             "Accept": "application/vnd.github.v3+json"
         }
 
-        gh_url = "https://api.github.com/user/repos?sort=updated&per_page=100&type=all"
+        # 2. GitHub 저장소 목록 조회
+        if token:
+            gh_url = "https://api.github.com/user/repos?sort=updated&per_page=100&type=all"
+        else:
+            gh_url = f"https://api.github.com/users/{github_id}/repos?sort=updated&per_page=100"
         response = requests.get(gh_url, headers=headers, timeout=10)
 
         if response.status_code != 200:
@@ -427,129 +491,131 @@ def get_github_repositories(
 
         raw_repos = response.json()
 
-        # Python 3.9 이하 환경 대응 안전한 YYYY-MM-DD 날짜 파싱
+        # 3. 날짜 파싱 (isoformat)
         start_datetime = None
         end_datetime = None
 
         if start_date:
             try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                start_datetime = datetime.combine(start_dt.date(), time.min, tzinfo=timezone.utc)
+                start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             except ValueError:
                 pass
 
         if end_date:
             try:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-                end_datetime = datetime.combine(end_dt.date(), time.max, tzinfo=timezone.utc)
+                # 종료일의 23:59:59까지 포함
+                end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                    hour=23, minute=59, second=59, tzinfo=timezone.utc
+                )
             except ValueError:
                 pass
 
-        if not start_datetime and not end_datetime:
-            calc_months = months if months is not None else 12
-            start_datetime = datetime.now(timezone.utc) - timedelta(days=calc_months * 30)
+        # 날짜 파싱 실패 시에도 빈 결과 반환
+        if not start_datetime or not end_datetime:
+            return {"repositories": []}
 
-        seen_ids = set()
-        filtered_repos = []
+        # 4. 저장소 포맷팅 및 날짜 필터링
         all_repos_formatted = []
+        filtered_repos = []
 
         for repo in raw_repos:
-            repo_id = repo.get("id")
-            if not repo_id or repo_id in seen_ids:
-                continue
-
-            is_fork = repo.get("fork", False)
-            created_at_str = repo.get("created_at")
-            pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
-
-            # 포크 후 추가 푸시가 없는 저장소 제외
-            if is_fork:
-                if not pushed_at_str or not created_at_str:
-                    continue
-                try:
-                    created_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                    pushed_dt = datetime.fromisoformat(pushed_at_str.replace("Z", "+00:00"))
-                    if pushed_dt <= created_dt + timedelta(seconds=10):
-                        continue
-                except Exception:
-                    pass
-
-            seen_ids.add(repo_id)
-
             repo_item = {
-                "id": repo_id,
+                "id": repo.get("id"),
                 "name": repo.get("name"),
                 "full_name": repo.get("full_name"),
                 "description": repo.get("description"),
-                "language": repo.get("language"),
-                "stargazers_count": repo.get("stargazers_count", 0),
                 "is_private": repo.get("private", False),
-                "is_fork": is_fork,
-                "created_at": repo.get("created_at"),  # 💡 [필수 추가] 저장소 생성 시간
-                "updated_at": repo.get("updated_at"),
+                "stargazers_count": repo.get("stargazers_count", 0),
+                "language": repo.get("language"),
+                "created_at": repo.get("created_at"),
                 "pushed_at": repo.get("pushed_at"),
-                "activity_count": 0  # 기본값 초기화
+                "updated_at": repo.get("updated_at"),
             }
             all_repos_formatted.append(repo_item)
 
+            pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
             if pushed_at_str:
                 try:
-                    clean_date_str = pushed_at_str.replace("Z", "+00:00")
-                    pushed_date = datetime.fromisoformat(clean_date_str)
-                    if pushed_date.tzinfo is None:
-                        pushed_date = pushed_date.replace(tzinfo=timezone.utc)
-
-                    is_after_start = True if not start_datetime else (pushed_date >= start_datetime)
-                    is_before_end = True if not end_datetime else (pushed_date <= end_datetime)
-
-                    if is_after_start and is_before_end:
+                    pushed_dt = datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    if start_datetime <= pushed_dt <= end_datetime:
                         filtered_repos.append(repo_item)
                 except Exception:
-                    filtered_repos.append(repo_item)
+                    pass
 
-        result_repos = filtered_repos if len(filtered_repos) > 0 else all_repos_formatted
+        # 💡 [핵심 수정] 필터 조건에 부합하는 저장소만 반환 (부합하는 게 없으면 빈 배열)
+        result_repos = filtered_repos
 
-        # 💡 [NEW] 선택 기간 동안의 커밋 활동 수(activity_count) 병렬 조회 함수
+        # 5. 각 저장소별 커밋/활동 수 계산
+        # 5. 각 저장소별 커밋, PR, 이슈 활동 수 병렬/연산 계산
         def fetch_repo_activity(repo):
-            full_name = repo["full_name"]
-            commit_url = f"https://api.github.com/repos/{full_name}/commits"
-            
-            # 본인의 github_id 커밋만 요청하도록 author 파라미터 추가
-            params = {
-                "author": github_id,
-                "per_page": 100
-            }
-            if start_datetime:
-                params["since"] = start_datetime.isoformat()
-            if end_datetime:
-                params["until"] = end_datetime.isoformat()
+                # 💡 저장소 고유 식별자(full_name: owner/repo_name) 사용
+                full_name = repo["full_name"]
+                
+                # 파라미터 공통 설정 (작성자: github_id, 지정 기간: since ~ until)
+                base_params = {
+                    "author": github_id,
+                    "per_page": 100
+                }
+                if start_datetime:
+                    base_params["since"] = start_datetime.isoformat()
+                if end_datetime:
+                    base_params["until"] = end_datetime.isoformat()
 
-            try:
-                # timeout을 2.5초로 줄여 병목 현상 방지
-                res = requests.get(commit_url, headers=headers, params=params, timeout=2.5)
-                if res.status_code == 200:
-                    commits = res.json()
-                    repo["activity_count"] = len(commits) if isinstance(commits, list) else 0
-                else:
-                    repo["activity_count"] = 0
-            except Exception:
-                repo["activity_count"] = 0
-            return repo
+                total_activity = 0
 
-        # 스레드 개수를 15개로 늘려 병렬 처리 속도 향상
+                # 1) 커밋 수 조회 (해당 full_name 저장소 전용)
+                try:
+                    commit_res = requests.get(
+                        f"https://api.github.com/repos/{full_name}/commits",
+                        headers=headers,
+                        params=base_params,
+                        timeout=2.5
+                    )
+                    if commit_res.status_code == 200:
+                        commits = commit_res.json()
+                        if isinstance(commits, list):
+                            total_activity += len(commits)
+                except Exception:
+                    pass
+
+                # 2) 이슈(Issue) 및 PR 작성 내역 조회
+                try:
+                    issue_params = {
+                        "creator": github_id,
+                        "state": "all",
+                        "per_page": 100
+                    }
+                    if start_datetime:
+                        issue_params["since"] = start_datetime.isoformat()
+                    
+                    issue_res = requests.get(
+                        f"https://api.github.com/repos/{full_name}/issues",
+                        headers=headers,
+                        params=issue_params,
+                        timeout=2.5
+                    )
+                    if issue_res.status_code == 200:
+                        issues = issue_res.json()
+                        if isinstance(issues, list):
+                            total_activity += len(issues)
+                except Exception:
+                    pass
+
+                # 개별 저장소 활동 수 저장
+                repo["activity_count"] = total_activity
+                return repo
+        # ThreadPoolExecutor로 저장소별 활동 수 병렬 조회
         with ThreadPoolExecutor(max_workers=15) as executor:
             result_repos = list(executor.map(fetch_repo_activity, result_repos))
+        unique_repos_dict = {repo["full_name"]: repo for repo in result_repos}
+        final_repos = list(unique_repos_dict.values())
 
-        return {"repositories": result_repos}
+        # 2. (선택) 활동 내역(activity_count > 0)이 존재하는 저장소만 남기기
+        final_repos = [r for r in final_repos if r.get("activity_count", 0) > 0]
 
-        # 최대 10개의 스레드로 커밋 수 병렬 조회 (속도 최적화)
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            result_repos = list(executor.map(fetch_repo_activity, result_repos))
-
-        return {"repositories": result_repos}
+        return {"repositories": final_repos}
 
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
