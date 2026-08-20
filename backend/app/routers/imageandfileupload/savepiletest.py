@@ -68,11 +68,9 @@ def safe_json_parse(json_str: str) -> dict:
 
 
 def get_available_groq_models(client) -> list:
-    PRIMARY_MODEL = "openai/gpt-oss-120b"
-    active_models = [PRIMARY_MODEL]
-
     try:
         models_data = client.models.list()
+        active_models = []
         EXCLUDE_PATTERNS = ["whisper", "vision", "guard", "embed", "compound", "allam"]
 
         for m in models_data.data:
@@ -80,58 +78,58 @@ def get_available_groq_models(client) -> list:
             model_id_lower = model_id.lower()
             is_active = getattr(m, "active", True)
             
-            if is_active and model_id != PRIMARY_MODEL and not any(pat in model_id_lower for pat in EXCLUDE_PATTERNS):
+            if is_active and not any(pat in model_id_lower for pat in EXCLUDE_PATTERNS):
                 active_models.append(model_id)
 
+        active_models.sort(key=lambda x: (
+            0 if "llama" in x.lower() else (1 if "gemma" in x.lower() else 2)
+        ))
         return active_models
     except Exception as e:
         print(f"[Groq Model List Fetch Error]: {e}")
-        return [PRIMARY_MODEL]
+        return []
 
 
-def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") -> tuple[str, list]:
+def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") -> str:
     """
-    본문 텍스트 내의 모든 [태그] 항목을 동적으로 수집하여 
-    정보 누락 없이 [컬럼명]\n• 내용 형태의 규격 문자열과 최종 컬럼 목록을 반환합니다.
+    하나의 텍스트 덩어리 안에 있는 [태그] 들을 파싱하여,
+    프론트엔드가 파싱할 수 있는 [컬럼명]\\n• 내용 형태의 규격 문자열로 자동 개편합니다.
     """
-    if not raw_text:
-        return raw_text, columns or ["항목", "상세내용"]
+    if not raw_text or not columns:
+        return raw_text
 
+    # 1. 텍스트 내에서 [컬럼명] 패턴 분할 (앞에 불릿 '•' 또는 '프로젝트명' 등 텍스트가 섞인 경우 정단)
     cleaned_text = re.sub(r'^[•\s\-\*]+\s*', '', raw_text.strip())
+    
+    # [태그] 기준으로 분할하기 위한 정규식
     tag_pattern = r'\[([^\]]+)\]'
     matches = list(re.finditer(tag_pattern, cleaned_text))
 
-    # 1. 기존 컬럼 복사 및 텍스트 내에서 새로 발견된 [태그]를 컬럼에 동적 추가
-    final_columns = list(columns) if columns else []
-    for match in matches:
-        tag_name = match.group(1).strip()
-        if tag_name not in final_columns:
-            final_columns.append(tag_name)
-
-    if not final_columns:
-        final_columns = ["항목", "상세내용"]
-
-    col_data = {col: [] for col in final_columns}
-    norm_columns = [c.strip().lower() for c in final_columns]
+    col_data = {col: [] for col in columns}
 
     if not matches:
+        # 태그가 아예 없는 경우 첫 번째 컬럼에 배치
         lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
         for line in lines:
             line_content = re.sub(r'^[•\s\-\*]+\s*', '', line)
-            if line_content and line_content.strip().lower() not in norm_columns:
-                col_data[final_columns[0]].append(f"• {line_content}")
+            if line_content:
+                col_data[columns[0]].append(f"• {line_content}")
     else:
+        # 첫 번째 태그 전까지의 텍스트 처리
         first_match_start = matches[0].start()
         header_text = cleaned_text[:first_match_start].strip()
         
-        first_col = final_columns[0]
-        if header_text:
+        first_col = columns[0]
+        if card_title and card_title != "항목":
+            col_data[first_col].append(f"• {card_title}")
+        elif header_text:
             lines = [l.strip() for l in header_text.split('\n') if l.strip()]
             for l in lines:
                 l_content = re.sub(r'^[•\s\-\*]+\s*', '', l)
-                if l_content and l_content.strip().lower() not in norm_columns:
+                if l_content:
                     col_data[first_col].append(f"• {l_content}")
 
+        # 태그별 내용 추출 및 배치
         for i, match in enumerate(matches):
             tag_name = match.group(1).strip()
             start_pos = match.end()
@@ -139,34 +137,31 @@ def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") ->
             
             content_block = cleaned_text[start_pos:end_pos].strip()
             
+            # 컬럼명 매칭 (완전 일치 또는 부분 일치)
             target_col = None
-            for col in final_columns:
-                if col.lower() == tag_name.lower():
+            for col in columns:
+                if col == tag_name or col in tag_name or tag_name in col:
                     target_col = col
                     break
             
             if not target_col:
-                target_col = final_columns[-1]
+                target_col = columns[-1]  # 매칭 실패 시 마지막 컬럼(상세 내용 등)에 입력
 
             lines = [l.strip() for l in content_block.split('\n') if l.strip()]
             for l in lines:
                 l_content = re.sub(r'^[•\s\-\*]+\s*', '', l)
-                if (
-                    l_content 
-                    and not l_content.startswith('[') 
-                    and l_content.strip().lower() != tag_name.lower()
-                    and l_content.strip().lower() not in norm_columns
-                ):
+                if l_content and not l_content.startswith('['):
                     col_data[target_col].append(f"• {l_content}")
 
+    # 2. columns 순서대로 [컬럼명]\n• 내용1\n• 내용2 형태 문자열 조립
     formatted_blocks = []
-    for col in final_columns:
+    for col in columns:
         items = col_data.get(col, [])
         if items:
             block = f"[{col}]\n" + "\n".join(items)
             formatted_blocks.append(block)
 
-    return "\n\n".join(formatted_blocks), final_columns
+    return "\n\n".join(formatted_blocks)
 
 
 def normalize_resume_data(parsed_dict: dict) -> dict:
@@ -191,8 +186,16 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
         )
         section_type = sec.get("section_type") or "CUSTOM"
         
-        # LLM이 직접 분석하여 생성한 columns를 최우선으로 존중
-        columns = sec.get("columns") or []
+        # 각 섹션 종류별 기본 columns 설정
+        default_cols = ["항목", "상세내용"]
+        if "경력" in section_title or "프로젝트" in section_title:
+            default_cols = ["프로젝트명", "기간", "역할/포지션", "상세 내용"]
+        elif "학력" in section_title:
+            default_cols = ["학교명", "기간", "전공/학위", "주요 이수/비고"]
+        elif "자격증" in section_title or "기타" in section_title:
+            default_cols = ["자격증명", "취득 연도", "비고"]
+
+        columns = sec.get("columns") or default_cols
 
         raw_details = (
             sec.get("details") or 
@@ -204,8 +207,6 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
             raw_details = [raw_details]
 
         normalized_details = []
-        all_updated_columns = list(columns)
-
         for d_idx, item in enumerate(raw_details):
             if isinstance(item, dict):
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
@@ -213,12 +214,8 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                 
                 raw_orig = item.get("original_text") or item.get("content") or ""
                 
-                # split_text_by_columns를 통해 추가된 동적 태그 컬럼 수집
-                structured_text, updated_cols = split_text_by_columns(str(raw_orig), all_updated_columns, item_title)
-                
-                for c in updated_cols:
-                    if c not in all_updated_columns:
-                        all_updated_columns.append(c)
+                # 핵심: 텍스트를 columns 구조에 맞게 자동 분해하여 파싱
+                structured_text = split_text_by_columns(str(raw_orig), columns, item_title)
 
                 if structured_text.strip():
                     normalized_details.append({
@@ -230,11 +227,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                         "selected_version": item.get("selected_version", "ORIGINAL")
                     })
             elif isinstance(item, str) and item.strip():
-                structured_text, updated_cols = split_text_by_columns(item, all_updated_columns)
-                for c in updated_cols:
-                    if c not in all_updated_columns:
-                        all_updated_columns.append(c)
-
+                structured_text = split_text_by_columns(item, columns)
                 normalized_details.append({
                     "id": f"card_{idx + 1}_{d_idx + 1}",
                     "title": "상세 내용",
@@ -249,7 +242,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                 "section_type": str(section_type),
                 "section_title": str(section_title).strip(),
                 "display_order": idx + 1,
-                "columns": all_updated_columns if all_updated_columns else ["항목", "상세내용"],
+                "columns": columns,
                 "details": normalized_details
             })
 
@@ -273,39 +266,34 @@ def parse_resume_with_groq(raw_text: str) -> dict:
             detail="파일에서 읽을 수 있는 텍스트를 추출하지 못했습니다."
         )
 
-    truncated_text = cleaned_text[:12000]
+    truncated_text = cleaned_text[:4000]
     safe_raw_text = truncated_text.replace("{", "{{").replace("}", "}}")
 
-    SYSTEM_PROMPT = """You are an ultra-comprehensive document parsing engine.
-CRITICAL GOAL: Extract 100% of ALL information from the input document without discarding, omitting, or summarizing ANY detail.
+    SYSTEM_PROMPT = """You are an expert resume parsing engine.
+Extract ALL information into separate columns defined in "columns".
 
-Rules for Dynamic Column Generation:
-1. DO NOT restrict yourself to a fixed list of column names.
-2. Analyze each item/entry in the document and DYNAMICALLY define appropriate "columns" for each section.
-   Examples of dynamic columns depending on content:
-   - Project/Work: ["프로젝트명", "기간", "역할/포지션", "사용 기술", "주요 성과", "상세 내용"]
-   - Education: ["학교명", "기간", "전공/학위", "학점", "주요 이수 과목"]
-   - Certification: ["자격증명", "취득 연도/일자", "발급 기관", "등록 번호"]
-   - General/Custom: Create column headers matching the data precisely!
-
-3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]`:
+Schema rules:
+1. "columns" define exact column headers for each section.
+   - For Projects/Career: ["프로젝트명", "기간", "역할/포지션", "상세 내용"]
+   - For Education: ["학교명", "기간", "전공/학위", "주요 이수/비고"]
+   - For Certification: ["자격증명", "취득 연도", "비고"]
+2. In "original_text", DO NOT write bullet points BEFORE "[ColumnName]".
+   MUST write EXACTLY like this:
 
 [프로젝트명]
-• 스마트 이력서 시스템
+• 프로젝트 이름
 
 [기간]
 • 2026.05 - 2026.06
 
 [역할/포지션]
-• 백엔드 개발자
-
-[사용 기술]
-• FastAPI, Python, Supabase
+• 개인 자동화 프로젝트
 
 [상세 내용]
-• 전체 시스템 설계 및 파싱 로직 구현
+• 상세 업무 1
+• 상세 업무 2
 
-JSON Output Schema:
+JSON Format:
 {
   "doc_type": "RESUME",
   "sections": [
@@ -313,19 +301,19 @@ JSON Output Schema:
       "section_type": "CAREER",
       "section_title": "경력 및 프로젝트",
       "display_order": 1,
-      "columns": ["프로젝트명", "기간", "역할/포지션", "사용 기술", "상세 내용"],
+      "columns": ["프로젝트명", "기간", "역할/포지션", "상세 내용"],
       "details": [
         {
           "id": "card_1",
-          "title": "스마트 이력서 시스템",
-          "original_text": "[프로젝트명]\\n• 스마트 이력서 시스템\\n\\n[기간]\\n• 2026.05 - 2026.06\\n\\n[역할/포지션]\\n• 개발자\\n\\n[사용 기술]\\n• Python\\n\\n[상세 내용]\\n• 기능 구현",
+          "title": "프로젝트명",
+          "original_text": "[프로젝트명]\\n• 지원 시스템\\n\\n[기간]\\n• 2026.05 - 2026.06\\n\\n[역할/포지션]\\n• 개인 개발\\n\\n[상세 내용]\\n• 기능 구현",
           "selected_version": "ORIGINAL"
         }
       ]
     }
   ]
 }
-Return raw JSON without markdown formatting."""
+Return raw JSON without markdown."""
 
     target_models = get_available_groq_models(groq_client)
     last_error = None
@@ -337,10 +325,10 @@ Return raw JSON without markdown formatting."""
                 model=model_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse all data dynamically from this text:\n\n{safe_raw_text}"}
+                    {"role": "user", "content": f"Parse this resume:\n\n{safe_raw_text}"}
                 ],
                 temperature=0.1,
-                max_tokens=4096
+                max_tokens=3000
             )
 
             raw_content = response.choices[0].message.content or ""

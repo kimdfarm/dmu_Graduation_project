@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit3, Loader2, Download, User, Mail, Phone, Calendar, 
-  MapPin, GraduationCap, Award, Briefcase, CheckCircle2, ChevronDown, ChevronUp
+  MapPin, GraduationCap, Award, Briefcase, CheckCircle2, ChevronDown, ChevronUp, Sparkles
 } from 'lucide-react';
 
 // ------------------------------------------------------------------
-// Table Schema 파싱 로직 (ResumeEdit.jsx와 100% 동기화)
+// Table Schema 파싱 로직 (섹션별 선택된 텍스트 버전에 맞춰 동적 파싱)
 // ------------------------------------------------------------------
-const parseDetailsToTableSchema = (details, secColumns = []) => {
+const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
   let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
     ? [...secColumns] 
     : [];
@@ -33,8 +33,16 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
     const rowValues = {};
 
     if (typeof cardObj === 'object' && cardObj !== null) {
-      if (cardObj.original_text) {
-        const blocks = cardObj.original_text.split('\n\n');
+      // 섹션의 선택한 버튼 버전에 맞추어 표시할 텍스트 선택
+      let textToParse = cardObj.original_text || '';
+      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
+        textToParse = cardObj.spell_checked_text;
+      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
+        textToParse = cardObj.ai_proofread_text;
+      }
+
+      if (textToParse) {
+        const blocks = textToParse.split('\n\n');
         blocks.forEach((block) => {
           const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
           if (lines.length === 0) return;
@@ -55,17 +63,14 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
                 addColumn(k);
                 rowValues[k] = v;
               } else {
-  // ⭕ detectedColumns에 실제 존재하는 컬럼이 있을 때만 매칭
-  const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무'));
-
-  if (targetCol) {
-    addColumn(targetCol);
-    const currentVal = rowValues[targetCol] || '';
-    const cleanLine = line.replace(/^[•\-\*\s]+/, '');
-    rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
-  }
-  // targetCol이 없으면 억지로 컬럼을 만들어내지 않음
-}
+                const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무'));
+                if (targetCol) {
+                  addColumn(targetCol);
+                  const currentVal = rowValues[targetCol] || '';
+                  const cleanLine = line.replace(/^[•\-\*\s]+/, '');
+                  rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
+                }
+              }
             });
           }
         });
@@ -91,6 +96,7 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
 
     extractedRows.push({
       id: cardObj.id || crypto.randomUUID(),
+      rawObj: cardObj,
       values: rowValues
     });
   });
@@ -101,7 +107,9 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
 
   return { columns: detectedColumns, rows: extractedRows };
 };
+
 const BASE_URL = 'http://localhost:8000';
+
 const ResumeDetail = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
@@ -109,6 +117,9 @@ const ResumeDetail = () => {
   const [resume, setResume] = useState(null);
   const [sections, setSections] = useState([]);
   
+  // 섹션별 텍스트 선택 버전 관리 상태 ({ [sectionId]: 'ORIGINAL' | 'SPELL' | 'AI' })
+  const [sectionVersions, setSectionVersions] = useState({});
+
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -134,6 +145,14 @@ const ResumeDetail = () => {
     }));
   };
 
+  // 섹션 단위 버전 선택 변경 함수
+  const handleSectionVersionChange = (sectionId, version) => {
+    setSectionVersions((prev) => ({
+      ...prev,
+      [sectionId]: version
+    }));
+  };
+
   const userId = localStorage.getItem('userId');
 
   useEffect(() => {
@@ -147,7 +166,6 @@ const ResumeDetail = () => {
       try {
         setIsLoading(true);
 
-        // 하드코딩 URL을 백엔드 엔드포인트 규격에 맞춰 수정
         const profileRes = await fetch(`${BASE_URL}/users/${userId}`);
         if (profileRes.ok) {
           const result = await profileRes.json();
@@ -183,11 +201,7 @@ const ResumeDetail = () => {
         setResume(resumeData);
 
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
-          const formattedSections = resumeData.sections.map((sec) => {
-            const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns);
-            return { ...sec, columns, rows };
-          });
-          setSections(formattedSections);
+          setSections(resumeData.sections);
         }
       } catch (err) {
         console.error('데이터 로딩 에러:', err);
@@ -213,9 +227,16 @@ const ResumeDetail = () => {
     return 'flex-[1.5] min-w-[200px]';
   };
 
+  // 현재 sectionVersions 상태를 반영하여 섹션별로 실시간 변환된 목록 생성
+  const formattedSections = sections.map((sec) => {
+    const secVersion = sectionVersions[sec.id] || 'ORIGINAL';
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
+    return { ...sec, columns, rows, currentVersion: secVersion };
+  });
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3">
+      <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
         <p className="text-sm">데이터를 불러오는 중...</p>
       </div>
@@ -382,17 +403,58 @@ const ResumeDetail = () => {
 
         {/* 세부 항목 영역 */}
         <div className="space-y-8">
-          {sections.map((sec) => (
+          {formattedSections.map((sec) => (
             <div key={sec.id} className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-6">
               
-              <div className="flex items-center justify-between border-b border-indigo-900/40 pb-4">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-indigo-400" />
-                  {sec.section_title || '세부 정보'}
-                </h2>
-                <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-3 py-1 rounded-full border border-indigo-900">
-                  총 {sec.rows ? sec.rows.length : 0}개 항목
-                </span>
+              {/* 섹션 헤더 & 섹션 전체 텍스트 버전을 조절하는 버튼 그룹 */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-900/40 pb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Briefcase className="w-5 h-5 text-indigo-400" />
+                    {sec.section_title || '세부 정보'}
+                  </h2>
+                  <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-3 py-1 rounded-full border border-indigo-900">
+                    총 {sec.rows ? sec.rows.length : 0}개 항목
+                  </span>
+                </div>
+
+                {/* 섹션별 버전 전환 버튼 */}
+                <div className="flex items-center gap-1 bg-[#07051E] p-1.5 rounded-xl border border-indigo-900/60 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      sec.currentVersion === 'ORIGINAL'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    원본
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSectionVersionChange(sec.id, 'SPELL')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      sec.currentVersion === 'SPELL'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    맞춤법
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSectionVersionChange(sec.id, 'AI')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      sec.currentVersion === 'AI'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    AI 교정
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-6">
