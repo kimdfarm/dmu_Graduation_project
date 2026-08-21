@@ -90,10 +90,6 @@ def get_available_groq_models(client) -> list:
 
 
 def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") -> tuple[str, list]:
-    """
-    본문 텍스트 내의 모든 [태그] 항목을 동적으로 수집하여 
-    정보 누락 없이 [컬럼명]\n• 내용 형태의 규격 문자열과 최종 컬럼 목록을 반환합니다.
-    """
     if not raw_text:
         return raw_text, columns or ["항목", "상세내용"]
 
@@ -101,7 +97,6 @@ def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") ->
     tag_pattern = r'\[([^\]]+)\]'
     matches = list(re.finditer(tag_pattern, cleaned_text))
 
-    # 1. 기존 컬럼 복사 및 텍스트 내에서 새로 발견된 [태그]를 컬럼에 동적 추가
     final_columns = list(columns) if columns else []
     for match in matches:
         tag_name = match.group(1).strip()
@@ -190,8 +185,6 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
             "세부 정보"
         )
         section_type = sec.get("section_type") or "CUSTOM"
-        
-        # LLM이 직접 분석하여 생성한 columns를 최우선으로 존중
         columns = sec.get("columns") or []
 
         raw_details = (
@@ -210,10 +203,8 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
             if isinstance(item, dict):
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
                 item_title = str(item.get("title") or item.get("name") or "항목").strip()
-                
                 raw_orig = item.get("original_text") or item.get("content") or ""
                 
-                # split_text_by_columns를 통해 추가된 동적 태그 컬럼 수집
                 structured_text, updated_cols = split_text_by_columns(str(raw_orig), all_updated_columns, item_title)
                 
                 for c in updated_cols:
@@ -221,13 +212,11 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                         all_updated_columns.append(c)
 
                 if structured_text.strip():
+                    # 교정 필드 제거 및 순수 원문만 유지
                     normalized_details.append({
                         "id": card_id,
                         "title": item_title,
-                        "original_text": structured_text.strip(),
-                        "spell_checked_text": item.get("spell_checked_text"),
-                        "ai_proofread_text": item.get("ai_proofread_text"),
-                        "selected_version": item.get("selected_version", "ORIGINAL")
+                        "original_text": structured_text.strip()
                     })
             elif isinstance(item, str) and item.strip():
                 structured_text, updated_cols = split_text_by_columns(item, all_updated_columns)
@@ -238,10 +227,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                 normalized_details.append({
                     "id": f"card_{idx + 1}_{d_idx + 1}",
                     "title": "상세 내용",
-                    "original_text": structured_text,
-                    "spell_checked_text": None,
-                    "ai_proofread_text": None,
-                    "selected_version": "ORIGINAL"
+                    "original_text": structured_text
                 })
 
         if normalized_details:
@@ -273,37 +259,21 @@ def parse_resume_with_groq(raw_text: str) -> dict:
             detail="파일에서 읽을 수 있는 텍스트를 추출하지 못했습니다."
         )
 
-    truncated_text = cleaned_text[:12000]
+    truncated_text = cleaned_text[:]
     safe_raw_text = truncated_text.replace("{", "{{").replace("}", "}}")
 
+    # 프롬프트 명시: 맞춤법/오타 수정 절대 금지 지침 추가
     SYSTEM_PROMPT = """You are an ultra-comprehensive document parsing engine.
-CRITICAL GOAL: Extract 100% of ALL information from the input document without discarding, omitting, or summarizing ANY detail.
+CRITICAL GOAL: Extract 100% of ALL information from the input document exactly as written without discarding, omitting, correcting, or summarizing ANY detail.
+
+STRICT INSTRUCTION REGARDING SPELLING/TYPOS:
+- DO NOT fix, correct, or alter any typos, spelling errors, or grammatical mistakes in the original text.
+- Preserve the EXACT raw words and character sequences as provided in the input text.
 
 Rules for Dynamic Column Generation:
 1. DO NOT restrict yourself to a fixed list of column names.
 2. Analyze each item/entry in the document and DYNAMICALLY define appropriate "columns" for each section.
-   Examples of dynamic columns depending on content:
-   - Project/Work: ["프로젝트명", "기간", "역할/포지션", "사용 기술", "주요 성과", "상세 내용"]
-   - Education: ["학교명", "기간", "전공/학위", "학점", "주요 이수 과목"]
-   - Certification: ["자격증명", "취득 연도/일자", "발급 기관", "등록 번호"]
-   - General/Custom: Create column headers matching the data precisely!
-
-3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]`:
-
-[프로젝트명]
-• 스마트 이력서 시스템
-
-[기간]
-• 2026.05 - 2026.06
-
-[역할/포지션]
-• 백엔드 개발자
-
-[사용 기술]
-• FastAPI, Python, Supabase
-
-[상세 내용]
-• 전체 시스템 설계 및 파싱 로직 구현
+3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]`.
 
 JSON Output Schema:
 {
@@ -318,8 +288,7 @@ JSON Output Schema:
         {
           "id": "card_1",
           "title": "스마트 이력서 시스템",
-          "original_text": "[프로젝트명]\\n• 스마트 이력서 시스템\\n\\n[기간]\\n• 2026.05 - 2026.06\\n\\n[역할/포지션]\\n• 개발자\\n\\n[사용 기술]\\n• Python\\n\\n[상세 내용]\\n• 기능 구현",
-          "selected_version": "ORIGINAL"
+          "original_text": "[프로젝트명]\\n• 스마트 이력서 시스템\\n\\n[기간]\\n• 2026.05 - 2026.06\\n\\n[역할/포지션]\\n• 개발자\\n\\n[사용 기술]\\n• Python\\n\\n[상세 내용]\\n• 기능 구현"
         }
       ]
     }
@@ -337,9 +306,9 @@ Return raw JSON without markdown formatting."""
                 model=model_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse all data dynamically from this text:\n\n{safe_raw_text}"}
+                    {"role": "user", "content": f"Parse all data dynamically from this text without modifying any original text:\n\n{safe_raw_text}"}
                 ],
-                temperature=0.1,
+                temperature=0.1,  
                 max_tokens=4096
             )
 

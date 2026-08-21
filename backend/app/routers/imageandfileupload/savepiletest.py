@@ -327,8 +327,8 @@ Return raw JSON without markdown."""
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"Parse this resume:\n\n{safe_raw_text}"}
                 ],
-                temperature=0.1,
-                max_tokens=3000
+                temperature=0.2,
+                max_tokens=4096
             )
 
             raw_content = response.choices[0].message.content or ""

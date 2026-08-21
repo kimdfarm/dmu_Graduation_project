@@ -18,6 +18,7 @@ from app.routers.imageandfileupload import savepile
 from app.routers.setting.profilesetting import router as settings_router
 from app.routers.setting import educersetting
 from app.routers.github_data import github_data
+from app.routers import sections
 load_dotenv()
 
 # 환경 변수 로드
@@ -64,6 +65,7 @@ app.include_router(educersetting.router)
 app.include_router(resume.router)
 app.include_router(savepile.router)  # /api/resumes/upload 엔드포인트 담당
 app.include_router(github_data.router)  # /api/auth/github 엔드포인트 담당
+app.include_router(sections.router)  # /api/sections 엔드포인트 담당
 # ❌ file_parser.router 제거 완료 (유틸리티 모듈이므로 라우터 등록 안 함)
 
 
