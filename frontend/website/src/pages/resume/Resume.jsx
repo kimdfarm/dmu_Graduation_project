@@ -20,7 +20,7 @@ export default function Resume() {
     { id: 'home', label: '홈', icon: Home, path: '/' },
     { id: 'resume', label: '이력서', icon: FileText, path: '/resume' },
     { id: 'coverletter', label: '자소서', icon: UserCheck, path: '/cover-letter' },
-    { id: 'ai_cover', label: 'AI 자소서', icon: Sparkles, path: '/cover-letter' },
+    { id: 'ai_cover', label: '채용', icon: Sparkles, path: '/cover-letter' },
   ];
 
   // 1. DB에서 이력서 목록 조회
@@ -111,7 +111,7 @@ const calculateCompleteness = (sections = []) => {
           <Menu size={22} />
         </button>
 
-        <nav className="flex flex-col gap-3 w-full px-2">
+        <nav className="flex flex-col gap-3 mt-4 w-full px-2">
           {sidebarItems.map((item) => {
             const Icon = item.icon;
             const isSelected = activeNav === item.id;
