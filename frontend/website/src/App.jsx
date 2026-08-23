@@ -13,6 +13,8 @@ import ResumeDetail from './pages/resume/ResumeDetail'; // 👈 추가
 import ResumeEdit from './pages/resume/ResumeEdit'; // 👈 추가
 import GithubCallback from './pages/github/GithubCallback';
 import DownloadResumePDF from './pages/resume/ResumeDownload'; // PDF 다운로드 유틸 함수
+import JobBoard from './pages/Job/JobBoard'; // 👈 추가
+import JobCard from './pages/Job/JobCard';
 export default function App() {
   return (
     <BrowserRouter>
@@ -33,6 +35,9 @@ export default function App() {
         <Route path="/resume/:resumeId/edit" element={<ResumeEdit />} />
         <Route path="/auth/github/callback" element={<GithubCallback />} />
         <Route path="/resume/:resumeId/download" element={<DownloadResumePDF />} />
+        <Route path="/jobBoard" element={<JobBoard />} />
+        <Route path="/jobCard" element={<JobCard />} />
+        
       </Routes>
     </BrowserRouter>
   );

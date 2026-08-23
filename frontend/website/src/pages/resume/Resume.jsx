@@ -20,7 +20,7 @@ export default function Resume() {
     { id: 'home', label: '홈', icon: Home, path: '/' },
     { id: 'resume', label: '이력서', icon: FileText, path: '/resume' },
     { id: 'coverletter', label: '자소서', icon: UserCheck, path: '/cover-letter' },
-    { id: 'ai_cover', label: '채용', icon: Sparkles, path: '/cover-letter' },
+    { id: 'ai_cover', label: '채용', icon: Sparkles, path: '/jobBoard' },
   ];
 
   // 1. DB에서 이력서 목록 조회
