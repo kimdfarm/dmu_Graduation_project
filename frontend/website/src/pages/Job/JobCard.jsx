@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { 
   Building2, Calendar, ExternalLink, Tag, FileText, CheckCircle2, 
-  Sparkles, Gift, MoreHorizontal, Clock, Database, X 
+  Sparkles, Gift, Clock, Database, X, ChevronDown, ChevronUp 
 } from 'lucide-react';
 
 const JobCard = ({ job }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // 접기/펼치기 상태 관리
+  const [isBodyExpanded, setIsBodyExpanded] = useState(false);
+  const [isAnotherExpanded, setIsAnotherExpanded] = useState(false);
 
   // 날짜 포맷팅 함수
   const formatDate = (dateStr) => {
@@ -120,7 +124,7 @@ const JobCard = ({ job }) => {
         </div>
       </div>
 
-      {/* 상세보기 모달 (모든 DB 필드 출력) */}
+      {/* 상세보기 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-y-auto p-6 space-y-6 text-slate-200 shadow-2xl relative">
@@ -144,7 +148,7 @@ const JobCard = ({ job }) => {
               </button>
             </div>
 
-            {/* 모달 본문 - 전체 DB 메타데이터 및 정보 */}
+            {/* 모달 메타데이터 영역 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800/60 text-xs">
               <div><strong className="text-slate-400">직무 카테고리:</strong> {job.job_category || '-'}</div>
               <div><strong className="text-slate-400">마감일:</strong> {job.closing_date || '상시 채용'}</div>
@@ -158,7 +162,7 @@ const JobCard = ({ job }) => {
               </div>
             </div>
 
-            {/* 본문 세부 항목들 */}
+            {/* 세부 정보 영역 */}
             <div className="space-y-4 text-xs">
               {job.skills && job.skills.length > 0 && (
                 <div>
@@ -202,21 +206,55 @@ const JobCard = ({ job }) => {
                 </div>
               )}
 
+              {/* 접기/펼치기 기능이 추가된 상세 본문 데이터 (body_data) */}
               {job.body_data && (
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                  <h4 className="font-semibold text-blue-400 text-sm mb-2 flex items-center gap-1.5">
-                    <FileText className="w-4 h-4" /> 상세 본문 데이터 (body_data)
-                  </h4>
-                  <p className="whitespace-pre-wrap leading-relaxed text-slate-300">{job.body_data}</p>
+                <div className="bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden">
+                  <button
+                    onClick={() => setIsBodyExpanded(!isBodyExpanded)}
+                    className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-900/50 transition-colors"
+                  >
+                    <h4 className="font-semibold text-blue-400 text-sm flex items-center gap-1.5">
+                      <FileText className="w-4 h-4" /> 상세 본문 데이터 (body_data)
+                    </h4>
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      {isBodyExpanded ? '접기' : '펼쳐보기'}
+                      {isBodyExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </span>
+                  </button>
+
+                  {isBodyExpanded && (
+                    <div className="px-4 pb-4 border-t border-slate-800/50 pt-3">
+                      <p className="whitespace-pre-wrap leading-relaxed text-slate-300 max-h-96 overflow-y-auto pr-2">
+                        {job.body_data}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* 접기/펼치기 기능이 추가된 기타 데이터 (another_data) */}
               {job.another_data && (
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                  <h4 className="font-semibold text-slate-400 text-sm mb-2 flex items-center gap-1.5">
-                    <Database className="w-4 h-4" /> 기타 데이터 (another_data)
-                  </h4>
-                  <p className="whitespace-pre-wrap leading-relaxed text-slate-300">{job.another_data}</p>
+                <div className="bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden">
+                  <button
+                    onClick={() => setIsAnotherExpanded(!isAnotherExpanded)}
+                    className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-900/50 transition-colors"
+                  >
+                    <h4 className="font-semibold text-slate-400 text-sm flex items-center gap-1.5">
+                      <Database className="w-4 h-4" /> 기타 데이터 (another_data)
+                    </h4>
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      {isAnotherExpanded ? '접기' : '펼쳐보기'}
+                      {isAnotherExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </span>
+                  </button>
+
+                  {isAnotherExpanded && (
+                    <div className="px-4 pb-4 border-t border-slate-800/50 pt-3">
+                      <p className="whitespace-pre-wrap leading-relaxed text-slate-300 max-h-96 overflow-y-auto pr-2">
+                        {job.another_data}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
