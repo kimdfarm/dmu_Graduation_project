@@ -450,6 +450,62 @@ const ResumeEdit = () => {
     );
   }
 
+  // 섹션(그룹) 추가 핸들러
+  const handleAddSection = async () => {
+    try {
+      setIsSaving(true);
+      const newDisplayOrder = sections.length + 1;
+      const defaultColumns = ['항목/제목', '내용'];
+
+      // API 호출 - 백엔드 DB에 새 이력서 섹션 생성
+      const res = await fetch(`/api/resumes/${resumeId}/sections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section_type: 'CUSTOM',
+          section_title: `${newDisplayOrder}. 새 이력서 항목`,
+          display_order: newDisplayOrder,
+          columns: defaultColumns,
+          details: [
+            {
+              id: crypto.randomUUID(),
+              title: '새 항목',
+              original_text: '[항목/제목]\n• 항목명을 입력하세요.\n\n[내용]\n• 상세 내용을 입력하세요.',
+              selected_version: 'ORIGINAL'
+            }
+          ]
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || '새 섹션을 추가하지 못했습니다.');
+      }
+
+      const createdSection = await res.json();
+
+      // 서버 응답 데이터를 테이블 스키마로 파싱
+      const { columns, rows } = parseDetailsToTableSchema(
+        createdSection.details, 
+        createdSection.columns
+      );
+
+      const formattedNewSec = {
+        ...createdSection,
+        columns,
+        rows
+      };
+
+      // 화면 상태에 반영
+      setSections((prev) => [...prev, formattedNewSec]);
+      showToast('새 이력서 섹션이 추가되었습니다!');
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#07051E] text-slate-100 p-6 md:p-10 font-sans relative pb-28">
       
@@ -694,6 +750,14 @@ const ResumeEdit = () => {
 
             </div>
           ))}
+          <button
+            onClick={handleAddSection}
+            disabled={isSaving}
+            className="w-full py-4 border-2 border-dashed border-indigo-700/60 hover:border-indigo-500 bg-indigo-950/30 hover:bg-indigo-900/40 text-indigo-300 font-bold text-sm rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.99] disabled:opacity-50"
+          >
+            <PlusCircle className="w-5 h-5 text-indigo-400" />
+            <span>+ 새 이력서 섹션 추가</span>
+          </button>
         </div>
 
       </div>
