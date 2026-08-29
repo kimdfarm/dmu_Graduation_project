@@ -18,6 +18,7 @@ import JobCard from './pages/Job/JobCard';
 import CoverLetterNew from './pages/CoverLetter/CoverLetterNew'
 import CoverLetterDetail from './pages/CoverLetter/CoverLetterDetail'
 import CoverLetterEdit from './pages/CoverLetter/CoverLetterEdit';
+import CoverLetterDownload from './pages/CoverLetter/CoverLetterDownload';
 export default function App() {
   return (
     <BrowserRouter>
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/cover-letter/new" element={<CoverLetterNew />} />
         <Route path="/cover-letter/:coverLetterId" element={<CoverLetterDetail />} />
         <Route path="/cover-letter/:coverLetterId/edit" element={<CoverLetterEdit />} />
+        <Route path="/cover-letter/:coverLetterId/download" element={<CoverLetterDownload />} />
       </Routes>
     </BrowserRouter>
   );
