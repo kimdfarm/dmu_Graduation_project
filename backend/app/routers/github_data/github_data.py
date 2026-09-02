@@ -1,13 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, Header, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Query, Response
 from pydantic import BaseModel
 import httpx
 from supabase import Client
 from groq import Groq, RateLimitError, AuthenticationError, APIError
 from datetime import datetime, timedelta, timezone, time
-from app.core.config import get_supabase, GROQ_API_KEY
+from app.core.config import get_supabase, GROQ_API_KEY , YOUR_GITHUB_CLIENT_ID , YOUR_GITHUB_CLIENT_SECRET , GITHUB_REDIRECT_URI
 import requests
 import traceback
 
@@ -15,6 +15,168 @@ router = APIRouter(
     prefix="/api",
     tags=["github-resumes"]
 )
+class GithubAuthRequest(BaseModel):
+    code: str
+    user_id: str | None = None
+
+@router.post("/auth/github/callback")
+def github_callback(payload: GithubAuthRequest, response: Response): # 💡 Response 객체 추가
+    # 1. GitHub Access Token 요청
+    token_url = "https://github.com/login/oauth/access_token"
+    headers = {"Accept": "application/json"}
+    data = {
+        "client_id": YOUR_GITHUB_CLIENT_ID,
+        "client_secret": YOUR_GITHUB_CLIENT_SECRET,
+        "code": payload.code,
+        "redirect_uri": GITHUB_REDIRECT_URI
+    }
+
+    res = requests.post(token_url, headers=headers, data=data)
+    token_data = res.json()
+
+    if "error" in token_data or res.status_code != 200:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"GitHub Token 교환 실패: {token_data.get('error_description', '알 수 없는 오류')}"
+        )
+
+    access_token = token_data.get("access_token")
+
+    # 2. access_token으로 GitHub 유저 정보 조회
+    user_res = requests.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    github_user = user_res.json()
+
+    # 3. 💡 HTTP-Only 쿠키에 GitHub Access Token 저장
+    response.set_cookie(
+        key="github_access_token",
+        value=access_token,
+        httponly=True,       # JS에서 직접 접근 불가 (XSS 보안 강화)
+        max_age=60 * 60 * 24 * 7, # 쿠키 유효기간 (7일)
+        samesite="lax",      # CSRF 방지
+        secure=False         # 로컬 테스트용 (운영/HTTPS 환경에서는 True로 변경)
+    )
+
+    # 4. JSON 응답 반환 (프론트엔드용)
+    return {
+        "status": "success",
+        "github_id": github_user.get("login"),
+        "github_avatar_url": github_user.get("avatar_url"),
+        "access_token": access_token  # 프론트엔드 전송용
+    }
+
+
+
+import json
+
+def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") -> dict:
+    """NOISE_PATTERNS 제거 버전: 오직 중복 병합 및 반복 횟수(가중치) 산출로 토큰 절감"""
+    
+    # 1. 저장소명(프로젝트명) 추출
+    repo_name = (
+        raw_graphql_data.get("name") 
+        or raw_graphql_data.get("repo_name") 
+        or raw_graphql_data.get("full_name") 
+        or default_repo_name 
+        or "프로젝트"
+    )
+
+    # 2. 기술 스택 추출
+    languages_data = raw_graphql_data.get("languages", {})
+    tech_stacks = []
+    
+    if isinstance(languages_data, dict):
+        if "nodes" in languages_data:
+            tech_stacks = [n.get("name") for n in languages_data.get("nodes", []) if n and n.get("name")]
+        elif "edges" in languages_data:
+            tech_stacks = [e.get("node", {}).get("name") for e in languages_data.get("edges", []) if e and e.get("node")]
+        else:
+            tech_stacks = [k for k in languages_data.keys() if k not in ["nodes", "edges"]]
+    elif isinstance(languages_data, list):
+        tech_stacks = languages_data
+
+    # 3. 커밋 내역 안전 추출
+    commits_raw = []
+    default_branch = raw_graphql_data.get("defaultBranchRef") or {}
+    if isinstance(default_branch, dict):
+        target = default_branch.get("target") or {}
+        if isinstance(target, dict):
+            history = target.get("history") or {}
+            if isinstance(history, dict):
+                commits_raw = history.get("nodes") or []
+
+    if not commits_raw:
+        object_data = raw_graphql_data.get("object") or {}
+        if isinstance(object_data, dict):
+            history = object_data.get("history") or {}
+            commits_raw = history.get("nodes") or []
+
+    if not commits_raw and isinstance(raw_graphql_data.get("commits"), list):
+        commits_raw = raw_graphql_data["commits"]
+
+    # 💡 4. 중복 병합 및 반복 횟수(기능 집중도) 집계 (삭제/필터링 로직 제거)
+    merged_commits = {}
+    for c in commits_raw:
+        if not isinstance(c, dict):
+            continue
+            
+        msg = (c.get("messageHeadline") or c.get("message") or "").strip()
+        if not msg:
+            continue
+
+        additions = c.get("additions", 0)
+        deletions = c.get("deletions", 0)
+
+        # 의존성 패키지 폭증으로 인한 이상치만 최소한으로 보정
+        if additions > 5000: additions = 100
+        if deletions > 5000: deletions = 100
+
+        # 중복 키로 묶어 누적
+        if msg in merged_commits:
+            merged_commits[msg]["additions"] += additions
+            merged_commits[msg]["deletions"] += deletions
+            merged_commits[msg]["count"] += 1
+        else:
+            merged_commits[msg] = {
+                "additions": additions,
+                "deletions": deletions,
+                "count": 1
+            }
+
+    # 병합된 커밋 목록 생성 (반복 횟수 명시)
+    clean_commits = []
+    for msg, stat in merged_commits.items():
+        clean_commits.append(
+            f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
+        )
+
+    # 5. PR/Issue 내역 중복 병합
+    prs_raw = []
+    prs_data = raw_graphql_data.get("pullRequests") or {}
+    if isinstance(prs_data, dict):
+        prs_raw = prs_data.get("nodes") or []
+
+    merged_prs = {}
+    for pr in prs_raw:
+        if isinstance(pr, dict):
+            title = (pr.get("title") or "").strip()
+            state = pr.get("state", "")
+            if title:
+                key = f"[PR] {title} (상태: {state})"
+                merged_prs[key] = merged_prs.get(key, 0) + 1
+
+    clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
+
+    return {
+        "repo_name": repo_name,
+        "tech_stacks": tech_stacks,
+        "key_commits": clean_commits,
+        "key_prs_and_issues": clean_prs
+    }
+
+
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -98,16 +260,18 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GITHUB_CAREER_PROMPT = """
 [지시사항]
-제시된 'GitHub 본인 기여 데이터'를 분석하여 개발자의 이력서용 성과 문장(불렛포인트 4~6개)을 작성해라.
+제시된 'GitHub 본인 기여 데이터'를 분석하여 개발자의 이력서용 핵심 성과 문장(불렛포인트 3~5개)을 작성해라.
 
 [GitHub 본인 기여 데이터]
 {github_graphql_data}
 
 [작성 규칙 - 엄격 준수]
-1. **언어 일치 원칙**: 입력된 기여 데이터의 주된 언어(한국어 등)로 작성해라. 입력 내용이 한국어 기반이라면 결과물(`role_summary`, `achievements`)도 반드시 **한국어**로 작성되어야 한다. 절대 영어로 반환하지 마라.
-2. **사실 기반 작성**: 없는 내용을 지어내지 말고, 제시된 본인 커밋/이슈/PR 내역에 근거해서만 작성해라.
-3. **어조**: "~ 구축하여 성능 개선", "~ 리팩토링으로 유지보수성 확보", "~ 기능 구현" 형태의 능동적 어조를 사용해라.
-4. **출력 형식**: 반드시 지정된 JSON 구조(`role_summary`와 `achievements` 배열)로 반환해라.
+1. **언어 일치**: 반드시 **한국어**로 작성해라.
+2. **노이즈 제거 (매우 중요)**:
+   - "발표 준비 끝", "수정", "update" 같은 단순 커밋 메시지는 성과 항목에서 완전 제외해라.
+   - 백만 단위 이상의 비현실적인 코드 추가/삭제 라인 수(의존성 라이브러리 설치 등)는 수치로 언급하지 말고 "대규모 데이터셋 처리" 또는 "코드베이스 최적화" 등으로 추상화하여 표현해라.
+3. **성과 중심 작성**: 단순 커밋 나열이 아닌, "어떤 기술/기능을 구현하여 어떤 효과를 얻었는지" 핵심 기능과 구조 설계 중심으로 요약해라.
+4. **출력 형식**: 오직 JSON 스키마 {{"role_summary": "string", "achievements": ["string"]}} 형식으로만 응답해라.
 """
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
@@ -119,44 +283,60 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
             detail="GROQ_API_KEY가 설정되지 않았습니다."
         )
 
-    repo_name = graphql_data.get("repo_name", f"프로젝트_{card_idx}")
-    languages_dict = graphql_data.get("languages", {})
-    tech_stack_str = ", ".join(languages_dict.keys()) if languages_dict else "개발 언어 정보 없음"
+    # 요청 페이로드의 repo_name 우선 확인
+    fallback_name = graphql_data.get("repo_name", f"프로젝트_{card_idx}")
+    cleaned_data = preprocess_github_data(graphql_data, default_repo_name=fallback_name)
+
+    repo_name = cleaned_data["repo_name"]
+    tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
+
+    # LLM 전달용 프롬프트 강화
+    # prompt_content 부분
+    prompt_content = f"""
+[프로젝트 정보]
+- 저장소명: {repo_name}
+- 사용 기술: {tech_stack_str}
+
+[실제 개발 기여 및 작업 빈도 내역]
+- 커밋 내역: {json.dumps(cleaned_data['key_commits'], ensure_ascii=False)}
+- PR/이슈 내역: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
+
+[작성 규칙]
+1. 제시된 커밋/PR 내역 중 '반복 횟수'나 '라인 변경량'이 높은 작업 항목을 이 개발자의 '핵심 구현 기능 및 주요 역할'로 판단하여 성과를 작성해라.
+2. 커밋 메시지에 등장하는 모듈명, 기능명, 기술 단어를 직접 언급하며 문장을 완성해라.
+3. 근거 없는 비현실적인 상투어는 자제하고 실제 작업 기록 기반의 성과 문장(achievements) 3~5개를 작성해라.
+4. 반드시 한국어로 작성하고, JSON 스키마 {{"role_summary": "string", "achievements": ["string"]}} 형식으로만 응답해라.
+"""
 
     try:
-        raw_str = json.dumps(graphql_data, ensure_ascii=False, indent=2)
         response = groq_client.chat.completions.create(
-    model=GROQ_MODEL_NAME,
-    messages=[
-        {
-            "role": "system", 
-            "content": (
-                "당신은 개발자의 GitHub 활동 데이터를 바탕으로 전문적인 이력서를 작성하는 라이터입니다. "
-                "제시된 기여 데이터의 주요 사용 언어(한국어 등)를 자동으로 감지하여 반드시 해당 언어로 결과를 작성해야 합니다. "
-                "결과는 오직 다음 JSON 스키마 형식으로만 응답하세요: "
-                "{\"role_summary\": \"string\", \"achievements\": [\"string\"]}"
-            )
-        },
-        {"role": "user", "content": GITHUB_CAREER_PROMPT.format(github_graphql_data=raw_str)}
-    ],
-    temperature=0.2,  # 일관성을 위해 temperature를 0.3에서 0.2로 낮추는 것을 권장합니다.
-    response_format={"type": "json_object"}
-)
-        
-        res_json = json.loads(response.choices[0].message.content)
-        role_summary = res_json.get("role_summary", "기여 개발자")
+            model=GROQ_MODEL_NAME,
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "당신은 개발자의 GitHub 정제 데이터를 이력서 문장으로 변환해 주는 라이터입니다."
+                },
+                {"role": "user", "content": prompt_content}
+            ],
+            temperature=0.1,  # 환각 방지를 위해 0.1로 하향
+            response_format={"type": "json_object"}
+        )
+
+        content = response.choices[0].message.content if response.choices else None
+        if not content:
+            raise HTTPException(status_code=500, detail="Groq API 응답 본문이 비어있습니다.")
+
+        res_json = json.loads(content) or {}
+        role_summary = res_json.get("role_summary", f"{repo_name} 개발 및 구현")
         achievements = res_json.get("achievements", [])
 
         formatted_list = []
-        for item in achievements:
-            if isinstance(item, dict):
-                text = str(next(iter(item.values()), "")) if item else ""
-            else:
-                text = str(item)
-            
-            clean_text = text.strip("• ").strip()
-            if clean_text:
-                formatted_list.append(f"• {clean_text}")
+        if isinstance(achievements, list):
+            for item in achievements:
+                text = str(next(iter(item.values()), "")) if isinstance(item, dict) else str(item)
+                clean_text = text.strip("• ").strip()
+                if clean_text:
+                    formatted_list.append(f"• {clean_text}")
 
         achievements_formatted = "\n".join(formatted_list) if formatted_list else "• 주요 기능 및 모듈 구현"
 
@@ -169,19 +349,15 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
 
         return {
             "id": f"card_{card_idx}",
-            "title": repo_name,
+            "title": repo_name,  # 💡 카드 제목을 실제 저장소 이름으로 고정
             "original_text": original_text,
             "spell_checked_text": None,
             "ai_proofread_text": None,
             "selected_version": "ORIGINAL"
         }
 
-    except RateLimitError:
-        raise HTTPException(status_code=429, detail="API 키 사용량이 모두 소진되었습니다.")
-    except AuthenticationError:
-        raise HTTPException(status_code=401, detail="API 키가 만료되었습니다.")
-    except APIError as e:
-        raise HTTPException(status_code=502, detail=f"Groq API 통신 에러: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
@@ -220,6 +396,9 @@ def is_within_date_range(date_str: str, start_dt: Optional[datetime], end_dt: Op
 # ------------------------------------------------------------------
 # 2. 본인 기여 데이터 추출 + 선택한 기간 내 내역 필터링
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 2. 본인 기여 데이터 추출 + 선택한 기간 내 내역 필터링
+# ------------------------------------------------------------------
 @router.post("/github/analyze")
 async def analyze_repository_graphql(
     payload: RepoAnalyzeRequest,
@@ -229,7 +408,6 @@ async def analyze_repository_graphql(
         raise HTTPException(status_code=401, detail="GitHub Access Token이 필요합니다.")
     
     token = authorization.split(" ")[1]
-    target_user = payload.github_id.lower()
 
     # 기간 설정 파싱 (start_date ~ end_date)
     start_datetime = None
@@ -255,9 +433,9 @@ async def analyze_repository_graphql(
     if "/" in payload.repo_name:
         parts = payload.repo_name.split("/")
         target_owner = parts[0]      # 예: "owner_name"
-        target_repo_name = parts[1] # 예: "repo_name"
+        target_repo_name = parts[1]  # 예: "repo_name"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             "https://api.github.com/graphql",
             headers={
@@ -267,114 +445,35 @@ async def analyze_repository_graphql(
             json={
                 "query": GRAPHQL_REPO_QUERY,
                 "variables": {
-                    "owner": target_owner,        # 정제된 owner 적용
-                    "name": target_repo_name      # 순수 저장소 이름 적용
+                    "owner": target_owner,
+                    "name": target_repo_name
                 }
             }
         )
-
-        if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="GitHub GraphQL API 요청 실패")
-
-        res_json = response.json()
-        if "errors" in res_json:
-            raise HTTPException(status_code=400, detail=f"GraphQL 오류: {res_json['errors'][0]['message']}")
-
-        data = res_json.get("data") or {}
-        repo_data = data.get("repository")
-        if not repo_data:
-            raise HTTPException(status_code=404, detail="저장소 정보를 찾을 수 없습니다.")
-
-        # A. 커밋 중 본인 작성 & 기간 내 작성 필터링
-        user_commits = []
-        default_branch = repo_data.get("defaultBranchRef") or {}
-        target = default_branch.get("target") or {}
-        history = target.get("history") or {}
-        nodes = history.get("nodes") or []
-
-        for c in nodes:
-            author_dict = c.get("author") or {}
-            author_user = author_dict.get("user") or {}
-            author_login = author_user.get("login", "").lower()
-            commit_date = c.get("committedDate", "")
-            
-            if author_login == target_user and is_within_date_range(commit_date, start_datetime, end_datetime):
-                user_commits.append({
-                    "message": c.get("messageHeadline", ""),
-                    "date": commit_date,
-                    "changes": f"+{c.get('additions', 0)} / -{c.get('deletions', 0)}"
-                })
-
-        # B. 이슈 중 본인 생성 & 기간 내 생성 필터링
-        user_issues = []
-        issues_data = repo_data.get("issues") or {}
-        for i in issues_data.get("nodes") or []:
-            author_dict = i.get("author") or {}
-            author_login = author_dict.get("login", "").lower()
-            issue_date = i.get("createdAt", "")
-
-            if author_login == target_user and is_within_date_range(issue_date, start_datetime, end_datetime):
-                user_issues.append({
-                    "title": i.get("title", ""),
-                    "state": i.get("state", ""),
-                    "labels": [l["name"] for l in (i.get("labels") or {}).get("nodes") or []]
-                })
-
-        # C. PR 중 본인 작성 & 기간 내 작성 필터링
-        user_prs = []
-        prs_data = repo_data.get("pullRequests") or {}
-        for pr in prs_data.get("nodes") or []:
-            author_dict = pr.get("author") or {}
-            author_login = author_dict.get("login", "").lower()
-            pr_date = pr.get("createdAt", "")
-
-            if author_login == target_user and is_within_date_range(pr_date, start_datetime, end_datetime):
-                user_prs.append({
-                    "title": pr.get("title", ""),
-                    "state": pr.get("state", ""),
-                    "review_decision": pr.get("reviewDecision", "NONE"),
-                    "changes": f"+{pr.get('additions', 0)} / -{pr.get('deletions', 0)}",
-                    "labels": [l["name"] for l in (pr.get("labels") or {}).get("nodes") or []]
-                })
-
-        # D. 설정된 기간 내 본인의 기여 내역이 0건이면 400 반환
-        if not user_commits and not user_issues and not user_prs:
-            date_info = ""
-            if payload.start_date or payload.end_date:
-                date_info = f" 설정 기간({payload.start_date or '시작일 미지정'} ~ {payload.end_date or '종료일 미지정'}) 내에"
-
+        
+        # 💡 GraphQL 응답 결과 체크
+        res_data = response.json()
+        if "errors" in res_data:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"'{payload.repo_name}' 저장소에 사용자 '{payload.github_id}'님의{date_info} 기여 활동 내역(Commit, PR, Issue)이 존재하지 않습니다."
+                status_code=400, 
+                detail=f"GitHub GraphQL 요청 실패: {res_data['errors'][0].get('message')}"
+            )
+        
+        # 💡 [핵심 수정 위치]
+        # data -> repository 안의 객체를 직접 추출합니다.
+        raw_data = res_data.get("data", {})
+        repo_analytics = raw_data.get("repository") or {}
+
+        if not repo_analytics:
+            raise HTTPException(
+                status_code=404,
+                detail=f"저장소 정보를 찾을 수 없습니다: {target_owner}/{target_repo_name}"
             )
 
-        # 언어 비율 계산
-        lang_data = repo_data.get("languages") or {}
-        total_size = lang_data.get("totalSize") or 1
-        languages_percentage = {}
-        for edge in (lang_data.get("edges") or []):
-            node = edge.get("node") or {}
-            lang_name = node.get("name", "Unknown")
-            size = edge.get("size", 0)
-            pct = round((size / total_size) * 100, 1)
-            if pct >= 1.0:
-                languages_percentage[lang_name] = f"{pct}%"
+        # 💡 preprocess_github_data가 읽을 수 있도록 repo_name 키를 확실히 지정
+        repo_analytics["repo_name"] = repo_analytics.get("name") or target_repo_name
 
-        return {
-            "repo_name": repo_data.get("name"),
-            "is_fork": repo_data.get("isFork", False),
-            "user_activity_summary": {
-                "commit_count": len(user_commits),
-                "issue_count": len(user_issues),
-                "pr_count": len(user_prs)
-            },
-            "languages": languages_percentage,
-            "user_commits": user_commits,
-            "user_issues": user_issues,
-            "user_pull_requests": user_prs
-        }
-
-
+        return repo_analytics
 # ------------------------------------------------------------------
 # 다중 저장소 이력서 생성 엔드포인트
 # ------------------------------------------------------------------
@@ -400,8 +499,26 @@ async def generate_github_resume(
 
         details_list = []
         for idx, repo_analytics in enumerate(projects_data, start=1):
-            card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx)
-            details_list.append(card_detail)
+            # 💡 1. repo_analytics 데이터 자체가 dict 형태인지 확인
+            if not repo_analytics or not isinstance(repo_analytics, dict):
+                continue
+
+            try:
+                card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx)
+                
+                # 💡 2. 파싱 결과가 dict 타입이고 유효한지 안전 검사 후 추가
+                if card_detail and isinstance(card_detail, dict):
+                    details_list.append(card_detail)
+            except Exception as parse_err:
+                print(f"[{idx}번 저장소 카드 생성 실패]: {parse_err}")
+                continue
+
+        # 💡 3. 성공적으로 생성된 카드가 하나도 없는 경우 처리
+        if not details_list:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="GitHub 저장소 분석 데이터를 카드로 생성하는 데 실패했습니다."
+            )
 
         doc_payload = {
             "member_id": payload.member_id,
