@@ -4,7 +4,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
 import { 
   ArrowLeft, Image as ImageIcon, Code, Printer, 
-  GripVertical, ChevronUp, ChevronDown, Loader2, Globe, Mail, Phone, MapPin, Sparkles
+  GripVertical, ChevronUp, ChevronDown, Loader2, Mail, Phone, MapPin,
+  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon
 } from 'lucide-react';
 
 const BASE_URL = 'http://localhost:8000';
@@ -127,6 +128,45 @@ const ResumeDownload = () => {
   const [downloadingFormat, setDownloadingFormat] = useState(null);
 
   const userId = localStorage.getItem('userId');
+
+  const mainStyleOptions = [
+    {
+      id: 'KR',
+      country: '대한민국',
+      flag: '🇰🇷',
+      name: '한국 표준형 이력서',
+      desc: '신입 및 경력직 공용 표준 인적사항 및 테이블 서식',
+      icon: Globe2,
+      badge: '표준'
+    },
+    {
+      id: 'US',
+      country: '미국 / 북미',
+      flag: '🇺🇸',
+      name: '미국 ATS 최적화 Resume',
+      desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식',
+      icon: FileText,
+      badge: 'ATS'
+    },
+    {
+      id: 'EU',
+      country: '유럽 연합',
+      flag: '🇪🇺',
+      name: '유럽형 2단 Curriculum Vitae',
+      desc: '좌측 프로필 사이드바와 우측 경력 분리 2단 레이아웃',
+      icon: Layout,
+      badge: 'CV'
+    },
+    {
+      id: 'JP',
+      country: '일본',
+      flag: '🇯🇵',
+      name: '일본 정규 履歴書 (리레키쇼)',
+      desc: '격자 그리드 형태의 규격화된 테이블 레이아웃',
+      icon: Award,
+      badge: '정규'
+    }
+  ];
 
   useEffect(() => {
     if (!userId) {
@@ -331,7 +371,6 @@ const ResumeDownload = () => {
   return (
     <div className="min-h-screen bg-[#07051E] text-slate-100 p-4 sm:p-8 font-sans">
       
-      {/* 인쇄 스타일 제어 */}
       <style>{`
         @page {
           size: A4 portrait;
@@ -348,7 +387,6 @@ const ResumeDownload = () => {
             box-shadow: none !important;
             border: none !important;
           }
-          /* 행(tr) 단위에서만 페이지 분할 제어 */
           tr {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
@@ -366,7 +404,7 @@ const ResumeDownload = () => {
         }
       `}</style>
 
-      {/* 헤더 */}
+      {/* 상단 헤더 */}
       <div className="max-w-7xl mx-auto flex items-center justify-between mb-6 no-print">
         <button 
           onClick={() => navigate(-1)}
@@ -376,145 +414,126 @@ const ResumeDownload = () => {
           <span>뒤로가기</span>
         </button>
         <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-          글로벌 이력서 커스텀 & 내보내기
+          4대 국가별 이력서 커스텀 & 내보내기
         </h1>
       </div>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* 제어 패널 */}
-        <div className="lg:col-span-4 space-y-6 no-print">
+        {/* 좌측 제어 패널 */}
+        <div className="lg:col-span-5 space-y-6 no-print">
           
+          {/* 국가별 양식 선택 패널 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
-              이력서 디자인 스타일 선택
-            </h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setSelectedStyle('KR')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'KR' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇰🇷 한국 (현대식)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('US')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'US' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇺🇸 미국 (ATS 최적화)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('EU')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'EU' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇪🇺 유럽 (2단 CV)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('JP')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'JP' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇯🇵 일본 (정규 履歴書)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('CREATIVE')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'CREATIVE' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🎨 크리에이티브
-              </button>
-              <button
-                onClick={() => setSelectedStyle('EXECUTIVE')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'EXECUTIVE' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                💼 클래식/기업형
-              </button>
-              <button
-                onClick={() => setSelectedStyle('TECH')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'TECH' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🚀 테크/스타트업
-              </button>
-              <button
-                onClick={() => setSelectedStyle('MINIMAL')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'MINIMAL' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                📄 미니멀
-              </button>
-              <button
-                onClick={() => setSelectedStyle('GRID')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all col-span-2 ${
-                  selectedStyle === 'GRID' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                📑 모던 그리드
-              </button>
+            <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Globe2 className="w-5 h-5 text-indigo-400" />
+                국가별 양식 선택 (4종)
+              </h2>
+            </div>
+
+            {/* 빠른 선택 드롭다운 */}
+            <div className="relative">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">템플릿 빠른 선택</label>
+              <div className="relative">
+                <select
+                  value={selectedStyle}
+                  onChange={(e) => setSelectedStyle(e.target.value)}
+                  className="w-full bg-slate-900 border border-indigo-500/50 rounded-lg px-3.5 py-2.5 text-xs text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10 font-medium"
+                >
+                  {mainStyleOptions.map((style) => (
+                    <option key={style.id} value={style.id} className="bg-slate-900 text-slate-200">
+                      {style.flag} {style.name} ({style.country})
+                    </option>
+                  ))}
+                </select>
+                <ChevronIcon className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+            
+            {/* 카드 선택 리스트 */}
+            <div className="grid grid-cols-1 gap-2.5 pt-1">
+              {mainStyleOptions.map((style) => {
+                const IconComponent = style.icon;
+                const isSelected = selectedStyle === style.id;
+                return (
+                  <div
+                    key={style.id}
+                    onClick={() => setSelectedStyle(style.id)}
+                    className={`relative p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-indigo-950/90 to-purple-950/60 border-indigo-500 shadow-md shadow-indigo-950/50 ring-1 ring-indigo-500'
+                        : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg border mt-0.5 shrink-0 ${
+                      isSelected 
+                        ? 'bg-indigo-600 border-indigo-400 text-white' 
+                        : 'bg-slate-800 border-slate-700 text-slate-400'
+                    }`}>
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className={`text-xs font-bold truncate flex items-center gap-1.5 ${isSelected ? 'text-indigo-200' : 'text-slate-200'}`}>
+                          <span className="text-base">{style.flag}</span> {style.name}
+                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                          isSelected
+                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {style.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        {style.desc}
+                      </p>
+                    </div>
+
+                    {isSelected && (
+                      <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-1" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white">이력서 저장</h2>
-            <div className="grid grid-cols-1 gap-2.5">
+          {/* 저장 & 내보내기 버튼 */}
+          <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-3">
+            <h2 className="text-base font-semibold text-white">이력서 저장 & 내보내기</h2>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={downloadPNG}
                 disabled={downloadingFormat !== null}
-                className="flex items-center justify-center gap-2 p-3 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-purple-600/90 hover:bg-purple-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {downloadingFormat === 'png' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                PNG 이미지 저장
+                <span>PNG 이미지</span>
               </button>
 
               <button
                 onClick={downloadHTML}
                 disabled={downloadingFormat !== null}
-                className="flex items-center justify-center gap-2 p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 border border-slate-700"
               >
                 {downloadingFormat === 'html' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Code className="w-4 h-4" />}
-                HTML 파일 저장
+                <span>HTML 코드</span>
               </button>
 
               <button
                 onClick={handlePrint}
-                className="flex items-center justify-center gap-2 p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors"
               >
                 <Printer className="w-4 h-4" />
-                PDF/인쇄 출력하기
+                <span>PDF / 인쇄</span>
               </button>
             </div>
           </div>
 
+          {/* 섹션 순서 관리 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
             <h2 className="text-base font-semibold text-white">프로젝트/경력 순서 관리</h2>
             <DragDropContext onDragEnd={handleOnDragEnd}>
@@ -571,10 +590,10 @@ const ResumeDownload = () => {
 
         </div>
 
-        {/* 뷰어 영역 */}
-        <div className="lg:col-span-8 flex justify-center overflow-x-auto p-2">
+        {/* 실시간 이력서 뷰어 영역 (4종 스타일) */}
+        <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
-          {/* 1. 한국 (KR) */}
+          {/* 1. 한국 표준형 (KR) */}
           {selectedStyle === 'KR' && (
             <div 
               ref={printRef}
@@ -651,7 +670,7 @@ const ResumeDownload = () => {
             </div>
           )}
 
-          {/* 2. 미국 (US) */}
+          {/* 2. 미국 ATS 최적화 (US) */}
           {selectedStyle === 'US' && (
             <div 
               ref={printRef}
@@ -714,7 +733,7 @@ const ResumeDownload = () => {
             </div>
           )}
 
-          {/* 3. 유럽 (EU) */}
+          {/* 3. 유럽 2단 Curriculum Vitae (EU) */}
           {selectedStyle === 'EU' && (
             <div 
               ref={printRef}
@@ -792,7 +811,7 @@ const ResumeDownload = () => {
             </div>
           )}
 
-          {/* 4. 일본 (JP) */}
+          {/* 4. 일본 정규 履歴書 (JP) */}
           {selectedStyle === 'JP' && (
             <div 
               ref={printRef}
@@ -895,296 +914,6 @@ const ResumeDownload = () => {
                         </tbody>
                       </table>
                     )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 5. 크리에이티브 (CREATIVE) */}
-          {selectedStyle === 'CREATIVE' && (
-            <div 
-              ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-5 font-sans"
-            >
-              <div className="bg-gradient-to-r from-purple-700 to-indigo-600 text-white p-6 rounded-xl flex justify-between items-center shadow-md">
-                <div>
-                  <h1 className="text-3xl font-extrabold tracking-wide text-white">{profile.name}</h1>
-                  <p className="text-xs text-purple-100 mt-1">{profile.email} | {profile.phone_number}</p>
-                  <p className="text-xs text-purple-200">{profile.address} {profile.detail_address}</p>
-                </div>
-                {profile.avatar_url && (
-                  <img src={profile.avatar_url} alt="Profile" className="w-20 h-24 object-cover rounded-lg border-2 border-white/50 shadow-md" />
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="text-sm font-black text-purple-900 tracking-wider uppercase border-b-2 border-purple-500 pb-0.5">Education & Certification</h2>
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div className="bg-purple-50/50 p-3 rounded-lg border border-purple-100">
-                    <span className="font-bold text-purple-900 block mb-1">학력</span>
-                    {educations.map((edu) => (
-                      <p key={edu.id} className="text-gray-800 font-medium">{edu.school_name} <span className="text-gray-500 text-[11px]">({edu.major})</span></p>
-                    ))}
-                  </div>
-                  <div className="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
-                    <span className="font-bold text-indigo-900 block mb-1">자격 사항</span>
-                    {certificates.map((cert) => (
-                      <p key={cert.id} className="text-gray-800 font-medium">{cert.certificate_name} <span className="text-gray-500 text-[11px]">({cert.acquisition_date})</span></p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h2 className="text-sm font-black text-purple-900 tracking-wider uppercase border-b-2 border-purple-500 pb-0.5">Key Projects</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="p-4 rounded-xl bg-slate-50 border-l-4 border-purple-600 shadow-sm space-y-2">
-                    <h3 className="text-xs font-bold text-purple-950">{sec.section_title || '프로젝트'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-gray-800">
-                              <span className="font-bold text-purple-800 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line pl-2 text-gray-700 leading-relaxed text-[11px]">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 6. 클래식 / 기업형 (EXECUTIVE) */}
-          {selectedStyle === 'EXECUTIVE' && (
-            <div 
-              ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-5 font-serif"
-            >
-              <div className="text-center border-b-2 border-slate-900 pb-3 space-y-1">
-                <h1 className="text-2xl font-bold tracking-widest text-slate-900 uppercase">{profile.name}</h1>
-                <p className="text-xs text-slate-700 font-sans">
-                  {profile.email} • {profile.phone_number} • {profile.address} {profile.detail_address}
-                </p>
-              </div>
-
-              <div className="space-y-2 font-sans">
-                <h2 className="text-xs font-bold text-slate-900 uppercase border-b border-slate-400 pb-0.5 tracking-wider">Education & Credentials</h2>
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div>
-                    {educations.map((edu) => (
-                      <p key={edu.id} className="text-slate-800 font-semibold">{edu.school_name} - <span className="font-normal text-slate-600">{edu.major} ({edu.status})</span></p>
-                    ))}
-                  </div>
-                  <div>
-                    {certificates.map((cert) => (
-                      <p key={cert.id} className="text-slate-800 font-semibold">{cert.certificate_name} - <span className="font-normal text-slate-600">{cert.acquisition_date}</span></p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4 font-sans">
-                <h2 className="text-xs font-bold text-slate-900 uppercase border-b border-slate-400 pb-0.5 tracking-wider">Professional Projects</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1.5 border-b border-slate-100 pb-3">
-                    <h3 className="text-xs font-bold text-slate-900 underline">{sec.section_title || '프로젝트 명'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1 pl-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800">
-                              <span className="font-semibold text-slate-900">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-700 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 7. 테크 / 스타트업 (TECH) */}
-          {selectedStyle === 'TECH' && (
-            <div 
-              ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-5 font-mono text-xs"
-            >
-              <div className="border-b-2 border-emerald-500 pb-3 flex justify-between items-end font-sans">
-                <div>
-                  <h1 className="text-2xl font-bold text-slate-900">{profile.name}</h1>
-                  <p className="text-xs text-emerald-600 font-mono mt-0.5">&gt; {profile.email} | {profile.phone_number}</p>
-                </div>
-                <div className="text-right text-[11px] text-gray-500">
-                  <p>{profile.address} {profile.detail_address}</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-xs font-bold text-emerald-700 font-sans border-b border-emerald-200 pb-0.5">// ACADEMIC & CERTS</h2>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    {educations.map((edu) => (
-                      <p key={edu.id} className="text-slate-800">• {edu.school_name} [{edu.major}]</p>
-                    ))}
-                  </div>
-                  <div>
-                    {certificates.map((cert) => (
-                      <p key={cert.id} className="text-slate-800">• {cert.certificate_name} ({cert.acquisition_date})</p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3 font-sans">
-                <h2 className="text-xs font-bold text-emerald-700 font-mono border-b border-emerald-200 pb-0.5">// PROJECT & WORK EXPERIENCE</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
-                    <h3 className="text-xs font-bold text-slate-900 font-mono text-emerald-900"># {sec.section_title || 'Project'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1 pl-1">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800">
-                              <span className="font-bold text-emerald-700 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-700 leading-relaxed text-[11px] font-sans pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 8. 미니멀 (MINIMAL) */}
-          {selectedStyle === 'MINIMAL' && (
-            <div 
-              ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
-            >
-              <div className="space-y-1 border-b border-slate-200 pb-4">
-                <h1 className="text-3xl font-light text-slate-900 tracking-tight">{profile.name}</h1>
-                <p className="text-xs text-slate-500">
-                  {profile.email} — {profile.phone_number} — {profile.address} {profile.detail_address}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Education & Certification</h2>
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div>
-                    {educations.map((edu) => (
-                      <p key={edu.id} className="text-slate-800 font-medium">{edu.school_name} <span className="text-slate-400">({edu.major})</span></p>
-                    ))}
-                  </div>
-                  <div>
-                    {certificates.map((cert) => (
-                      <p key={cert.id} className="text-slate-800 font-medium">{cert.certificate_name} <span className="text-slate-400">({cert.acquisition_date})</span></p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Projects</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1">
-                    <h3 className="text-xs font-bold text-slate-800">{sec.section_title || 'Title'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-700">
-                              <span className="font-semibold text-slate-900 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-600 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 9. 모던 그리드 (GRID) */}
-          {selectedStyle === 'GRID' && (
-            <div 
-              ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
-            >
-              <div className="grid grid-cols-12 gap-4 border-b-2 border-slate-800 pb-3 items-center">
-                <div className="col-span-9 space-y-1">
-                  <h1 className="text-2xl font-bold text-slate-900">{profile.name}</h1>
-                  <p className="text-xs text-slate-600">{profile.email} | {profile.phone_number}</p>
-                  <p className="text-xs text-slate-500">{profile.address} {profile.detail_address}</p>
-                </div>
-                <div className="col-span-3 text-right">
-                  {profile.avatar_url && (
-                    <img src={profile.avatar_url} alt="Profile" className="w-16 h-20 object-cover rounded border border-slate-300 ml-auto" />
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-12 gap-4">
-                <div className="col-span-6 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                  <h2 className="font-bold text-slate-800 border-b border-slate-300 pb-1 mb-1">학력 사항</h2>
-                  {educations.map((edu) => (
-                    <div key={edu.id} className="flex justify-between py-0.5">
-                      <span className="font-medium text-slate-900">{edu.school_name}</span>
-                      <span className="text-slate-500">{edu.major}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="col-span-6 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                  <h2 className="font-bold text-slate-800 border-b border-slate-300 pb-1 mb-1">자격 및 면허</h2>
-                  {certificates.map((cert) => (
-                    <div key={cert.id} className="flex justify-between py-0.5">
-                      <span className="font-medium text-slate-900">{cert.certificate_name}</span>
-                      <span className="text-slate-500">{cert.acquisition_date}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800 border-b border-slate-300 pb-0.5">상세 프로젝트 및 경력</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="p-3 border border-slate-200 rounded-lg space-y-1">
-                    <h3 className="text-xs font-bold text-slate-900 bg-slate-100 p-1 rounded">{sec.section_title || '프로젝트'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800">
-                              <span className="font-bold text-slate-700 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-600 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
                   </div>
                 ))}
               </div>

@@ -4,12 +4,12 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
 import { 
   ArrowLeft, Image as ImageIcon, Code, Printer, 
-  GripVertical, ChevronUp, ChevronDown, Loader2, Sparkles, Briefcase
+  GripVertical, ChevronUp, ChevronDown, Loader2, Globe2,
+  FileText, Layout, Award, CheckCircle2, ChevronDown as ChevronIcon
 } from 'lucide-react';
 
 const BASE_URL = 'http://localhost:8000';
 
-// 자기소개서 상세 세부사항 파싱 함수
 const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
   const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
     ? [...secColumns]
@@ -70,7 +70,7 @@ const CoverLetterDownload = () => {
 
   const [coverLetter, setCoverLetter] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
-  const [selectedStyle, setSelectedStyle] = useState('KR');
+  const [selectedStyle, setSelectedStyle] = useState('US_ATS');
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -86,6 +86,45 @@ const CoverLetterDownload = () => {
 
   const userId = localStorage.getItem('userId');
 
+  const mainStyleOptions = [
+    {
+      id: 'US_ATS',
+      country: '미국 / 북미',
+      flag: '🇺🇸',
+      name: '미국 ATS 최적화 Cover Letter',
+      desc: '단일 칼럼, 흑백 중심의 깔끔하고 가독성 높은 미국 표준',
+      icon: FileText,
+      badge: 'ATS'
+    },
+    {
+      id: 'UK_EU',
+      country: '영국 / 유럽',
+      flag: '🇬🇧',
+      name: '유럽형 2단 Curriculum Vitae',
+      desc: '신뢰감을 주는 네이비 포인트와 체계적인 라이너 구획',
+      icon: Layout,
+      badge: 'CV'
+    },
+    {
+      id: 'DE_CV',
+      country: '독일',
+      flag: '🇩🇪',
+      name: '독일 Lebenslauf 스타일',
+      desc: '2열 분할 레이아웃으로 직관적이고 정확성을 강조',
+      icon: Globe2,
+      badge: '표준'
+    },
+    {
+      id: 'JP_MODERN',
+      country: '일본',
+      flag: '🇯🇵',
+      name: '일본 모던 자기소개서',
+      desc: '전통 격자 구조를 렌더링한 정갈하고 격식 있는 서식',
+      icon: Award,
+      badge: '정규'
+    }
+  ];
+
   useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
@@ -97,7 +136,6 @@ const CoverLetterDownload = () => {
       try {
         setIsLoading(true);
 
-        // 유저 프로필 로드
         const profileRes = await fetch(`${BASE_URL}/users/${userId}`);
         if (profileRes.ok) {
           const result = await profileRes.json();
@@ -113,7 +151,6 @@ const CoverLetterDownload = () => {
           });
         }
 
-        // 자기소개서 정보 로드
         const coverRes = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
         if (!coverRes.ok) throw new Error('자기소개서 정보를 불러오는데 실패했습니다.');
 
@@ -204,7 +241,7 @@ const CoverLetterDownload = () => {
       const image = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       link.href = image;
-      link.download = `${profile.name || '자기소개서'}_${coverLetter?.title || ''}_CoverLetter.png`;
+      link.download = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter.png`;
       link.click();
     } catch (err) {
       console.error('PNG 저장 실패:', err);
@@ -218,7 +255,7 @@ const CoverLetterDownload = () => {
     if (!printRef.current) return;
     setDownloadingFormat('html');
     const content = printRef.current.innerHTML;
-    const fileName = `${profile.name || '자기소개서'}_${coverLetter?.title || ''}_CoverLetter`;
+    const fileName = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter`;
     const fullHtml = `
       <!DOCTYPE html>
       <html lang="ko">
@@ -261,7 +298,7 @@ const CoverLetterDownload = () => {
 
   const handlePrint = () => {
     const originalTitle = document.title;
-    document.title = `${profile.name || '자기소개서'}_${coverLetter?.title || ''}_CoverLetter`;
+    document.title = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter`;
     window.print();
     document.title = originalTitle;
   };
@@ -270,7 +307,7 @@ const CoverLetterDownload = () => {
     return (
       <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-        <p className="text-sm">자기소개서를 불러오는 중입니다...</p>
+        <p className="text-sm">글로벌 양식을 불러오는 중입니다...</p>
       </div>
     );
   }
@@ -278,7 +315,6 @@ const CoverLetterDownload = () => {
   return (
     <div className="min-h-screen bg-[#07051E] text-slate-100 p-4 sm:p-8 font-sans">
       
-      {/* 인쇄 스타일 제어 */}
       <style>{`
         @page {
           size: A4 portrait;
@@ -322,147 +358,128 @@ const CoverLetterDownload = () => {
           <span>뒤로가기</span>
         </button>
         <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-          자기소개서 커스텀 & 내보내기
+          4대 국가별 이력서 커스텀 & 내보내기
         </h1>
       </div>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* 제어 패널 */}
-        <div className="lg:col-span-4 space-y-6 no-print">
+        {/* 좌측 제어 패널 */}
+        <div className="lg:col-span-5 space-y-6 no-print">
           
+          {/* 국가별 양식 선택 패널 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
-              자기소개서 디자인 스타일 선택
-            </h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setSelectedStyle('KR')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'KR' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇰🇷 한국 (표준형)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('US')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'US' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇺🇸 영문 (Cover Letter)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('EU')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'EU' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇪🇺 유럽형 (2컬럼)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('JP')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'JP' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🇯🇵 일본형 (志望動機)
-              </button>
-              <button
-                onClick={() => setSelectedStyle('CREATIVE')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'CREATIVE' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🎨 크리에이티브
-              </button>
-              <button
-                onClick={() => setSelectedStyle('EXECUTIVE')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'EXECUTIVE' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                💼 클래식/기업형
-              </button>
-              <button
-                onClick={() => setSelectedStyle('TECH')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'TECH' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                🚀 테크/스타트업
-              </button>
-              <button
-                onClick={() => setSelectedStyle('MINIMAL')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all ${
-                  selectedStyle === 'MINIMAL' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                📄 미니멀
-              </button>
-              <button
-                onClick={() => setSelectedStyle('GRID')}
-                className={`p-2.5 rounded-lg text-xs font-medium border transition-all col-span-2 ${
-                  selectedStyle === 'GRID' 
-                    ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' 
-                    : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                📑 모던 그리드
-              </button>
+            <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Globe2 className="w-5 h-5 text-indigo-400" />
+                국가별 양식 선택 (4종)
+              </h2>
+            </div>
+
+            {/* 빠른 선택 드롭다운 */}
+            <div className="relative">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">템플릿 빠른 선택</label>
+              <div className="relative">
+                <select
+                  value={selectedStyle}
+                  onChange={(e) => setSelectedStyle(e.target.value)}
+                  className="w-full bg-slate-900 border border-indigo-500/50 rounded-lg px-3.5 py-2.5 text-xs text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10 font-medium"
+                >
+                  {mainStyleOptions.map((style) => (
+                    <option key={style.id} value={style.id} className="bg-slate-900 text-slate-200">
+                      {style.flag} {style.name} ({style.country})
+                    </option>
+                  ))}
+                </select>
+                <ChevronIcon className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+            
+            {/* 카드 선택 리스트 */}
+            <div className="grid grid-cols-1 gap-2.5 pt-1">
+              {mainStyleOptions.map((style) => {
+                const IconComponent = style.icon;
+                const isSelected = selectedStyle === style.id;
+                return (
+                  <div
+                    key={style.id}
+                    onClick={() => setSelectedStyle(style.id)}
+                    className={`relative p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-indigo-950/90 to-purple-950/60 border-indigo-500 shadow-md shadow-indigo-950/50 ring-1 ring-indigo-500'
+                        : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg border mt-0.5 shrink-0 ${
+                      isSelected 
+                        ? 'bg-indigo-600 border-indigo-400 text-white' 
+                        : 'bg-slate-800 border-slate-700 text-slate-400'
+                    }`}>
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className={`text-xs font-bold truncate flex items-center gap-1.5 ${isSelected ? 'text-indigo-200' : 'text-slate-200'}`}>
+                          <span className="text-base">{style.flag}</span> {style.name}
+                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                          isSelected
+                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {style.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        {style.desc}
+                      </p>
+                    </div>
+
+                    {isSelected && (
+                      <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-1" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white">자기소개서 저장</h2>
-            <div className="grid grid-cols-1 gap-2.5">
+          {/* 저장 & 내보내기 버튼 */}
+          <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-3">
+            <h2 className="text-base font-semibold text-white">이력서 저장 & 내보내기</h2>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={downloadPNG}
                 disabled={downloadingFormat !== null}
-                className="flex items-center justify-center gap-2 p-3 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-purple-600/90 hover:bg-purple-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
               >
                 {downloadingFormat === 'png' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                PNG 이미지 저장
+                <span>PNG 이미지</span>
               </button>
 
               <button
                 onClick={downloadHTML}
                 disabled={downloadingFormat !== null}
-                className="flex items-center justify-center gap-2 p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 border border-slate-700"
               >
                 {downloadingFormat === 'html' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Code className="w-4 h-4" />}
-                HTML 파일 저장
+                <span>HTML 코드</span>
               </button>
 
               <button
                 onClick={handlePrint}
-                className="flex items-center justify-center gap-2 p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="flex flex-col items-center justify-center gap-1.5 p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors"
               >
                 <Printer className="w-4 h-4" />
-                PDF/인쇄 출력하기
+                <span>PDF / 인쇄</span>
               </button>
             </div>
           </div>
 
+          {/* 문항 순서 관리 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white">문항 순서 관리</h2>
+            <h2 className="text-base font-semibold text-white">문항 순서 조정</h2>
             <DragDropContext onDragEnd={handleOnDragEnd}>
               <Droppable droppableId="sections">
                 {(provided) => (
@@ -517,119 +534,31 @@ const CoverLetterDownload = () => {
 
         </div>
 
-        {/* 뷰어 영역 */}
-        <div className="lg:col-span-8 flex justify-center overflow-x-auto p-2">
+        {/* 우측 뷰어 영역 */}
+        <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
-          {/* 1. 한국 (KR) */}
-          {selectedStyle === 'KR' && (
+          {/* 1.🇺🇸 미국 / 북미 스타일 (US ATS-Friendly) */}
+          {selectedStyle === 'US_ATS' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
-            >
-              <div className="border-b-2 border-gray-900 pb-4">
-                <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-2">
-                  {coverLetter?.title || '자기소개서'}
-                </h1>
-                <div className="text-xs text-gray-600 flex items-center gap-2">
-                  <span className="font-semibold text-gray-800">{profile.name}</span>
-                  <span>•</span>
-                  <span>{profile.email}</span>
-                  <span>•</span>
-                  <span>{profile.phone_number}</span>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {orderedSections.map((sec, sIdx) => (
-                  <div key={sec.id} className="section-block space-y-2">
-                    <h2 className="text-sm font-bold text-indigo-900 border-b border-indigo-900/30 pb-1 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
-                      {sec.section_title || `문항 ${sIdx + 1}`}
-                    </h2>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2 pl-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="space-y-1">
-                              <span className="font-semibold text-indigo-950 block text-[12px] bg-indigo-50/50 p-1.5 rounded">
-                                [{col}]
-                              </span>
-                              <div className="whitespace-pre-line text-gray-800 leading-relaxed pl-2 text-[11px]">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 2. 미국 (US) */}
-          {selectedStyle === 'US' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-6 font-serif"
+              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-5 font-serif"
             >
               <div className="text-center border-b border-black pb-3 space-y-1">
-                <h1 className="text-2xl font-bold uppercase tracking-widest text-black">{profile.name}</h1>
-                <p className="text-xs text-gray-800 font-sans">
-                  {profile.email} | {profile.phone_number}
+                <h1 className="text-2xl font-bold uppercase tracking-widest">{profile.name || 'APPLICANT NAME'}</h1>
+                <p className="text-xs text-gray-700 font-sans">
+                  {profile.email} | {profile.phone_number} | {profile.address}
                 </p>
               </div>
 
-              <div className="font-sans text-xs space-y-1">
-                <p className="font-bold text-sm text-black">{coverLetter?.title || 'COVER LETTER'}</p>
-                <p className="text-gray-500">{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <div className="text-center py-1">
+                <h2 className="text-sm font-bold uppercase tracking-wider underline">{coverLetter?.title || 'COVER LETTER STATEMENT'}</h2>
               </div>
 
               <div className="space-y-5 font-sans">
                 {orderedSections.map((sec) => (
                   <div key={sec.id} className="section-block space-y-2">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
-                      {sec.section_title || 'Section'}
-                    </h2>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-gray-900 space-y-1">
-                              <span className="font-semibold text-black italic">[{col}]</span>
-                              <div className="whitespace-pre-line text-gray-800 text-[11px] leading-relaxed pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 3. 유럽 (EU) */}
-          {selectedStyle === 'EU' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
-            >
-              <div className="bg-slate-900 text-white p-5 rounded-lg flex justify-between items-center shadow-sm">
-                <div className="space-y-1">
-                  <h1 className="text-xl font-bold tracking-tight text-white">{coverLetter?.title || 'COVER LETTER'}</h1>
-                  <p className="text-xs text-slate-300">{profile.name} | {profile.email} | {profile.phone_number}</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block space-y-2 bg-indigo-50/30 p-3 rounded border border-indigo-100">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-1">
-                      {sec.section_title || 'Section Title'}
+                    <h3 className="text-xs font-bold text-black uppercase border-b border-black pb-0.5 tracking-wider">
+                      {sec.section_title || 'SECTION'}
                     </h3>
                     {sec.rows && sec.rows.map((row) => (
                       <div key={row.id} className="text-xs space-y-2">
@@ -637,9 +566,11 @@ const CoverLetterDownload = () => {
                           const val = row.values[col] || '';
                           if (!val) return null;
                           return (
-                            <div key={col} className="space-y-0.5">
-                              <span className="font-bold text-indigo-900 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-700 pl-2 border-l-2 border-indigo-300 leading-relaxed text-[11px]">{val}</div>
+                            <div key={col} className="space-y-1">
+                              <span className="font-semibold text-black block text-[11px] underline">
+                                {col}
+                              </span>
+                              <div className="whitespace-pre-line text-gray-900 leading-relaxed text-[11px] pl-2">{val}</div>
                             </div>
                           );
                         })}
@@ -651,222 +582,146 @@ const CoverLetterDownload = () => {
             </div>
           )}
 
-          {/* 4. 일본 (JP) */}
-          {selectedStyle === 'JP' && (
+          {/* 2. 🇬🇧 영국 / 유럽 스타일 (UK & EU Europass-inspired) */}
+          {selectedStyle === 'UK_EU' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[8mm] text-left leading-normal flex flex-col justify-start space-y-3 font-sans"
+              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
             >
-              <div className="border-b-2 border-black pb-1 flex justify-between items-center">
-                <h1 className="text-lg font-bold tracking-widest text-black">志 望 動 機 書 (자기소개서)</h1>
-                <span className="text-[11px] text-gray-600">성명: {profile.name}</span>
-              </div>
-
-              <div className="space-y-3">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block space-y-1">
-                    <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
-                      ■ {sec.section_title || '項目'}
-                    </div>
-                    {sec.rows && sec.rows.length > 0 && (
-                      <table className="w-full border-collapse border border-black text-xs !bg-white" style={{ tableLayout: 'fixed' }}>
-                        <tbody>
-                          {sec.rows.map((row) => (
-                            <React.Fragment key={row.id}>
-                              {(sec.columns || []).map((col) => {
-                                const val = row.values[col] || '';
-                                if (!val) return null;
-                                return (
-                                  <tr key={col}>
-                                    <td className="border border-black bg-gray-50 font-bold w-[100px] p-2 text-center align-middle">
-                                      {col}
-                                    </td>
-                                    <td className="border border-black p-2 whitespace-pre-line leading-relaxed align-top">
-                                      {val}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 5. 크리에이티브 (CREATIVE) */}
-          {selectedStyle === 'CREATIVE' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-5 font-sans"
-            >
-              <div className="bg-gradient-to-r from-purple-700 to-indigo-600 text-white p-6 rounded-xl shadow-md">
-                <h1 className="text-2xl font-extrabold tracking-wide text-white">{coverLetter?.title || '자기소개서'}</h1>
-                <p className="text-xs text-purple-100 mt-1">{profile.name} | {profile.email} | {profile.phone_number}</p>
-              </div>
-
-              <div className="space-y-4">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block p-4 rounded-xl bg-slate-50 border-l-4 border-purple-600 shadow-sm space-y-2">
-                    <h3 className="text-xs font-bold text-purple-950">{sec.section_title || '문항'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-gray-800 space-y-1">
-                              <span className="font-bold text-purple-800 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line pl-2 text-gray-700 leading-relaxed text-[11px]">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 6. 클래식 / 기업형 (EXECUTIVE) */}
-          {selectedStyle === 'EXECUTIVE' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-5 font-serif"
-            >
-              <div className="text-center border-b-2 border-slate-900 pb-3 space-y-1">
-                <h1 className="text-2xl font-bold tracking-widest text-slate-900 uppercase">{coverLetter?.title || '자기소개서'}</h1>
-                <p className="text-xs text-slate-700 font-sans">{profile.name} • {profile.email} • {profile.phone_number}</p>
-              </div>
-
-              <div className="space-y-4 font-sans">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block space-y-2 border-b border-slate-100 pb-3">
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">{sec.section_title || '문항'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2 pl-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800 space-y-1">
-                              <span className="font-semibold text-slate-900 underline">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-700 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 7. 테크 / 스타트업 (TECH) */}
-          {selectedStyle === 'TECH' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-5 font-mono text-xs"
-            >
-              <div className="border-b-2 border-emerald-500 pb-3 font-sans">
-                <h1 className="text-2xl font-bold text-slate-900">{coverLetter?.title || 'COVER_LETTER'}</h1>
-                <p className="text-xs text-emerald-600 font-mono mt-0.5">&gt; Author: {profile.name} ({profile.email})</p>
-              </div>
-
-              <div className="space-y-4 font-sans">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                    <h3 className="text-xs font-bold text-emerald-900 font-mono"># {sec.section_title || 'SECTION'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2 pl-1">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800 space-y-1">
-                              <span className="font-bold text-emerald-700 font-mono text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-700 leading-relaxed text-[11px] font-sans pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 8. 미니멀 (MINIMAL) */}
-          {selectedStyle === 'MINIMAL' && (
-            <div 
-              ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
-            >
-              <div className="space-y-1 border-b border-slate-200 pb-4">
-                <h1 className="text-3xl font-light text-slate-900 tracking-tight">{coverLetter?.title || '자기소개서'}</h1>
-                <p className="text-xs text-slate-500">{profile.name} — {profile.email}</p>
+              <div className="flex justify-between items-start border-b-2 border-blue-900 pb-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-widest">CURRICULUM VITAE</span>
+                  <h1 className="text-2xl font-bold text-slate-900">{profile.name}</h1>
+                  <p className="text-xs text-slate-600">{coverLetter?.title || 'Personal Statement'}</p>
+                </div>
+                <div className="text-right text-[11px] text-slate-600 space-y-0.5 border-l-2 border-blue-900 pl-3">
+                  <div>{profile.email}</div>
+                  <div>{profile.phone_number}</div>
+                  <div>{profile.address}</div>
+                </div>
               </div>
 
               <div className="space-y-5">
                 {orderedSections.map((sec) => (
                   <div key={sec.id} className="section-block space-y-2">
-                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{sec.section_title || 'Title'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-700 space-y-1">
-                              <span className="font-semibold text-slate-900 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-600 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-4 bg-blue-900"></div>
+                      <h3 className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+                        {sec.section_title || 'Section'}
+                      </h3>
+                    </div>
+                    <div className="pl-3.5 space-y-2 border-l border-slate-200 ml-0.5">
+                      {sec.rows && sec.rows.map((row) => (
+                        <div key={row.id} className="text-xs space-y-2">
+                          {(sec.columns || []).map((col) => {
+                            const val = row.values[col] || '';
+                            if (!val) return null;
+                            return (
+                              <div key={col} className="space-y-1">
+                                <span className="font-semibold text-blue-900 text-[11px] block">
+                                  [{col}]
+                                </span>
+                                <div className="whitespace-pre-line text-slate-800 leading-relaxed text-[11px]">{val}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* 9. 모던 그리드 (GRID) */}
-          {selectedStyle === 'GRID' && (
+          {/* 3. 🇩🇪 독일 스타일 (German Lebenslauf) */}
+          {selectedStyle === 'DE_CV' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
+              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
             >
-              <div className="border-b-2 border-slate-800 pb-3">
-                <h1 className="text-2xl font-bold text-slate-900">{coverLetter?.title || '자기소개서'}</h1>
-                <p className="text-xs text-slate-600 mt-1">{profile.name} | {profile.email} | {profile.phone_number}</p>
+              <div className="border-b-2 border-gray-800 pb-3 flex justify-between items-baseline">
+                <h1 className="text-xl font-bold text-gray-900 tracking-wider">LEBENSLAUF / APPLICATION</h1>
+                <span className="text-xs font-medium text-gray-600">{profile.name}</span>
               </div>
 
-              <div className="space-y-4">
+              {/* 기본 지원 정보 박스 */}
+              <div className="bg-gray-100 p-3 rounded text-xs grid grid-cols-2 gap-2 text-gray-700">
+                <div><span className="font-bold">Contact:</span> {profile.email} / {profile.phone_number}</div>
+                <div><span className="font-bold">Document:</span> {coverLetter?.title || 'Cover Letter'}</div>
+              </div>
+
+              <div className="space-y-6">
                 {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block p-3 border border-slate-200 rounded-lg space-y-2">
-                    <h3 className="text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded">{sec.section_title || '문항'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-slate-800 space-y-1">
-                              <span className="font-bold text-slate-700 text-[11px]">[{col}]</span>
-                              <div className="whitespace-pre-line text-slate-600 leading-relaxed text-[11px] pl-2">{val}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
+                  <div key={sec.id} className="section-block grid grid-cols-12 gap-4 border-b border-gray-200 pb-4">
+                    <div className="col-span-4 text-xs font-bold text-gray-800 uppercase tracking-tight">
+                      {sec.section_title || 'Angaben'}
+                    </div>
+                    <div className="col-span-8 space-y-3">
+                      {sec.rows && sec.rows.map((row) => (
+                        <div key={row.id} className="text-xs space-y-2">
+                          {(sec.columns || []).map((col) => {
+                            const val = row.values[col] || '';
+                            if (!val) return null;
+                            return (
+                              <div key={col} className="space-y-1">
+                                <span className="font-semibold text-gray-900 text-[11px] block bg-gray-200/60 px-1.5 py-0.5 rounded w-fit">
+                                  {col}
+                                </span>
+                                <div className="whitespace-pre-line text-gray-800 leading-relaxed text-[11px] pl-1">{val}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4. 🇯🇵 일본 스타일 (Japanese Modern Rirekisho Style) */}
+          {selectedStyle === 'JP_MODERN' && (
+            <div 
+              ref={printRef}
+              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
+            >
+              <div className="border-2 border-gray-900 p-3 flex justify-between items-center bg-gray-50">
+                <div>
+                  <h1 className="text-lg font-bold text-gray-900 tracking-widest">志望動機・自己PR (자기소개서)</h1>
+                  <p className="text-xs text-gray-600 mt-0.5">{coverLetter?.title || '지원 서류'}</p>
+                </div>
+                <div className="text-right text-xs text-gray-800 border-l border-gray-400 pl-3">
+                  <div><span className="font-bold">氏名:</span> {profile.name}</div>
+                  <div><span className="font-bold">連絡先:</span> {profile.email}</div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {orderedSections.map((sec) => (
+                  <div key={sec.id} className="section-block border-2 border-gray-900">
+                    <div className="bg-gray-200 border-b-2 border-gray-900 px-3 py-1.5 text-xs font-bold text-gray-900">
+                      ■ {sec.section_title || '項目'}
+                    </div>
+                    <div className="p-3 space-y-3">
+                      {sec.rows && sec.rows.map((row) => (
+                        <div key={row.id} className="text-xs space-y-2">
+                          {(sec.columns || []).map((col) => {
+                            const val = row.values[col] || '';
+                            if (!val) return null;
+                            return (
+                              <div key={col} className="space-y-1">
+                                <span className="font-bold text-gray-900 text-[11px] block border-b border-gray-300 pb-0.5">
+                                  【 {col} 】
+                                </span>
+                                <div className="whitespace-pre-line text-gray-800 leading-relaxed text-[11px] p-1">{val}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
