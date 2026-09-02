@@ -189,6 +189,7 @@ async def save_edited_resume(resume_id: UUID, request_data: SaveResumeRequest):
         inserted_results = {}
 
         # 1. 학력 저장
+        supabase = get_supabase()
         valid_edus = filter_valid_data(request_data.educations, member_id, resume_id)
         if valid_edus:
             edu_res = supabase.table("educations").insert(valid_edus).execute()

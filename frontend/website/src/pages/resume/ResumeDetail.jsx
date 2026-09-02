@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Edit3, Loader2, Download, User, Mail, Phone, Calendar, 
-  MapPin, GraduationCap, Award, Briefcase, CheckCircle2, ChevronDown, ChevronUp
+  MapPin, GraduationCap, Award, Briefcase, CheckCircle2, ChevronDown, ChevronUp, Sparkles
 } from 'lucide-react';
 
 // ------------------------------------------------------------------
-// Table Schema 파싱 로직 (ResumeEdit.jsx와 100% 동기화)
+// Table Schema 파싱 로직 (섹션별 선택된 텍스트 버전에 맞춰 동적 파싱)
 // ------------------------------------------------------------------
-const parseDetailsToTableSchema = (details, secColumns = []) => {
+const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
   let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
     ? [...secColumns] 
     : [];
@@ -33,8 +33,16 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
     const rowValues = {};
 
     if (typeof cardObj === 'object' && cardObj !== null) {
-      if (cardObj.original_text) {
-        const blocks = cardObj.original_text.split('\n\n');
+      // 섹션의 선택한 버튼 버전에 맞추어 표시할 텍스트 선택
+      let textToParse = cardObj.original_text || '';
+      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
+        textToParse = cardObj.spell_checked_text;
+      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
+        textToParse = cardObj.ai_proofread_text;
+      }
+
+      if (textToParse) {
+        const blocks = textToParse.split('\n\n');
         blocks.forEach((block) => {
           const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
           if (lines.length === 0) return;
@@ -55,17 +63,14 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
                 addColumn(k);
                 rowValues[k] = v;
               } else {
-  // ⭕ detectedColumns에 실제 존재하는 컬럼이 있을 때만 매칭
-  const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무'));
-
-  if (targetCol) {
-    addColumn(targetCol);
-    const currentVal = rowValues[targetCol] || '';
-    const cleanLine = line.replace(/^[•\-\*\s]+/, '');
-    rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
-  }
-  // targetCol이 없으면 억지로 컬럼을 만들어내지 않음
-}
+                const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무'));
+                if (targetCol) {
+                  addColumn(targetCol);
+                  const currentVal = rowValues[targetCol] || '';
+                  const cleanLine = line.replace(/^[•\-\*\s]+/, '');
+                  rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
+                }
+              }
             });
           }
         });
@@ -91,6 +96,7 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
 
     extractedRows.push({
       id: cardObj.id || crypto.randomUUID(),
+      rawObj: cardObj,
       values: rowValues
     });
   });
@@ -101,7 +107,9 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
 
   return { columns: detectedColumns, rows: extractedRows };
 };
+
 const BASE_URL = 'http://localhost:8000';
+
 const ResumeDetail = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
@@ -109,6 +117,12 @@ const ResumeDetail = () => {
   const [resume, setResume] = useState(null);
   const [sections, setSections] = useState([]);
   
+  // 섹션별 텍스트 선택 버전 관리 상태 ({ [sectionId]: 'ORIGINAL' | 'SPELL' | 'AI' })
+  const [sectionVersions, setSectionVersions] = useState({});
+
+  // 섹션별 로딩/교정 처리 상태 ({ [sectionId]: 'SPELL' | 'AI' | null })
+  const [processingSections, setProcessingSections] = useState({});
+
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -122,6 +136,12 @@ const ResumeDetail = () => {
   const [educations, setEducations] = useState([]);
   const [certificates, setCertificates] = useState([]);
 
+  const [showAllEducations, setShowAllEducations] = useState(false);
+  const [showAllCertificates, setShowAllCertificates] = useState(false);
+
+  const visibleEducations = showAllEducations ? educations : educations.slice(0, 3);
+  const visibleCertificates = showAllCertificates ? certificates : certificates.slice(0, 3);
+
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -132,6 +152,148 @@ const ResumeDetail = () => {
       ...prev,
       [cellKey]: !prev[cellKey]
     }));
+  };
+
+  // 1. 버전 변경 (원본 등 클릭 시 DB document_sections selected_version 업데이트)
+  const handleSectionVersionChange = async (sectionId, version) => {
+    setSectionVersions((prev) => ({
+      ...prev,
+      [sectionId]: version
+    }));
+
+    try {
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_version: version })
+      });
+    } catch (err) {
+      console.error('버전 업데이트 실패:', err);
+    }
+  };
+
+  // 2. 맞춤법 검사 및 교정 실행 함수
+  const handleSpellCheckSection = async (sectionId) => {
+  setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
+
+  const targetSection = sections.find((s) => s.id === sectionId);
+  if (!targetSection || !targetSection.details) return;
+
+  // 모든 항목에 이미 spell_checked_text가 있는지 확인
+  const hasUncheckedDetails = targetSection.details.some(
+    (d) => !d.spell_checked_text || !d.spell_checked_text.trim()
+  );
+
+  // 이미 전부 검사되어 있다면 API 호출 없이 버전만 DB 업데이트 후 종료
+  if (!hasUncheckedDetails) {
+    await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_version: 'SPELL' })
+    });
+    return;
+  }
+
+  // 데이터가 없을 때만 POST 요청
+  try {
+    setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
+    const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        details: targetSection.details.map((d) => ({
+          id: d.id,
+          original_text: d.original_text || ''
+        }))
+      })
+    });
+
+    if (response.ok) {
+  const result = await response.json(); // [{ id: 'card_4_1', spell_checked_text: '...' }, ...]
+  setSections((prevSections) =>
+    prevSections.map((sec) => {
+      if (sec.id !== sectionId) return sec;
+      
+      const updatedDetails = sec.details.map((detail) => {
+        const checkedItem = result.find((item) => item.id === detail.id);
+        return checkedItem
+          ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
+          : detail;
+      });
+
+      return { 
+        ...sec, 
+        spell_checked_text: result, // 섹션 레벨에도 저장
+        details: updatedDetails 
+      };
+    })
+  );
+}
+  } catch (err) {
+    console.error('맞춤법 교정 API 오류:', err);
+  } finally {
+    setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+  }
+};
+
+  // 3. AI 교정 실행 함수
+  const handleAIProofreadSection = async (sectionId) => {
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+
+    const targetSection = sections.find((s) => s.id === sectionId);
+    if (!targetSection || !targetSection.details) return;
+
+    const hasUnproofreadDetails = targetSection.details.some((d) => !d.ai_proofread_text);
+
+    try {
+      if (hasUnproofreadDetails) {
+        setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
+
+        const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            details: targetSection.details.map((d) => ({
+              id: d.id,
+              original_text: d.original_text || ''
+            }))
+          })
+        });
+
+        if (response.ok) {
+  const result = await response.json(); // [{ id: 'card_4_1', ai_proofread_text: '...' }, ...]
+  setSections((prevSections) =>
+    prevSections.map((sec) => {
+      if (sec.id !== sectionId) return sec;
+
+      const updatedDetails = sec.details.map((detail) => {
+        const proofreadItem = result.find((item) => item.id === detail.id);
+        return proofreadItem
+          ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
+          : detail;
+      });
+
+      return { 
+        ...sec, 
+        ai_proofread_text: result, // 섹션 레벨에도 저장
+        details: updatedDetails 
+      };
+    })
+  );
+}
+      } else {
+        // 이미 교정된 데이터가 존재하면 백엔드 DB 버전만 업데이트
+        await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selected_version: 'AI' })
+        });
+      }
+    } catch (err) {
+      console.error('AI 교정 API 오류:', err);
+    } finally {
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+    }
   };
 
   const userId = localStorage.getItem('userId');
@@ -147,7 +309,6 @@ const ResumeDetail = () => {
       try {
         setIsLoading(true);
 
-        // 하드코딩 URL을 백엔드 엔드포인트 규격에 맞춰 수정
         const profileRes = await fetch(`${BASE_URL}/users/${userId}`);
         if (profileRes.ok) {
           const result = await profileRes.json();
@@ -182,12 +343,45 @@ const ResumeDetail = () => {
         const resumeData = await resumeRes.json();
         setResume(resumeData);
 
+        // useEffect 내 resumeRes 성공 처리 부분
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
-          const formattedSections = resumeData.sections.map((sec) => {
-            const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns);
-            return { ...sec, columns, rows };
+          const parsedSections = resumeData.sections.map((sec) => {
+            // 1. spell_checked_text 배열을 { "card_4_1": "교정된 텍스트..." } 형태의 맵으로 변환
+            const spellMap = {};
+            if (Array.isArray(sec.spell_checked_text)) {
+              sec.spell_checked_text.forEach((item) => {
+                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
+              });
+            }
+
+            // 2. ai_proofread_text 배열을 { "card_4_1": "교정된 텍스트..." } 형태의 맵으로 변환
+            const aiMap = {};
+            if (Array.isArray(sec.ai_proofread_text)) {
+              sec.ai_proofread_text.forEach((item) => {
+                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || '';
+              });
+            }
+
+            // 3. details의 각 detail 객체에 1:1로 텍스트 값을 정확히 병합
+            const updatedDetails = (sec.details || []).map((detail) => ({
+              ...detail,
+              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
+              ai_proofread_text: aiMap[detail.id] || detail.ai_proofread_text || ''
+            }));
+
+            return { 
+              ...sec, 
+              details: updatedDetails 
+            };
           });
-          setSections(formattedSections);
+
+          setSections(parsedSections);
+
+          const initialVersions = {};
+          parsedSections.forEach((sec) => {
+            initialVersions[sec.id] = sec.selected_version || 'ORIGINAL';
+          });
+          setSectionVersions(initialVersions);
         }
       } catch (err) {
         console.error('데이터 로딩 에러:', err);
@@ -213,9 +407,15 @@ const ResumeDetail = () => {
     return 'flex-[1.5] min-w-[200px]';
   };
 
+  const formattedSections = sections.map((sec) => {
+    const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
+    return { ...sec, columns, rows, currentVersion: secVersion };
+  });
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3">
+      <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
         <p className="text-sm">데이터를 불러오는 중...</p>
       </div>
@@ -327,72 +527,185 @@ const ResumeDetail = () => {
 
         {/* 학력 & 자격증 정보 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-4">
-            <h2 className="text-base font-bold text-indigo-200 flex items-center gap-2 border-b border-indigo-900/40 pb-3">
+        
+        {/* 학력 사항 */}
+        <div className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
+            <h2 className="text-base font-bold text-indigo-200 flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-indigo-400" /> 학력 사항
             </h2>
-            <div className="space-y-3">
-              {educations.length > 0 ? (
-                educations.map((edu) => (
-                  <div key={edu.id} className="p-3.5 bg-[#07051E] rounded-xl border border-indigo-950 flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-bold text-white">{edu.school_name}</h3>
-                      <p className="text-xs text-indigo-300 mt-0.5">{edu.major}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="px-2 py-0.5 bg-indigo-950 text-indigo-300 text-[10px] rounded border border-indigo-900 font-semibold">
-                        {edu.status}
-                      </span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-1">
-                        {edu.admission_date} ~ {edu.graduation_date || '재학'}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-500 italic py-2">등록된 학력 정보가 없습니다.</p>
-              )}
-            </div>
+            <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-2.5 py-0.5 rounded-full border border-indigo-900">
+              총 {educations.length}개
+            </span>
           </div>
 
-          <div className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-4">
-            <h2 className="text-base font-bold text-indigo-200 flex items-center gap-2 border-b border-indigo-900/40 pb-3">
+          <div className="space-y-3">
+            {visibleEducations.length > 0 ? (
+              visibleEducations.map((edu) => (
+                <div key={edu.id} className="p-3.5 bg-[#07051E] rounded-xl border border-indigo-950 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{edu.school_name}</h3>
+                    <p className="text-xs text-indigo-300 mt-0.5">{edu.major}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="px-2 py-0.5 bg-indigo-950 text-indigo-300 text-[10px] rounded border border-indigo-900 font-semibold">
+                      {edu.status}
+                    </span>
+                    <p className="text-[11px] text-slate-400 font-mono mt-1">
+                      {edu.admission_date} ~ {edu.graduation_date || '재학'}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-slate-500 italic py-2">등록된 학력 정보가 없습니다.</p>
+            )}
+          </div>
+
+          {/* 💡 3개 초과 시에만 '더보기 / 접기' 버튼 노출 */}
+          {educations.length > 3 && (
+            <button
+              onClick={() => setShowAllEducations(!showAllEducations)}
+              className="w-full py-2 bg-[#07051E] hover:bg-indigo-950/50 border border-indigo-900/60 rounded-xl text-xs text-indigo-300 font-semibold flex items-center justify-center gap-1.5 transition-all mt-2"
+            >
+              {showAllEducations ? (
+                <>
+                  <span>접기</span>
+                  <ChevronUp className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  <span>더보기 ({educations.length - 3}개 더보기)</span>
+                  <ChevronDown className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* 자격증 및 면허 */}
+        <div className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
+            <h2 className="text-base font-bold text-indigo-200 flex items-center gap-2">
               <Award className="w-5 h-5 text-indigo-400" /> 자격증 및 면허
             </h2>
-            <div className="space-y-3">
-              {certificates.length > 0 ? (
-                certificates.map((cert) => (
-                  <div key={cert.id} className="p-3.5 bg-[#07051E] rounded-xl border border-indigo-950 flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-bold text-white">{cert.certificate_name}</h3>
-                      <p className="text-xs text-indigo-300 mt-0.5">{cert.issuing_organization || '-'}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] font-mono text-slate-300 block">{cert.certificate_number || '-'}</span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-1">{cert.acquisition_date || '-'}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-500 italic py-2">등록된 자격증 정보가 없습니다.</p>
-              )}
-            </div>
+            <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-2.5 py-0.5 rounded-full border border-indigo-900">
+              총 {certificates.length}개
+            </span>
           </div>
+
+          <div className="space-y-3">
+            {visibleCertificates.length > 0 ? (
+              visibleCertificates.map((cert) => (
+                <div key={cert.id} className="p-3.5 bg-[#07051E] rounded-xl border border-indigo-950 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{cert.certificate_name}</h3>
+                    <p className="text-xs text-indigo-300 mt-0.5">{cert.issuing_organization || '-'}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[11px] font-mono text-slate-300 block">{cert.certificate_number || '-'}</span>
+                    <p className="text-[11px] text-slate-400 font-mono mt-1">{cert.acquisition_date || '-'}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-slate-500 italic py-2">등록된 자격증 정보가 없습니다.</p>
+            )}
+          </div>
+
+          {/* 💡 3개 초과 시에만 '더보기 / 접기' 버튼 노출 */}
+          {certificates.length > 3 && (
+            <button
+              onClick={() => setShowAllCertificates(!showAllCertificates)}
+              className="w-full py-2 bg-[#07051E] hover:bg-indigo-950/50 border border-indigo-900/60 rounded-xl text-xs text-indigo-300 font-semibold flex items-center justify-center gap-1.5 transition-all mt-2"
+            >
+              {showAllCertificates ? (
+                <>
+                  <span>접기</span>
+                  <ChevronUp className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  <span>더보기 ({certificates.length - 3}개 더보기)</span>
+                  <ChevronDown className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+      </div>
 
         {/* 세부 항목 영역 */}
         <div className="space-y-8">
-          {sections.map((sec) => (
+          {formattedSections.map((sec) => (
             <div key={sec.id} className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-6">
               
-              <div className="flex items-center justify-between border-b border-indigo-900/40 pb-4">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-indigo-400" />
-                  {sec.section_title || '세부 정보'}
-                </h2>
-                <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-3 py-1 rounded-full border border-indigo-900">
-                  총 {sec.rows ? sec.rows.length : 0}개 항목
-                </span>
+              {/* 섹션 헤더 & 섹션 전체 텍스트 버전을 조절하는 버튼 그룹 */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-900/40 pb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Briefcase className="w-5 h-5 text-indigo-400" />
+                    {sec.section_title || '세부 정보'}
+                  </h2>
+                  <span className="text-xs text-indigo-400 font-semibold bg-indigo-950 px-3 py-1 rounded-full border border-indigo-900">
+                    총 {sec.rows ? sec.rows.length : 0}개 항목
+                  </span>
+                </div>
+
+                {/* 섹션별 버전 전환 버튼 */}
+                <div className="flex items-center gap-1 bg-[#07051E] p-1.5 rounded-xl border border-indigo-900/60 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      sec.currentVersion === 'ORIGINAL'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    원본
+                  </button>
+
+                  {/* 맞춤법 검사 및 적용 버튼 */}
+                  <button
+                    type="button"
+                    onClick={() => handleSpellCheckSection(sec.id)}
+                    disabled={processingSections[sec.id] === 'SPELL'}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      sec.currentVersion === 'SPELL'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    {processingSections[sec.id] === 'SPELL' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                    ) : (
+                      '맞춤법'
+                    )}
+                  </button>
+
+                  {/* AI 교정 버튼 */}
+                  <button
+                    type="button"
+                    onClick={() => handleAIProofreadSection(sec.id)}
+                    disabled={processingSections[sec.id] === 'AI'}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      sec.currentVersion === 'AI'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/60'
+                    }`}
+                  >
+                    {processingSections[sec.id] === 'AI' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        AI 교정
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-6">

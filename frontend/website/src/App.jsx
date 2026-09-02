@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Resume from './pages/resume/Resume';
-import CoverLetter from './pages/CoverLetter';
+import CoverLetter from './pages/CoverLetter/CoverLetter';
 import Login from './pages/login/Login'; // 추가
 import ProfileSettings from './pages/ProfileSettings'; // 추가
 import FindId from './pages/login/FindId'; // 추가
@@ -12,6 +12,13 @@ import ResumeNew from './pages/resume/ResumeNew'; // 👈 추가
 import ResumeDetail from './pages/resume/ResumeDetail'; // 👈 추가
 import ResumeEdit from './pages/resume/ResumeEdit'; // 👈 추가
 import GithubCallback from './pages/github/GithubCallback';
+import DownloadResumePDF from './pages/resume/ResumeDownload'; // PDF 다운로드 유틸 함수
+import JobBoard from './pages/Job/JobBoard'; // 👈 추가
+import JobCard from './pages/Job/JobCard';
+import CoverLetterNew from './pages/CoverLetter/CoverLetterNew'
+import CoverLetterDetail from './pages/CoverLetter/CoverLetterDetail'
+import CoverLetterEdit from './pages/CoverLetter/CoverLetterEdit';
+import CoverLetterDownload from './pages/CoverLetter/CoverLetterDownload';
 export default function App() {
   return (
     <BrowserRouter>
@@ -31,6 +38,13 @@ export default function App() {
         <Route path="/resume/:resumeId" element={<ResumeDetail />} />
         <Route path="/resume/:resumeId/edit" element={<ResumeEdit />} />
         <Route path="/auth/github/callback" element={<GithubCallback />} />
+        <Route path="/resume/:resumeId/download" element={<DownloadResumePDF />} />
+        <Route path="/jobBoard" element={<JobBoard />} />
+        <Route path="/jobCard" element={<JobCard />} />
+        <Route path="/cover-letter/new" element={<CoverLetterNew />} />
+        <Route path="/cover-letter/:coverLetterId" element={<CoverLetterDetail />} />
+        <Route path="/cover-letter/:coverLetterId/edit" element={<CoverLetterEdit />} />
+        <Route path="/cover-letter/:coverLetterId/download" element={<CoverLetterDownload />} />
       </Routes>
     </BrowserRouter>
   );

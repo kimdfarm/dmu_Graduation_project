@@ -177,6 +177,10 @@ export default function ProfileSettings() {
   const handleGithubOAuthLogin = () => {
     const CLIENT_ID = GITHUB_CLIENT_ID;
     const REDIRECT_URI = "http://localhost:5173/auth/github/callback";
+    const currentPath = window.location.pathname + window.location.search;
+  sessionStorage.setItem('redirectAfterGithubAuth', currentPath);
+
+
     window.location.href = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=user,repo`;
   };
 

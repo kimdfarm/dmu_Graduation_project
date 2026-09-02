@@ -24,6 +24,7 @@ class ResetPasswordRequest(BaseModel):
 def login(payload: LoginRequest):
     try:
         # 💡 이메일이 아닌 일반 ID(name)로 DB 조회!
+        supabase = get_supabase()
         result = supabase.table("members") \
             .select("id, name, password, role, status") \
             .eq("name", payload.name) \
@@ -58,6 +59,7 @@ def login(payload: LoginRequest):
 def reset_password(payload: ResetPasswordRequest):
     try:
         # 이메일 인증 통과 완료 상태(is_approved = True)인지 확인
+        supabase = get_supabase()
         result = supabase.table("email_otps").select("is_approved").eq("email", payload.email).execute()
         
         if not result.data or not result.data[0]["is_approved"]:

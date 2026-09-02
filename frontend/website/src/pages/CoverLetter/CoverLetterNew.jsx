@@ -1,0 +1,678 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  FilePlus, ArrowLeft, Loader2, Sparkles, Plus, Trash2, Upload, FileText, X, Globe, 
+  Columns, Table, CheckCircle2, Search, Check, Calendar, Clock
+} from 'lucide-react';
+import { COVER_LETTER_TEMPLATES as FRAME_TEMPLATES } from '../../templates/coverLetterTemplates';
+
+const BASE_URL = 'http://localhost:8000';
+
+const CoverLetterNew = () => {
+  const navigate = useNavigate();
+
+  // 생성 모드: MANUAL | UPLOAD | RESUME
+  const [createMode, setCreateMode] = useState('MANUAL');
+  const [selectedFrame, setSelectedFrame] = useState('KR_DEV_BACKEND');
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('백엔드 개발자');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // 업로드 파일 상태
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+  const [fileTypeBadge, setFileTypeBadge] = useState({ label: '문서', color: 'bg-indigo-950 text-indigo-300' });
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 수동 생성 관련 상태
+  const [sections, setSections] = useState(FRAME_TEMPLATES.KR_DEV_BACKEND?.sections || []);
+  const [customSectionTitle, setCustomSectionTitle] = useState('');
+  const [columnInput, setColumnInput] = useState('');
+  const [customColumnsList, setCustomColumnsList] = useState(['지원 동기', '기술적 도전 경험', '입사 후 포부']);
+
+  // 이력서 선택 관련 상태 (GitHub 대용)
+  const [resumes, setResumes] = useState([]);
+  const [selectedResumeId, setSelectedResumeId] = useState(null);
+  const [isFetchingResumes, setIsFetchingResumes] = useState(false);
+  const [resumeSearchKeyword, setResumeSearchKeyword] = useState('');
+
+  const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('');
+
+  const categoryOptions = ['백엔드 개발자', '프론트엔드 개발자', '풀스택 개발자', 'AI / 데이터 엔지니어', '기타 / 자유 양식'];
+  const ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx', 'hwp', 'hwpx', 'txt', 'rtf', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif', 'tiff'];
+
+  // 초기화 및 이력서 목록 조회
+  useEffect(() => {
+    if (createMode === 'RESUME') {
+      fetchUserResumes();
+    }
+
+    if (FRAME_TEMPLATES[selectedFrame]) {
+      setSections([...FRAME_TEMPLATES[selectedFrame].sections]);
+    }
+  }, [selectedFrame, createMode]);
+
+  // DB에서 이력서 목록 조회
+  const fetchUserResumes = async () => {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      alert('로그인이 필요합니다.');
+      navigate('/login');
+      return;
+    }
+
+    try {
+      setIsFetchingResumes(true);
+      setErrorMessage('');
+
+      const res = await fetch(`${BASE_URL}/api/resumes?member_id=${userId}`);
+      if (!res.ok) throw new Error('이력서 목록을 불러오지 못했습니다.');
+
+      const data = await res.json();
+      setResumes(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('이력서 조회 에러:', err);
+      setErrorMessage(err.message);
+    } finally {
+      setIsFetchingResumes(false);
+    }
+  };
+
+  // 선택된 이력서를 바탕으로 자기소개서 생성
+  const handleGenerateFromResume = async () => {
+    if (!selectedResumeId) {
+      alert('분석에 사용할 이력서를 선택해 주세요.');
+      return;
+    }
+
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      alert('로그인이 필요합니다.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setErrorMessage('');
+      setLoadingText('선택한 이력서 데이터 분석 및 AI 자소서 작성 중...');
+
+      const generateRes = await fetch(`${BASE_URL}/api/cover-letters/resume-generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: userId,
+          resume_id: selectedResumeId,
+          title: title.trim() || '이력서 기반 AI 맞춤 자기소개서',
+          category: category
+        })
+      });
+
+      if (!generateRes.ok) {
+        const errorData = await generateRes.json().catch(() => ({}));
+        throw new Error(errorData.detail || '이력서 기반 자소서 자동 생성에 실패했습니다.');
+      }
+
+      const result = await generateRes.json();
+      if (result && result.id) {
+        navigate(`/cover-letter/${result.id}`);
+      }
+    } catch (error) {
+      console.error('자소서 생성 실패:', error);
+      alert(error.message || '자기소개서 생성 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+      setLoadingText('');
+    }
+  };
+
+  const handleAddColumnTag = () => {
+    const trimmed = columnInput.trim();
+    if (!trimmed) return;
+    if (customColumnsList.includes(trimmed)) {
+      alert('이미 존재해 있는 자소서 문항 항목입니다.');
+      return;
+    }
+    setCustomColumnsList(prev => [...prev, trimmed]);
+    setColumnInput('');
+  };
+
+  const handleRemoveColumnTag = (indexToRemove) => {
+    setCustomColumnsList(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleAddSection = () => {
+    if (!customSectionTitle.trim()) { alert('자소서 문항 그룹명을 입력해 주세요.'); return; }
+    if (customColumnsList.length === 0) { alert('최소 하나 이상의 자소서 질문 항목을 추가해 주세요.'); return; }
+    setSections(prev => [
+      ...prev,
+      { type: 'CUSTOM', title: `${prev.length + 1}. ${customSectionTitle.trim()}`, columns: [...customColumnsList] }
+    ]);
+    setCustomSectionTitle('');
+    setCustomColumnsList(['지원 동기', '기술적 도전 경험', '입사 후 포부']);
+    setColumnInput('');
+  };
+
+  const handleDeleteSection = (index) => {
+    setSections(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFileSelect = (file) => {
+    if (!file) return;
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (!fileExt || !ALLOWED_EXTENSIONS.includes(fileExt)) {
+      alert(`지원하지 않는 파일 형식입니다. (${fileExt})`);
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      alert('파일 용량은 최대 20MB까지 업로드 가능합니다.');
+      return;
+    }
+    setSelectedFile(file);
+    if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif'].includes(fileExt) || file.type.startsWith('image/')) {
+      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-emerald-950 text-emerald-300 border-emerald-800/40' });
+      const reader = new FileReader();
+      reader.onloadend = () => setFilePreview(reader.result);
+      reader.readAsDataURL(file);
+    } else {
+      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-indigo-950 text-indigo-300 border-indigo-800/40' });
+      setFilePreview(null);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { alert('자기소개서 제목을 입력해 주세요.'); return; }
+    const userId = localStorage.getItem('userId');
+    if (!userId) { alert('로그인이 필요합니다.'); navigate('/login'); return; }
+
+    try {
+      setIsLoading(true);
+      setErrorMessage('');
+
+      if (createMode === 'UPLOAD') {
+        if (!selectedFile) { alert('분석할 파일이나 이미지를 등록해 주세요.'); setIsLoading(false); return; }
+
+        const formData = new FormData();
+        formData.append('member_id', userId);
+        formData.append('title', title.trim());
+        formData.append('category', category);
+        formData.append('file', selectedFile);
+
+        const response = await fetch(`${BASE_URL}/api/cover-letters/upload`, { method: 'POST', body: formData });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || '파일 기반 자소서 분석에 실패했습니다.');
+        }
+        const result = await response.json();
+        if (result && result.id) navigate(`/cover-letter/${result.id}`);
+
+      } else if (createMode === 'MANUAL') {
+        if (sections.length === 0) { alert('최소 1개 이상의 자소서 항목이 필요합니다.'); setIsLoading(false); return; }
+
+        const formattedSections = sections.map((sec, idx) => ({
+          section_type: sec.type || 'CUSTOM',
+          section_title: sec.title,
+          columns: sec.columns || ['질문 항목', '작성 내용'],
+          display_order: idx + 1
+        }));
+
+        const response = await fetch(`${BASE_URL}/api/cover-letters`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member_id: userId, title: title.trim(), category, custom_sections: formattedSections }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || '자기소개서 생성에 실패했습니다.');
+        }
+
+        const result = await response.json();
+        if (result && result.id) navigate(`/cover-letter/${result.id}`);
+      }
+
+    } catch (err) {
+      console.error('자소서 생성 에러:', err);
+      const msg = err.message || '서버와의 통신에 실패했습니다.';
+      setErrorMessage(msg);
+      alert(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString();
+  };
+
+  const filteredResumes = resumes.filter(r => 
+    r.title?.toLowerCase().includes(resumeSearchKeyword.toLowerCase()) ||
+    r.category?.toLowerCase().includes(resumeSearchKeyword.toLowerCase())
+  );
+
+  return (
+    <div className="min-h-screen bg-[#07051E] text-slate-100 flex items-start justify-center p-6 pt-12 font-sans">
+      <div className="w-full max-w-4xl bg-[#0E0B2D] border border-indigo-950 rounded-3xl p-8 shadow-2xl space-y-6 my-8">
+        
+        {/* 상단 헤더 */}
+        <div className="flex items-center justify-between border-b border-indigo-950 pb-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-white transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            돌아가기
+          </button>
+        </div>
+
+        {/* 타이틀 */}
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <FilePlus className="w-6 h-6 text-indigo-400" />
+            새 자기소개서 만들기
+          </h1>
+          <p className="text-sm text-slate-400">
+            AI 기반 맞춤 분석 및 맞춤형 항목 구성으로 완성도 높은 자소서를 자동 생성하세요.
+          </p>
+        </div>
+
+        {/* 모드 전환 탭 */}
+        <div className="grid grid-cols-3 gap-2 p-1.5 bg-[#07051E] border border-indigo-950 rounded-2xl text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setCreateMode('MANUAL')}
+            className={`py-2.5 rounded-xl transition-all ${
+              createMode === 'MANUAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            문항 직접 구성
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreateMode('UPLOAD')}
+            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              createMode === 'UPLOAD' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5" />
+            기존 초안/파일 업로드
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCreateMode('RESUME');
+              fetchUserResumes();
+            }}
+            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              createMode === 'RESUME' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            이력서 선택 기반 생성
+          </button>
+        </div>
+
+        {errorMessage && (
+          <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-xl text-xs text-rose-300">
+            ⚠️ {errorMessage}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-indigo-300">
+                자기소개서 제목 <span className="text-rose-400">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="예: 2026 하반기 백엔드 개발자 자기소개서"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                disabled={isLoading}
+                className="w-full p-3.5 text-sm text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-indigo-300">지원 직무 / 카테고리</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={isLoading}
+                className="w-full p-3.5 text-sm text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 transition-all"
+              >
+                {categoryOptions.map((opt) => (
+                  <option key={opt} value={opt} className="bg-[#0E0B2D] text-white">{opt}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* TAB 1: MANUAL */}
+          {createMode === 'MANUAL' && (
+            <div className="space-y-6 pt-2">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  기본 자소서 템플릿 선택
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Object.entries(FRAME_TEMPLATES).map(([key, tpl]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelectedFrame(key)}
+                      className={`p-3.5 text-left rounded-xl border transition-all text-xs flex flex-col justify-between gap-2 ${
+                        selectedFrame === key
+                          ? 'bg-indigo-600/20 border-indigo-500 text-white ring-1 ring-indigo-500'
+                          : 'bg-[#07051E] border-indigo-950/80 text-slate-400 hover:border-indigo-800'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <p className="font-bold text-slate-200 text-xs leading-snug break-words flex-1">{tpl.name}</p>
+                        <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">{tpl.desc}</p>
+                      </div>
+                      <div>
+                        <span className="inline-block text-[10px] px-2 py-0.5 rounded-md bg-indigo-950 border border-indigo-800/40 text-indigo-300 font-medium">
+                          {tpl.category}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 p-5 bg-[#07051E]/60 border border-indigo-950 rounded-2xl">
+                <label className="block text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+                  <Columns className="w-3.5 h-3.5 text-indigo-400" />
+                  맞춤 자소서 문항 추가
+                </label>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="문항 그룹 제목 (예: 기업 질문 항목, 자유 서술 항목)"
+                    value={customSectionTitle}
+                    onChange={(e) => setCustomSectionTitle(e.target.value)}
+                    className="w-full p-3 text-xs text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500"
+                  />
+                  <div className="flex flex-col sm:flex-row gap-2 w-full">
+                    <input
+                      type="text"
+                      placeholder="질문 항목명 (예: 지원 동기, 문제 해결 경험)"
+                      value={columnInput}
+                      onChange={(e) => setColumnInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddColumnTag(); } }}
+                      className="w-full sm:flex-1 p-3 text-xs text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 min-w-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddColumnTag}
+                      className="w-full sm:w-auto px-4 py-3 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 text-xs font-medium rounded-xl border border-indigo-700/50 flex items-center justify-center gap-1 shrink-0 whitespace-nowrap"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> 문항 추가
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {customColumnsList.map((col, cIdx) => (
+                      <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-950 border border-indigo-800/60 text-indigo-200 text-xs rounded-lg">
+                        📌 {col}
+                        <button type="button" onClick={() => handleRemoveColumnTag(cIdx)} className="hover:text-rose-400 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddSection}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 mt-2"
+                  >
+                    <Plus className="w-4 h-4" /> 문항 구성에 반영하기
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2 border-t border-indigo-950">
+                <p className="text-xs font-semibold text-slate-300">최종 자소서 구성 문항 ({sections.length}개)</p>
+                <div className="space-y-2.5">
+                  {sections.map((sec, idx) => (
+                    <div key={idx} className="p-4 rounded-xl border bg-[#07051E]/90 border-indigo-900/50 text-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Table className="w-4 h-4 text-indigo-400 shrink-0" />
+                          <span className="font-bold text-slate-200 text-sm">{sec.title}</span>
+                        </div>
+                        <button type="button" onClick={() => handleDeleteSection(idx)} className="text-slate-500 hover:text-rose-400 p-1 transition-all">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sec.columns?.map((col, cIdx) => (
+                          <span key={cIdx} className="px-2.5 py-1 bg-indigo-950/80 border border-indigo-800/40 text-indigo-300 text-[11px] rounded-lg font-medium">
+                            📌 {col}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: UPLOAD */}
+          {createMode === 'UPLOAD' && (
+            <div className="space-y-3 pt-2">
+              <label className="block text-xs font-semibold text-indigo-300">기존 자소서 초안/문서 업로드</label>
+              {!selectedFile ? (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
+                  }}
+                  className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer ${
+                    isDragging ? 'border-indigo-400 bg-indigo-950/40' : 'border-indigo-900/60 bg-[#07051E]/60 hover:border-indigo-600'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    id="cover-file-input"
+                    accept=".pdf,.doc,.docx,.hwp,.hwpx,.txt,.rtf,.png,.jpg,.jpeg,.webp,.bmp,.heic,.heif,.tiff,image/*"
+                    onChange={(e) => handleFileSelect(e.target.files[0])}
+                    className="hidden"
+                  />
+                  <label htmlFor="cover-file-input" className="cursor-pointer space-y-3 block">
+                    <div className="w-12 h-12 mx-auto rounded-full bg-indigo-950/80 border border-indigo-800/40 flex items-center justify-center text-indigo-400">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-slate-200">클릭하여 파일 선택 또는 드래그 & 드롭</p>
+                      <p className="text-xs text-indigo-300 font-medium">PDF · Word · 한글(HWP/HWPX) · 이미지 지원</p>
+                    </div>
+                  </label>
+                </div>
+              ) : (
+                <div className="p-4 bg-[#07051E] border border-indigo-800/50 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    {filePreview ? (
+                      <img src={filePreview} alt="미리보기" className="w-12 h-12 object-cover rounded-lg shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-lg bg-indigo-950 flex items-center justify-center text-indigo-400 shrink-0">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                    )}
+                    <div className="truncate">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-semibold text-slate-200 truncate">{selectedFile.name}</p>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${fileTypeBadge.color}`}>
+                          {fileTypeBadge.label}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-indigo-400 mt-1">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · 파싱 준비 완료
+                      </p>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => { setSelectedFile(null); setFilePreview(null); }} className="p-1.5 text-slate-500 hover:text-rose-400 transition-all">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: RESUME 선택 영역 */}
+          {createMode === 'RESUME' && (
+            <div className="space-y-5 pt-6 border-t border-indigo-950/60">
+              
+              {/* 안내 메세지 */}
+              <div className="p-4 bg-[#090723] border border-indigo-900/50 rounded-2xl flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-950/80 rounded-xl border border-indigo-800/40 text-indigo-400">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium text-indigo-300/80">이력서 기반 AI 분석</p>
+                    <p className="text-xs font-bold text-white">저장된 이력서 항목을 기반으로 AI 맞춤 자소서를 작성합니다.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 검색 바 */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-indigo-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="이력서 제목 또는 직무 카테고리 검색..."
+                  value={resumeSearchKeyword}
+                  onChange={(e) => setResumeSearchKeyword(e.target.value)}
+                  className="w-full pl-10 pr-3.5 py-2.5 text-xs text-white bg-[#050314] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+                />
+              </div>
+
+              {/* 이력서 목록 */}
+              {isFetchingResumes ? (
+                <div className="p-10 text-center bg-[#050314] border border-indigo-900/40 rounded-2xl">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-400 mx-auto mb-2" />
+                  <p className="text-xs text-slate-400">이력서 목록을 불러오는 중...</p>
+                </div>
+              ) : filteredResumes.length === 0 ? (
+                <div className="p-10 text-center bg-[#050314] border border-indigo-900/40 rounded-2xl space-y-3">
+                  <p className="text-xs text-slate-400">등록된 이력서가 없습니다.</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/resume/new')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all"
+                  >
+                    이력서 새로 작성하기
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
+                  {filteredResumes.map((resume) => {
+                    const isSelected = selectedResumeId === resume.id;
+
+                    return (
+                      <div
+                        key={resume.id}
+                        onClick={() => setSelectedResumeId(resume.id)}
+                        className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-indigo-950/70 border-indigo-500/80 ring-1 ring-indigo-500/80 shadow-lg shadow-indigo-500/10'
+                            : 'bg-[#050314] border-indigo-900/40 hover:border-indigo-800/80'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 overflow-hidden">
+                            <span className="inline-block px-2.5 py-0.5 bg-indigo-950 border border-indigo-800/60 rounded-full text-[10px] text-indigo-300 font-semibold mb-1">
+                              {resume.category || '일반'}
+                            </span>
+                            <p className="text-sm font-bold text-slate-100 leading-snug truncate">
+                              {resume.title}
+                            </p>
+                          </div>
+
+                          <div
+                            className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
+                              isSelected ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 bg-[#090723]'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] pt-3 border-t border-indigo-950 text-slate-400">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>최종 수정: {formatDate(resume.updated_at || resume.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 하단 생성 버튼 */}
+          <button
+            type={createMode === 'RESUME' ? "button" : "submit"}
+            onClick={createMode === 'RESUME' ? handleGenerateFromResume : undefined}
+            disabled={
+              isLoading || loading || 
+              (createMode === 'RESUME' && !selectedResumeId) ||
+              (createMode === 'UPLOAD' && !selectedFile)
+            }
+            className={`
+              w-full py-4 px-6 rounded-2xl font-extrabold text-base transition-all duration-200 
+              flex items-center justify-center gap-2 mt-6 cursor-pointer
+              ${
+                isLoading || loading || (createMode === 'RESUME' && !selectedResumeId) || (createMode === 'UPLOAD' && !selectedFile)
+                  ? 'bg-[#151233] text-slate-500 border border-indigo-900/40 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-400 hover:via-purple-400 hover:to-pink-400 text-white shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(168,85,247,0.6)] border border-indigo-300/30 hover:-translate-y-0.5 active:translate-y-0'
+              }
+            `}
+          >
+            {isLoading || loading ? (
+              <span className="flex items-center gap-2 text-white">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>{loadingText || '자기소개서 생성 중...'}</span>
+              </span>
+            ) : createMode === 'RESUME' ? (
+              <span className="flex items-center gap-2">
+                {selectedResumeId ? (
+                  <>
+                    <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
+                    <span>선택한 이력서로 AI 자기소개서 자동 생성</span>
+                  </>
+                ) : (
+                  <span className="text-slate-400 font-medium text-sm">
+                    ⚠️ 하단 이력서 목록에서 1개를 선택해 주세요
+                  </span>
+                )}
+              </span>
+            ) : createMode === 'UPLOAD' ? (
+              <span>업로드 문항 분석 후 자기소개서 생성하기</span>
+            ) : (
+              <span>자기소개서 생성하기</span>
+            )}
+          </button>
+        </form>
+
+      </div>
+    </div>
+  );
+};
+
+export default CoverLetterNew;

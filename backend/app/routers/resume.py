@@ -183,6 +183,7 @@ async def get_resumes(member_id: str):
         response = supabase.table("documents") \
             .select("*, document_sections(*)") \
             .eq("member_id", member_id) \
+            .eq("doc_type", "RESUME") \
             .order("created_at", desc=True) \
             .execute()
             

@@ -1,40 +1,92 @@
 import os
+import json
 import time
-import requests  # 👈 내부 API 호출을 위해 추가
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
+from groq import Groq, APIError, RateLimitError
 
 load_dotenv()
 
 CRAWL_URL = os.getenv("CRAWL_URL")
 CRAWL_KEY = os.getenv("CRAWL_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 options = ClientOptions(postgrest_client_timeout=10)
 supabase: Client = create_client(CRAWL_URL, CRAWL_KEY, options=options)
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-TECH_KEYWORDS = [
-    "Python", "FastAPI", "Django", "Flask", "Java", "Spring", "Node.js", 
-    "Express", "React", "Vue", "TypeScript", "JavaScript", "Next.js",
-    "MySQL", "PostgreSQL", "MongoDB", "Redis", "AWS", "Docker", "Kubernetes",
-    "Git", "GitHub", "Kotlin", "Swift", "Flutter", "Android", "iOS"
-]
+IS_TOKEN_EXHAUSTED = False
 
-def extract_skills(text: str) -> list:
-    if not text: return []
-    found_skills = []
-    upper_text = text.upper()
-    for skill in TECH_KEYWORDS:
-        if skill.upper() in upper_text:
-            found_skills.append(skill)
-    return list(set(found_skills))
+def analyze_job_with_groq(body_text: str) -> dict:
+    global IS_TOKEN_EXHAUSTED
+    
+    if IS_TOKEN_EXHAUSTED:
+        print("🛑 [토큰 소진 상태] 추가 AI 요청을 차단합니다.")
+        return None
+
+    prompt = f"""
+    다음 원티드 채용 공고 텍스트를 분석하여 반드시 아래 지정된 JSON 구조로만 답변하세요. 다른 설명이나 마크다운 문법은 제외하세요.
+    
+    [JSON 구조]
+    {{
+      "company_name": "회사명 (없을 경우 '우수 IT 기업')",
+      "job_title": "채용 직무/포지션 제목",
+      "job_category": "직무 카테고리 (예: 백엔드, 프론트엔드, AI/ML 등)",
+      "skills": ["주요 기술 스택 문자열 배열"],
+      "requirements": "자격요건 및 주요업무 내용 요약",
+      "preferred": "우대사항 내용 요약 (없으면 '없음')",
+      "benefits": "복리후생 및 혜택 요약 (없으면 '없음')",
+      "another_data": "기타 참고 정보 (근무지, 채용 절차 등)",
+      "closing_date": "마감일 (예: '상시채용' 또는 'YYYY-MM-DD')"
+    }}
+
+    [채용 공고 본문]
+    {body_text[:4000]}
+    """
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": "You are a precise data extractor. Always reply with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+        
+        content = response.choices[0].message.content.strip()
+        
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "").strip()
+        elif content.startswith("```"):
+            content = content.replace("```", "").strip()
+
+        return json.loads(content)
+
+    except RateLimitError as e:
+        print(f"🛑 [GROQ API 토큰/한도 소진] RateLimitError 감지: {e}")
+        IS_TOKEN_EXHAUSTED = True
+        return None
+
+    except APIError as e:
+        if e.status_code == 429 or "quota" in str(e).lower() or "rate_limit" in str(e).lower():
+            print(f"🛑 [GROQ API 토큰 소진] Quota Exceeded (HTTP 429) 감지: {e}")
+            IS_TOKEN_EXHAUSTED = True
+            return None
+        print(f"⚠️ Groq API 일반 오류 발생: {e}")
+        return {}
+
+    except Exception as e:
+        print(f"⚠️ 파싱 중 일반 에러 발생: {e}")
+        return {}
 
 def run_selenium_crawler(limit_count: int = 10):
-    global supabase
-    print("🚀 [원티드] API 등록일 수집 기능이 포함된 자동 수집을 시작합니다...")
+    global supabase, IS_TOKEN_EXHAUSTED
+    print("🚀 [원티드] Groq AI(gpt-oss-120b) 파싱 및 토큰 절약 크롤링을 시작합니다...")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -44,76 +96,87 @@ def run_selenium_crawler(limit_count: int = 10):
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
-    driver.get("https://www.wanted.co.kr/wdlist/518")
-    time.sleep(4)
-    
-    print("📜 공고 로딩을 위해 스크롤을 내립니다...")
-    for _ in range(2):
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(1.5)
+    try:
+        # 💡 URL 정제 및 안전 이동
+        target_main_url = "[https://www.wanted.co.kr/wdlist/518](https://www.wanted.co.kr/wdlist/518)"
+        driver.get(target_main_url)
+        time.sleep(4)
         
-    links = driver.find_elements(By.XPATH, "//a[contains(@href, '/wd/')]")
-    job_urls = []
-    for link in links:
-        href = link.get_attribute("href")
-        if href and "/wd/" in href and href not in job_urls:
-            job_urls.append(href)
+        print("📜 공고 목록을 로딩합니다...")
+        for _ in range(2):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1.5)
             
-    target_urls = job_urls[:limit_count]
-    print(f"📦 총 {len(target_urls)}개의 원티드 공고를 찾았습니다. 데이터 처리를 시작합니다.")
-    
-    for url in target_urls:
-        try:
-            # 1. API를 통해 최초 게시일(등록일) 먼저 확보
-            
-            # 2. 셀레니움으로 페이지 상세 내용 수집
-            driver.get(url)
-            time.sleep(3)
-            
-            try:
-                job_title = driver.find_element(By.CSS_SELECTOR, "h2").text
-            except Exception:
-                job_title = driver.title
+        links = driver.find_elements(By.XPATH, "//a[contains(@href, '/wd/')]")
+        job_urls = []
+        for link in links:
+            href = link.get_attribute("href")
+            if href and "/wd/" in href:
+                # Markdown 혹은 깨진 URL 문자를 방지하기 위한 정제 처리
+                clean_href = href.strip().split("]")[0].split(")")[0]
+                if clean_href.startswith("http") and clean_href not in job_urls:
+                    job_urls.append(clean_href)
                 
+        target_urls = job_urls[:limit_count]
+        print(f"📦 총 {len(target_urls)}개의 원티드 공고 URL을 확인합니다.")
+        
+        for url in target_urls:
+            if IS_TOKEN_EXHAUSTED:
+                print("🚨 Groq API 토큰이 고갈되어 작업 프로세스를 중단합니다.")
+                break
+
             try:
-                company_name = driver.find_element(By.XPATH, "//a[contains(@href, '/company/')]").text
-            except Exception:
-                company_name = "우수 IT 기업"
+                # DB 중복 검증
+                existing_data = supabase.table("companies").select("id").eq("job_url", url).execute()
+                if existing_data.data and len(existing_data.data) > 0:
+                    print(f"⏭️ [토큰 절약] 이미 수집된 원티드 공고입니다. AI 호출 Skip: {url}")
+                    continue
+
+                # 💡 개별 공고 페이지 이동 예외 처리
+                try:
+                    driver.get(url)
+                    time.sleep(3)
+                except Exception as nav_e:
+                    print(f"⚠️ [URL 이동 실패 패스] 잘못된 URL 형식 ({url}): {nav_e}")
+                    continue
+
+                full_body = driver.find_element(By.TAG_NAME, "body").text
                 
-            full_body = driver.find_element(By.TAG_NAME, "body").text
-            
-            try:
-                requirements = driver.find_element(By.XPATH, "//h3[contains(text(), '주요업무')]/.. | //span[contains(text(), '자격요건')]/..").text
-            except Exception:
-                requirements = "본문 참조"
+                print(f"🤖 [gpt-oss-120b 분석 중] {url}")
+                ai_res = analyze_job_with_groq(full_body)
                 
-            preferred = "원티드 본문 통합 수집됨"
-            benefits = "원티드 본문 통합 수집됨"
-            another_data = "전처리 완료 - 이상 없음"
-            
-            skills = extract_skills(full_body)
-            
-            # 📌 유저님이 요청하신 데이터 레이아웃 세팅
-            refined_job = {
-                "company_name": company_name.strip() if company_name.strip() else "우수 IT 기업",
-                "job_title": job_title,
-                "job_category": "원티드",
-                "skills": skills,
-                "body_data": full_body,
-                "requirements": requirements,
-                "preferred": preferred,
-                "benefits": benefits,
-                "another_data": another_data,
-                "closing_date": "상시채용",
-                "job_url": url
-            }
-            
-            supabase.table("companies").upsert(refined_job, on_conflict="job_url").execute()
-            print(f"✅ 수집 성공: [{refined_job['company_name']}] - {job_title} ")
-            
-        except Exception as e:
-            print(f"⚠️ 공고({url}) 수집 패스: {e}")
-            continue
-            
-    driver.quit()
-    print("🎉 원티드 크롤러 수집 업무가 성공적으로 끝났습니다!")
+                if ai_res is None and IS_TOKEN_EXHAUSTED:
+                    print("🚨 토큰 소진으로 크롤러 동작을 즉시 중단합니다.")
+                    break
+
+                if not ai_res:
+                    ai_res = {}
+
+                refined_job = {
+                    "company_name": ai_res.get("company_name") or "우수 IT 기업",
+                    "job_title": ai_res.get("job_title") or driver.title,
+                    "job_category": ai_res.get("job_category") or "원티드",
+                    "skills": ai_res.get("skills", []),
+                    "body_data": full_body,
+                    "requirements": ai_res.get("requirements", "본문 참조"),
+                    "preferred": ai_res.get("preferred", "본문 참조"),
+                    "benefits": ai_res.get("benefits", "본문 참조"),
+                    "another_data": ai_res.get("another_data", "전처리 완료"),
+                    "closing_date": ai_res.get("closing_date", "상시채용"),
+                    "job_url": url,
+                    "created_data": time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                supabase.table("companies").upsert(refined_job, on_conflict="job_url").execute()
+                print(f"✅ [저장 성공] [{refined_job['company_name']}] - {refined_job['job_title']}")
+                
+            except Exception as e:
+                print(f"⚠️ 공고({url}) 처리 실패: {e}")
+                continue
+
+    except Exception as e:
+        print(f"⚠️ 원티드 수집 메인 프로세스 실패: {e}")
+
+    finally:
+        driver.quit()
+        print("🎉 원티드 크롤러 작업이 정리 및 종료되었습니다.")

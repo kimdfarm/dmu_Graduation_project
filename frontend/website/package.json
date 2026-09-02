@@ -10,22 +10,26 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hello-pangea/dnd": "^18.0.1",
     "@supabase/supabase-js": "^2.110.8",
     "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.14.0",
     "js-cookie": "^3.0.8",
     "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^1.30.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.33.0",
     "multer": "^2.2.0",
     "react": "^19.2.7",
     "react-daum-postcode": "^4.0.0",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.85.0",
     "react-icons": "^5.7.0",
-    "react-router-dom": "^7.18.1",
+    "react-router-dom": "^7.18.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -38,4 +38,18 @@ supabase = SupabaseProxy()
 SMTP_SENDER_EMAIL = os.getenv("SMTP_SENDER_EMAIL")
 SMTP_SENDER_PASSWORD = os.getenv("SMTP_SENDER_PASSWORD")
 
+CRAWL_URL = os.getenv("CRAWL_URL")
+CRAWL_KEY = os.getenv("CRAWL_KEY")
+
+def get_CRAWL_supabase() -> Client:
+    if not CRAWL_URL or not CRAWL_KEY:
+        raise ValueError("Supabase environment variables (CRAWL_URL, CRAWL_KEY) are missing.")
+    return create_client(CRAWL_URL, CRAWL_KEY)
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+GROQ_BY_CROWER = os.getenv("GROQ_BY_CROWER")
+
+YOUR_GITHUB_CLIENT_ID = os.getenv("YOUR_GITHUB_CLIENT_ID")
+YOUR_GITHUB_CLIENT_SECRET = os.getenv("YOUR_GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")

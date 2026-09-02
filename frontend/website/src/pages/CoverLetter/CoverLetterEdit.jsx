@@ -5,8 +5,10 @@ import {
   PlusCircle, X, GripVertical, Maximize2, Check, AlertTriangle 
 } from 'lucide-react';
 
-const ResumeEdit = () => {
-  const { resumeId } = useParams();
+const BASE_URL = 'http://localhost:8000';
+
+const CoverLetterEdit = () => {
+  const { coverLetterId } = useParams();
   const navigate = useNavigate();
 
   const [sections, setSections] = useState([]);
@@ -18,7 +20,7 @@ const ResumeEdit = () => {
   // 삭제된 섹션 ID 추적
   const [deletedSectionIds, setDeletedSectionIds] = useState([]);
 
-  // 변경사항 유무 추적 (저장 안 함 / 저장 후 이동 처리용)
+  // 변경사항 유무 추적
   const [isDirty, setIsDirty] = useState(false);
 
   // 인라인 속성 추가 전용 상태
@@ -26,24 +28,20 @@ const ResumeEdit = () => {
   const [newColName, setNewColName] = useState('');
 
   // 모달 상태 관리
-  const [activeModal, setActiveModal] = useState(null); // 큰 화면 편집 모달
-  const [pendingConfirm, setPendingConfirm] = useState(null); // 커스텀 삭제/확인 모달
-  const [showNavigationModal, setShowNavigationModal] = useState(false); // 미저장 이탈 확인 모달
+  const [activeModal, setActiveModal] = useState(null);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [showNavigationModal, setShowNavigationModal] = useState(false);
 
-  // 드래그 중인 항목 인덱스 저장 Ref
+  // 드래그 Ref
   const draggedColIdx = useRef(null);
   const draggedRowIdx = useRef(null);
 
   const showToast = (msg) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage('');
-    }, 3000);
+    setTimeout(() => setToastMessage(''), 3000);
   };
 
-  // ------------------------------------------------------------------
-  // 브라우저 탭 닫기 / 새로고침 시 이탈 방지
-  // ------------------------------------------------------------------
+  // 브라우저 이탈 방지
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (isDirty) {
@@ -55,10 +53,9 @@ const ResumeEdit = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  // ------------------------------------------------------------------
-  // 1. DB의 secColumns 기반으로 details를 읽어 Table Schema 생성
-  // ------------------------------------------------------------------
-  const parseDetailsToTableSchema = (details, secColumns = []) => {
+  // 1. DB 데이터를 Edit 화면 스키마로 1:1 변환 (컬럼 고정 없음)
+const parseDetailsToTableSchema = (details, secColumns = []) => {
+  // DB 섹션의 columns를 그대로 사용 (없을 때만 기본값)
   const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
     ? [...secColumns]
     : ['질문', '답변'];
@@ -69,32 +66,36 @@ const ResumeEdit = () => {
 
   const extractedRows = details.map((detail) => {
     const rowValues = {};
-    const text = detail.original_text || '';
 
-    // [태그] 문법을 기준으로 텍스트 분할
-    if (text.includes('[')) {
+    // A. details 내부의 JSON 객체(또는 속성)가 직접 존재하면 1:1 매핑
+    if (detail.values && typeof detail.values === 'object') {
+      Object.assign(rowValues, detail.values);
+    } else {
+      // B. text 데이터인 경우, [태그] 기반으로 모든 동적 컬럼을 추출
+      const text = detail.original_text || '';
       const blocks = text.split(/\n\n(?=\[)/);
-      
+
       blocks.forEach((block) => {
-        // [컬럼명]\n내용 패턴 추출
         const match = block.match(/^\[(.*?)\]\n?([\s\S]*)$/);
         if (match) {
-          const colName = match[1].trim(); // 예: '질문' 또는 '답변'
-          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim(); // 불릿 및 불필요한 공백 제거
-          
+          const colName = match[1].trim();
+          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
           rowValues[colName] = content;
 
+          // DB에 없던 신규 컬럼 태그가 텍스트에서 발견되면 columns에 자동 추가
           if (!dynamicColumns.includes(colName)) {
             dynamicColumns.push(colName);
           }
         }
       });
-    }
 
-    // 만약 [태그] 구분이 없는 예외 텍스트일 경우의 Fallback
-    if (Object.keys(rowValues).length === 0) {
-      rowValues['질문'] = detail.title || '';
-      rowValues['답변'] = text.replace(/^[•\-\*\s]+/gm, '').trim();
+      // 태그가 없는 단순 텍스트인 경우 첫 번째/두 번째 컬럼에 매핑
+      if (Object.keys(rowValues).length === 0 && text) {
+        const col1 = dynamicColumns[0] || '질문';
+        const col2 = dynamicColumns[1] || '답변';
+        rowValues[col1] = detail.title || '';
+        rowValues[col2] = text.replace(/^[•\-\*\s]+/gm, '').trim();
+      }
     }
 
     return {
@@ -110,10 +111,8 @@ const ResumeEdit = () => {
   return { columns: dynamicColumns, rows: extractedRows };
 };
 
-  // ------------------------------------------------------------------
-  // 2. 백엔드 DetailItem Pydantic 스키마와 100% 호환되는 직렬화 함수
-  // ------------------------------------------------------------------
-  const serializeTableToDetails = (columns, rows) => {
+// 2. Edit 화면에서 수정된 동적 컬럼/행 데이터를 DB 저장 형식으로 변환
+const serializeTableToDetails = (columns, rows) => {
   return rows.map((row) => {
     const titleCol = columns.find((col) => col.includes('질문') || col.includes('항목')) || columns[0];
     const mainTitle = row.values[titleCol] || row.title || '자기소개서 항목';
@@ -144,14 +143,14 @@ const ResumeEdit = () => {
     };
   });
 };
-
+  // 데이터 조회
   useEffect(() => {
-    const fetchResumeDetail = async () => {
+    const fetchCoverLetterDetail = async () => {
       try {
         setIsLoading(true);
         setErrorMessage('');
-        const response = await fetch(`/api/resumes/${resumeId}`);
-        if (!response.ok) throw new Error('이력서 정보를 불러오지 못했습니다.');
+        const response = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
+        if (!response.ok) throw new Error('자기소개서 정보를 불러오지 못했습니다.');
 
         const data = await response.json();
 
@@ -174,14 +173,14 @@ const ResumeEdit = () => {
       }
     };
 
-    if (resumeId) fetchResumeDetail();
-  }, [resumeId]);
+    if (coverLetterId) fetchCoverLetterDetail();
+  }, [coverLetterId]);
 
-  // 섹션 전체 삭제
+  // 섹션 삭제
   const handleDeleteSection = (secId) => {
     setPendingConfirm({
-      title: '섹션 삭제 확인',
-      message: '이 섹션과 포함된 모든 항목을 삭제하시겠습니까? (저장 시 DB에 최종 반영됩니다)',
+      title: '문항 섹션 삭제 확인',
+      message: '이 자기소개서 섹션과 포함된 모든 항목을 삭제하시겠습니까? (저장 시 DB에 반영됩니다)',
       onConfirm: () => {
         setDeletedSectionIds((prev) => [...prev, secId]);
         setSections((prev) => prev.filter((sec) => sec.id !== secId));
@@ -192,11 +191,11 @@ const ResumeEdit = () => {
     });
   };
 
-  // 속성(열) 삭제
+  // 컬럼 삭제
   const handleDeleteColumn = (sectionId, colToDelete) => {
     setPendingConfirm({
       title: '속성 삭제 확인',
-      message: `'${colToDelete}' 속성을 삭제하시겠습니까? 관련 작성 내용이 함께 지워집니다.`,
+      message: `'${colToDelete}' 속성을 삭제하시겠습니까? 해당 내용이 함께 제거됩니다.`,
       onConfirm: () => {
         setSections((prev) =>
           prev.map((sec) => {
@@ -218,29 +217,25 @@ const ResumeEdit = () => {
     });
   };
 
-  // ------------------------------------------------------------------
-  // 3. DB 실제 저장 함수 (예외 처리 및 API 연동 수정)
-  // ------------------------------------------------------------------
+  // DB 전체 저장
   const handleSaveAll = async (redirectAfter = false) => {
     try {
       setIsSaving(true);
       setErrorMessage('');
 
-      // A. 삭제할 섹션 DB API 호출
+      // A. 삭제 요청
       const deletePromises = deletedSectionIds.map(async (secId) => {
-        const res = await fetch(`/api/resumes/sections/${secId}`, {
+        const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${secId}`, {
           method: 'DELETE',
         });
-        if (!res.ok) {
-          throw new Error(`섹션 삭제 중 오류가 발생했습니다. (ID: ${secId})`);
-        }
+        if (!res.ok) throw new Error(`섹션 삭제 실패 (ID: ${secId})`);
         return res.json();
       });
 
-      // B. 섹션 수정 및 데이터 (columns, details 통째로 덮어쓰기) DB API 호출
+      // B. 업데이트 요청
       const updatePromises = sections.map(async (sec) => {
         const cleanDetails = serializeTableToDetails(sec.columns, sec.rows);
-        const res = await fetch(`/api/resumes/sections/${sec.id}`, {
+        const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${sec.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -253,20 +248,19 @@ const ResumeEdit = () => {
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `섹션 저장 중 오류가 발생했습니다. (${sec.section_title})`);
+          throw new Error(errData.detail || `섹션 저장 실패 (${sec.section_title})`);
         }
         return res.json();
       });
 
-      // 삭제 및 업데이트 동시 병렬 처리
       await Promise.all([...deletePromises, ...updatePromises]);
 
       setDeletedSectionIds([]);
       setIsDirty(false);
-      showToast('모든 변경사항이 성공적으로 DB에 저장되었습니다!');
+      showToast('성공적으로 저장되었습니다!');
 
       if (redirectAfter) {
-        navigate(`/resume/${resumeId}`);
+        navigate(`/cover-letter/${coverLetterId}`);
       }
     } catch (err) {
       setErrorMessage(err.message);
@@ -275,16 +269,15 @@ const ResumeEdit = () => {
     }
   };
 
-  // 상세 보기로 돌아가기 버튼 클릭 시
   const handleBackToDetail = () => {
     if (isDirty) {
       setShowNavigationModal(true);
     } else {
-      navigate(`/resume/${resumeId}`);
+      navigate(`/cover-letter/${coverLetterId}`);
     }
   };
 
-  // 드래그 앤 드롭: 컬럼 순서 변경
+  // 컬럼 Drag & Drop
   const handleColDragStart = (e, index) => {
     draggedColIdx.current = index;
     e.dataTransfer.effectAllowed = 'move';
@@ -310,7 +303,7 @@ const ResumeEdit = () => {
     draggedColIdx.current = null;
   };
 
-  // 드래그 앤 드롭: 행(카드) 순서 변경
+  // 행 Drag & Drop
   const handleRowDragStart = (e, index) => {
     draggedRowIdx.current = index;
     e.dataTransfer.effectAllowed = 'move';
@@ -336,7 +329,7 @@ const ResumeEdit = () => {
     draggedRowIdx.current = null;
   };
 
-  // 속성(열) 추가
+  // 속성 추가 및 변경
   const handleConfirmAddColumn = (sectionId) => {
     const trimmed = newColName.trim();
     if (!trimmed) {
@@ -388,13 +381,17 @@ const ResumeEdit = () => {
     setIsDirty(true);
   };
 
-  // 행(Row) 및 셀 제어
+  // 행(문항) 조작
   const handleAddRow = (sectionId) => {
     setSections((prev) =>
       prev.map((sec) => {
         if (sec.id === sectionId) {
           const newRow = {
             id: crypto.randomUUID(),
+            title: '',
+            spell_checked_text: null,
+            ai_proofread_text: null,
+            selected_version: 'ORIGINAL',
             values: {}
           };
           return { ...sec, rows: [...sec.rows, newRow] };
@@ -445,32 +442,31 @@ const ResumeEdit = () => {
     return (
       <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-        <p className="text-sm">데이터를 불러오는 중...</p>
+        <p className="text-sm">자기소개서 불러오는 중...</p>
       </div>
     );
   }
 
-  // 섹션(그룹) 추가 핸들러
-  const handleAddSection = async () => {
+const handleAddSection = async () => {
     try {
       setIsSaving(true);
       const newDisplayOrder = sections.length + 1;
-      const defaultColumns = ['항목/제목', '내용'];
+      const defaultColumns = ['질문', '답변'];
 
-      // API 호출 - 백엔드 DB에 새 이력서 섹션 생성
-      const res = await fetch(`/api/resumes/${resumeId}/sections`, {
+      // API를 호출하여 백엔드 DB에 새 섹션 등록
+      const res = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           section_type: 'CUSTOM',
-          section_title: `${newDisplayOrder}. 새 이력서 항목`,
+          section_title: `${newDisplayOrder}. 새 섹션 항목`,
           display_order: newDisplayOrder,
           columns: defaultColumns,
           details: [
             {
               id: crypto.randomUUID(),
               title: '새 항목',
-              original_text: '[항목/제목]\n• 항목명을 입력하세요.\n\n[내용]\n• 상세 내용을 입력하세요.',
+              original_text: '[질문]\n• 질문 내용을 입력하세요.\n\n[답변]\n• 답변 내용을 입력하세요.',
               selected_version: 'ORIGINAL'
             }
           ]
@@ -484,7 +480,7 @@ const ResumeEdit = () => {
 
       const createdSection = await res.json();
 
-      // 서버 응답 데이터를 테이블 스키마로 파싱
+      // 서버 응답 데이터를 화면 테이블 스키마에 맞게 파싱
       const { columns, rows } = parseDetailsToTableSchema(
         createdSection.details, 
         createdSection.columns
@@ -496,9 +492,9 @@ const ResumeEdit = () => {
         rows
       };
 
-      // 화면 상태에 반영
+      // 화면 상태 업데이트
       setSections((prev) => [...prev, formattedNewSec]);
-      showToast('새 이력서 섹션이 추가되었습니다!');
+      showToast('새 섹션이 추가되었습니다!');
     } catch (err) {
       setErrorMessage(err.message);
     } finally {
@@ -506,10 +502,9 @@ const ResumeEdit = () => {
     }
   };
 
+
   return (
     <div className="min-h-screen bg-[#07051E] text-slate-100 p-6 md:p-10 font-sans relative pb-28">
-      
-      {/* 커스텀 토스트 알림 */}
       {toastMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-indigo-600/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-indigo-400/40 animate-bounce">
           <CheckCircle2 className="w-5 h-5 text-emerald-300" />
@@ -518,13 +513,11 @@ const ResumeEdit = () => {
       )}
 
       <div className="max-w-[95%] mx-auto space-y-8">
-        
-        {/* 상단 헤더 영역 */}
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-indigo-950 pb-6 gap-4">
           <div className="flex items-center gap-4">
             <button
               onClick={handleBackToDetail}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900/60 hover:bg-indigo-600/90 text-indigo-100 hover:text-white border border-indigo-500/50 rounded-xl text-xs font-bold transition-all shadow-lg hover:shadow-indigo-500/20 active:scale-95 group shrink-0"
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900/60 hover:bg-indigo-600/90 text-indigo-100 hover:text-white border border-indigo-500/50 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95 group shrink-0"
             >
               <ArrowLeft className="w-4 h-4 text-indigo-300 group-hover:text-white group-hover:-translate-x-0.5 transition-transform" />
               <span>상세 보기로 돌아가기</span>
@@ -532,10 +525,10 @@ const ResumeEdit = () => {
 
             <div>
               <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                이력서 구성 편집기
+                자기소개서 편집기
                 {isDirty && (
                   <span className="text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">
-                    변경사항 작성 중
+                    수정 중
                   </span>
                 )}
               </h1>
@@ -555,7 +548,6 @@ const ResumeEdit = () => {
         <div className="space-y-10">
           {sections.map((sec) => (
             <div key={sec.id} className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl space-y-6">
-              
               <div className="flex items-center justify-between border-b border-indigo-900/40 pb-4 gap-2">
                 <input
                   type="text"
@@ -572,19 +564,18 @@ const ResumeEdit = () => {
                 
                 <button
                   onClick={() => handleDeleteSection(sec.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 hover:text-rose-100 border border-rose-800/50 rounded-xl text-xs font-semibold transition-all shadow-sm"
-                  title="섹션과 포함된 모든 항목을 삭제합니다"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-semibold transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>섹션 전체 삭제</span>
+                  <span>섹션 삭제</span>
                 </button>
               </div>
 
-              {/* 속성(열) 편집 영역 */}
+              {/* 동적 컬럼(속성) 설정 */}
               <div className="bg-[#07051E] border border-indigo-900/40 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                    📌 섹션 공통 속성 필드 (마우스 드래그로 순서 변경)
+                    📌 문항 속성 (드래그하여 순서 변경)
                   </span>
 
                   {addingColSectionId === sec.id ? (
@@ -595,12 +586,12 @@ const ResumeEdit = () => {
                         value={newColName}
                         onChange={(e) => setNewColName(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddColumn(sec.id)}
-                        placeholder="속성명 (예: 위치, 기술)"
-                        className="bg-[#130E3D] text-xs text-indigo-100 border border-indigo-500 rounded px-2 py-1 focus:outline-none w-36"
+                        placeholder="속성명 (예: 질문 항목, 작성 내용)"
+                        className="bg-[#130E3D] text-xs text-indigo-100 border border-indigo-500 rounded px-2 py-1 focus:outline-none w-40"
                       />
                       <button
                         onClick={() => handleConfirmAddColumn(sec.id)}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded"
                       >
                         <Check className="w-3.5 h-3.5" />
                       </button>
@@ -617,9 +608,9 @@ const ResumeEdit = () => {
                         setAddingColSectionId(sec.id);
                         setNewColName('');
                       }}
-                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold transition-all hover:scale-105"
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
                     >
-                      <PlusCircle className="w-3.5 h-3.5" /> + 속성(열) 추가
+                      <PlusCircle className="w-3.5 h-3.5" /> + 속성 추가
                     </button>
                   )}
                 </div>
@@ -632,9 +623,9 @@ const ResumeEdit = () => {
                       onDragStart={(e) => handleColDragStart(e, cIdx)}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => handleColDrop(e, sec.id, cIdx)}
-                      className="flex items-center bg-[#130E3D] hover:bg-[#1A144E] border border-indigo-800/60 rounded-lg px-2.5 py-1.5 gap-1.5 text-xs text-indigo-200 shadow-sm cursor-grab active:cursor-grabbing transition-all"
+                      className="flex items-center bg-[#130E3D] hover:bg-[#1A144E] border border-indigo-800/60 rounded-lg px-2.5 py-1.5 gap-1.5 text-xs text-indigo-200 cursor-grab active:cursor-grabbing"
                     >
-                      <GripVertical className="w-3.5 h-3.5 text-indigo-400/70 shrink-0" />
+                      <GripVertical className="w-3.5 h-3.5 text-indigo-400/70" />
                       <input
                         type="text"
                         value={col}
@@ -643,8 +634,7 @@ const ResumeEdit = () => {
                       />
                       <button
                         onClick={() => handleDeleteColumn(sec.id, col)}
-                        className="text-slate-500 hover:text-rose-400 transition-colors p-0.5"
-                        title="속성 삭제"
+                        className="text-slate-500 hover:text-rose-400 p-0.5"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -653,7 +643,7 @@ const ResumeEdit = () => {
                 </div>
               </div>
 
-              {/* 항목 카드 리스트 */}
+              {/* 항목(Detail) 편집 카드 */}
               <div className="space-y-6">
                 {sec.rows && sec.rows.length > 0 ? (
                   sec.rows.map((row, rIdx) => (
@@ -663,19 +653,19 @@ const ResumeEdit = () => {
                       onDragStart={(e) => handleRowDragStart(e, rIdx)}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => handleRowDrop(e, sec.id, rIdx)}
-                      className="bg-[#07051E] border border-indigo-900/60 hover:border-indigo-700/80 rounded-xl p-5 space-y-4 shadow-md group transition-all"
+                      className="bg-[#07051E] border border-indigo-900/60 hover:border-indigo-700/80 rounded-xl p-5 space-y-4 shadow-md group"
                     >
                       <div className="flex items-center justify-between border-b border-indigo-950 pb-2">
-                        <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 select-none cursor-grab active:cursor-grabbing">
-                          <GripVertical className="w-4 h-4 text-indigo-400/70 group-hover:text-indigo-300 transition-colors" />
-                          항목 #{rIdx + 1} <span className="text-[11px] font-normal text-slate-500">(드래그하여 위치 이동)</span>
+                        <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 cursor-grab active:cursor-grabbing">
+                          <GripVertical className="w-4 h-4 text-indigo-400/70" />
+                          문항 #{rIdx + 1}
                         </span>
 
                         <button
                           onClick={() => handleDeleteRow(sec.id, row.id)}
-                          className="text-slate-500 hover:text-rose-400 text-xs flex items-center gap-1 transition-all p-1 rounded hover:bg-rose-950/40"
+                          className="text-slate-500 hover:text-rose-400 text-xs flex items-center gap-1 p-1 rounded"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-400" /> 항목 삭제
+                          <Trash2 className="w-3.5 h-3.5" /> 삭제
                         </button>
                       </div>
 
@@ -683,12 +673,12 @@ const ResumeEdit = () => {
                         <div className="flex gap-4 min-w-max">
                           {sec.columns.map((col) => {
                             const val = row.values[col] || '';
-                            const isMultiLine = col.includes('성과') || col.includes('업무') || col.includes('내용') || val.includes('\n');
+                            const isMultiLine = col.includes('내용') || col.includes('작성') || val.includes('\n');
 
                             return (
                               <div
                                 key={col}
-                                className="w-80 bg-[#0B0826] p-3 rounded-lg border border-indigo-950/80 flex flex-col gap-2 shrink-0 relative"
+                                className="w-80 bg-[#0B0826] p-3 rounded-lg border border-indigo-950/80 flex flex-col gap-2 shrink-0"
                               >
                                 <div className="flex items-center justify-between border-b border-indigo-950 pb-1">
                                   <span className="text-xs font-bold text-indigo-300 truncate max-w-[180px]">
@@ -705,19 +695,19 @@ const ResumeEdit = () => {
                                         value: val
                                       });
                                     }}
-                                    className="text-xs text-indigo-400 hover:text-indigo-200 flex items-center gap-1 bg-indigo-950/70 hover:bg-indigo-900/90 px-2 py-0.5 rounded border border-indigo-800/50 transition-all"
+                                    className="text-xs text-indigo-400 hover:text-indigo-200 flex items-center gap-1 bg-indigo-950/70 px-2 py-0.5 rounded border border-indigo-800/50"
                                   >
                                     <Maximize2 className="w-3 h-3" />
-                                    <span className="text-[11px] font-medium">크게 보기</span>
+                                    <span className="text-[11px]">확대</span>
                                   </button>
                                 </div>
 
                                 {isMultiLine ? (
                                   <textarea
-                                    rows={4}
+                                    rows={5}
                                     value={val}
                                     onChange={(e) => handleCellChange(sec.id, row.id, col, e.target.value)}
-                                    placeholder={`${col} 내용 입력...`}
+                                    placeholder={`${col} 입력...`}
                                     className="w-full bg-slate-950 text-xs text-slate-200 border border-indigo-950 rounded p-2 focus:border-indigo-500 focus:outline-none resize-none leading-relaxed flex-1"
                                   />
                                 ) : (
@@ -737,37 +727,36 @@ const ResumeEdit = () => {
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 italic py-2">등록된 항목이 없습니다.</p>
+                  <p className="text-xs text-slate-500 italic py-2">등록된 문항이 없습니다.</p>
                 )}
               </div>
 
               <button
                 onClick={() => handleAddRow(sec.id)}
-                className="w-full py-2.5 border border-dashed border-indigo-900/80 hover:border-indigo-500/60 rounded-xl text-xs text-indigo-400 flex items-center justify-center gap-1.5 transition-all bg-indigo-950/20 font-medium"
+                className="w-full py-2.5 border border-dashed border-indigo-900/80 hover:border-indigo-500/60 rounded-xl text-xs text-indigo-400 flex items-center justify-center gap-1.5 transition-all bg-indigo-950/20"
               >
-                <Plus className="w-4 h-4" /> + 새 항목 카드 추가
+                <Plus className="w-4 h-4" /> + 새 문항 추가
               </button>
-
             </div>
           ))}
-          <button
+        </div>
+
+        <button
             onClick={handleAddSection}
             disabled={isSaving}
             className="w-full py-4 border-2 border-dashed border-indigo-700/60 hover:border-indigo-500 bg-indigo-950/30 hover:bg-indigo-900/40 text-indigo-300 font-bold text-sm rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.99] disabled:opacity-50"
           >
             <PlusCircle className="w-5 h-5 text-indigo-400" />
-            <span>+ 새 이력서 섹션 추가</span>
+            <span>+ 새 자기소개서 섹션 추가</span>
           </button>
-        </div>
-
       </div>
-
-      {/* 하단 고정 전체 저장 버튼 */}
+      
+      {/* 하단 저장 버튼 */}
       <div className="fixed bottom-6 right-6 z-40">
         <button
           onClick={() => handleSaveAll(false)}
           disabled={isSaving}
-          className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-sm rounded-2xl shadow-2xl border border-indigo-400/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-sm rounded-2xl shadow-2xl border border-indigo-400/30 transition-all disabled:opacity-50"
         >
           {isSaving ? (
             <>
@@ -783,23 +772,16 @@ const ResumeEdit = () => {
         </button>
       </div>
 
-      {/* 1. 항목 상세 편집 모달 */}
+      {/* 확대 작성 모달 */}
       {activeModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 md:p-8 animate-fadeIn">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-indigo-900/60 bg-[#07051E]">
               <div>
-                <span className="text-xs font-semibold text-indigo-400">
-                  항목 #{activeModal.rowIdx} / {activeModal.colName}
-                </span>
-                <h3 className="text-lg font-bold text-white">
-                  {activeModal.colName} 상세 내용 작성
-                </h3>
+                <span className="text-xs text-indigo-400">문항 #{activeModal.rowIdx} / {activeModal.colName}</span>
+                <h3 className="text-lg font-bold text-white">{activeModal.colName} 상세 내용 작성</h3>
               </div>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-indigo-950 transition-all"
-              >
+              <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-white p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -812,14 +794,14 @@ const ResumeEdit = () => {
                   setActiveModal((prev) => ({ ...prev, value: newVal }));
                   handleCellChange(activeModal.sectionId, activeModal.rowId, activeModal.colName, newVal);
                 }}
-                className="w-full flex-1 min-h-[350px] bg-[#07051E] text-sm text-slate-100 border border-indigo-900/80 rounded-xl p-4 focus:border-indigo-500 focus:outline-none resize-none leading-relaxed font-sans shadow-inner"
+                className="w-full flex-1 min-h-[350px] bg-[#07051E] text-sm text-slate-100 border border-indigo-900/80 rounded-xl p-4 focus:border-indigo-500 focus:outline-none resize-none leading-relaxed"
               />
             </div>
 
             <div className="flex items-center justify-end px-6 py-4 border-t border-indigo-900/60 bg-[#07051E]">
               <button
                 onClick={() => setActiveModal(null)}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-xl flex items-center gap-1.5 transition-all shadow-lg"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-xl flex items-center gap-1.5"
               >
                 <Check className="w-4 h-4" /> 적용 및 닫기
               </button>
@@ -828,10 +810,10 @@ const ResumeEdit = () => {
         </div>
       )}
 
-      {/* 2. 커스텀 삭제 / 확인 모달 */}
+      {/* 확인 모달 */}
       {pendingConfirm && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
+          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
             <div className="flex items-center gap-3 text-rose-400">
               <AlertTriangle className="w-6 h-6" />
               <h3 className="text-base font-bold text-white">{pendingConfirm.title}</h3>
@@ -840,13 +822,13 @@ const ResumeEdit = () => {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setPendingConfirm(null)}
-                className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-300 text-xs font-semibold rounded-xl transition-all"
+                className="px-4 py-2 bg-indigo-950 text-slate-300 text-xs font-semibold rounded-xl"
               >
                 취소
               </button>
               <button
                 onClick={pendingConfirm.onConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg"
+                className="px-4 py-2 bg-rose-600 text-white text-xs font-bold rounded-xl"
               >
                 삭제 진행
               </button>
@@ -855,50 +837,48 @@ const ResumeEdit = () => {
         </div>
       )}
 
-      {/* 3. 미저장 이탈 확인 모달 (예 / 아니오 / 취소) */}
+      {/* 페이지 이동 확인 모달 */}
       {showNavigationModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
+          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
             <div className="flex items-center gap-3 text-amber-400">
               <AlertTriangle className="w-6 h-6 shrink-0" />
               <h3 className="text-base font-bold text-white">저장되지 않은 변경사항</h3>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              수정된 내용이나 삭제된 섹션이 있습니다.<br />
-              이동하기 전에 변경사항을 저장하시겠습니까?
+              수정 중인 내용이 있습니다. 저장하고 이동하시겠습니까?
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowNavigationModal(false)}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-400 text-xs font-semibold rounded-xl transition-all order-3 sm:order-1"
+                className="px-4 py-2 bg-indigo-950 text-slate-400 text-xs font-semibold rounded-xl"
               >
-                취소 (페이지 유지)
+                취소
               </button>
               <button
                 onClick={() => {
                   setShowNavigationModal(false);
-                  navigate(`/resume/${resumeId}`);
+                  navigate(`/cover-letter/${coverLetterId}`);
                 }}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/40 text-xs font-bold rounded-xl transition-all order-2"
+                className="px-4 py-2 bg-slate-800 text-rose-300 text-xs font-bold rounded-xl"
               >
-                아니오 (저장 안 함)
+                저장 안 함
               </button>
               <button
                 onClick={async () => {
                   setShowNavigationModal(false);
                   await handleSaveAll(true);
                 }}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg order-1 sm:order-3"
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl"
               >
-                예 (저장 후 이동)
+                저장 후 이동
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 };
 
-export default ResumeEdit;
+export default CoverLetterEdit;
