@@ -435,8 +435,10 @@ async def generate_cover_letter_from_resume(payload: ResumeGenerateRequest):
             "반드시 아래 JSON 구조로만 응답해라:\n"
             "{\n"
             '  "sections": [\n'
-            '    {"section_type": "MOTIVATION", "section_title": "1. 지원 동기 및 입사 후 포부", "content": "자연스러운 문장 형태의 자기소개서 내용..."},\n'
-            '    {"section_type": "STRENGTHS", "section_title": "2. 직무 핵심 역량 및 프로젝트 경험", "content": "자연스러운 문장 형태의 자기소개서 내용..."}\n'
+            '    {"section_type": "MOTIVATION", "section_title": "1. 지원 동기", "content": "자연스러운 문장 형태의 자기소개서 내용..."},\n'
+            '    {"section_type": "STRENGTHS", "section_title": "2. 직무 핵심 역량", "content": "자연스러운 문장 형태의 자기소개서 내용..."}\n'
+            '    {"section_type": "PROJECT", "section_title": "3. 프로젝트 경험", "content": "자연스러운 문장 형태의 자기소개서 내용..."},\n'
+            '    {"section_type": "AFTER", "section_title": "4. 입사 후 포부", "content": "자연스러운 문장 형태의 자기소개서 내용..."}\n'            
             '  ]\n'
             "}"
         )
