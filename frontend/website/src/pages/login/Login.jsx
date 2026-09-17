@@ -68,21 +68,22 @@ export default function Login() {
       <div style={{ width: '100%', maxWidth: '360px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         
         {/* 로고 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px', justifyContent: 'center' }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            backgroundColor: '#89c2ff',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#0f0c31'
-          }}>
-            <Edit3 size={24} />
-          </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>DevProfile</h1>
-        </div>
+        <div className="flex items-center gap-3 mb-6">
+  {/* 로고 아이콘 박스 */}
+  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 group hover:scale-105 transition-transform duration-200">
+    <Edit3 className="w-5 h-5 text-white" />
+  </div>
+
+  {/* 브랜드 텍스트 */}
+  <div className="flex flex-col">
+    <h1 className="text-xl md:text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
+      CAREER <span className="text-indigo-400">IT</span>
+    </h1>
+    <span className="text-[10px] font-semibold tracking-widest text-indigo-400/80 uppercase -mt-1">
+      Resume & Portfolio
+    </span>
+  </div>
+</div>
 
         {/* 로그인 폼 카드 */}
         <form onSubmit={handleLogin} style={{

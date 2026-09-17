@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Home, FileText, UserCheck, Sparkles, Settings, 
-  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw
+  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, Edit3
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -180,6 +180,23 @@ export default function Dashboard() {
       {/* 2. 메인 콘텐츠 영역 */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto max-w-6xl mx-auto w-full">
         
+         <div className="flex items-center gap-3 mb-6">
+  {/* 로고 아이콘 박스 */}
+  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 group hover:scale-105 transition-transform duration-200">
+    <Edit3 className="w-5 h-5 text-white" />
+  </div>
+
+  {/* 브랜드 텍스트 */}
+  <div className="flex flex-col">
+    <h1 className="text-xl md:text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
+      CAREER <span className="text-indigo-400">IT</span>
+    </h1>
+    <span className="text-[10px] font-semibold tracking-widest text-indigo-400/80 uppercase -mt-1">
+      Resume & Portfolio
+    </span>
+  </div>
+</div>
+        
         {/* 상단 프로필 헤더 */}
         <div className="bg-[#0f0c2e]/80 border border-indigo-800/40 rounded-2xl p-5 md:p-6 shadow-xl mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -198,6 +215,8 @@ export default function Dashboard() {
               )}
               <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[#0f0c2e] ${isLoggedIn ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
             </div>
+
+           
 
             <div className="space-y-1">
               <div className="flex items-center gap-2">
