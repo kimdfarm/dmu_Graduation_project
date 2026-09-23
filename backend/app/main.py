@@ -22,6 +22,7 @@ from app.routers import sections
 from app.routers.jobs import router as jobs_router
 from app.routers import coverletters
 from app.routers.imageandfileupload import savepile_coverletters
+
 load_dotenv()
 
 # 환경 변수 로드
@@ -29,6 +30,8 @@ MAIN_URL = os.getenv("MAIN_URL")
 MAIN_KEY = os.getenv("MAIN_KEY")
 CRAWL_URL = os.getenv("CRAWL_URL")
 CRAWL_KEY = os.getenv("CRAWL_KEY")
+# 배포할 프론트엔드 URL (Vercel 주소 등)을 환경변수로 받을 수 있도록 추가
+FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
 
 # 🚀 서버 시작(Startup)과 종료(Shutdown) Lifespan 설계
@@ -49,10 +52,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
 
-# CORS 설정
+# 🛠️ CORS 설정 (수정 포인트!)
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
+# 환경변수에 Vercel 등 프론트엔드 주소가 등록되어 있으면 origins에 추가
+if FRONTEND_URL:
+    origins.append(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    # 만약 Vercel 주소를 아직 모르는 초기 배포 단계이거나 와일드카드로 테스트할 때:
+    # allow_origins=["*"] 로 설정하셔도 됩니다.
+    allow_origins=origins if FRONTEND_URL else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,12 +80,11 @@ app.include_router(usegrog_router)
 app.include_router(settings_router)
 app.include_router(educersetting.router)
 app.include_router(resume.router)
-app.include_router(savepile_resume.router)  # /api/resumes/upload 엔드포인트 담당
-app.include_router(github_data.router)  # /api/auth/github 엔드포인트 담당
-app.include_router(sections.router)  # /api/sections 엔드포인트 담당
-app.include_router(jobs_router)  # /api/jobs 엔드포인트 담당
+app.include_router(savepile_resume.router)
+app.include_router(github_data.router)
+app.include_router(sections.router)
+app.include_router(jobs_router)
 app.include_router(coverletters.router)
-# ❌ file_parser.router 제거 완료 (유틸리티 모듈이므로 라우터 등록 안 함)
 app.include_router(savepile_coverletters.router)
 
 @app.get("/", tags=["Root"])
@@ -81,4 +94,6 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Render 환경변수 PORT를 우선 적용하도록 세팅
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
