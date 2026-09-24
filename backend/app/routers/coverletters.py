@@ -244,8 +244,18 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
             update_data["display_order"] = payload.display_order
         if payload.columns is not None:
             update_data["columns"] = payload.columns
+        
         if payload.details is not None:
-            update_data["details"] = [item.model_dump() for item in payload.details]
+            # 💡 수정된 details를 DB에 반영할 때 맞춤법/AI교정본 초기화 및 selected_version="ORIGINAL" 설정
+            cleaned_details = []
+            for item in payload.details:
+                detail_dict = item.model_dump()
+                detail_dict["spell_checked_text"] = None
+                detail_dict["ai_proofread_text"] = None
+                detail_dict["selected_version"] = "ORIGINAL"
+                cleaned_details.append(detail_dict)
+            
+            update_data["details"] = cleaned_details
 
         if not update_data:
             raise HTTPException(status_code=400, detail="수정할 정보가 없습니다.")

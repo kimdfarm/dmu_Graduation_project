@@ -137,9 +137,10 @@ const serializeTableToDetails = (columns, rows) => {
       id: row.id || crypto.randomUUID(),
       title: mainTitle,
       original_text: contentLines.join('\n\n'),
-      spell_checked_text: row.spell_checked_text || null,
-      ai_proofread_text: row.ai_proofread_text || null,
-      selected_version: row.selected_version || 'ORIGINAL'
+      // 💡 편집 저장 시 이전 맞춤법/AI 교정본을 비우고 ORIGINAL로 초기화
+      spell_checked_text: null,
+      ai_proofread_text: null,
+      selected_version: 'ORIGINAL'
     };
   });
 };

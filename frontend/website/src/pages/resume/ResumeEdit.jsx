@@ -118,7 +118,6 @@ const ResumeEdit = () => {
     const titleCol = columns.find((col) => col.includes('질문') || col.includes('항목')) || columns[0];
     const mainTitle = row.values[titleCol] || row.title || '자기소개서 항목';
 
-    // 현재 설정된 모든 동적 컬럼을 [컬럼명] 블록으로 직렬화
     const contentLines = [];
     columns.forEach((col) => {
       const val = (row.values[col] || '').trim();
@@ -138,9 +137,10 @@ const ResumeEdit = () => {
       id: row.id || crypto.randomUUID(),
       title: mainTitle,
       original_text: contentLines.join('\n\n'),
-      spell_checked_text: row.spell_checked_text || null,
-      ai_proofread_text: row.ai_proofread_text || null,
-      selected_version: row.selected_version || 'ORIGINAL'
+      // 💡 저장 시 이전 교정 텍스트를 모두 비우고 ORIGINAL 버전으로 초기화
+      spell_checked_text: null,
+      ai_proofread_text: null,
+      selected_version: 'ORIGINAL'
     };
   });
 };

@@ -53,6 +53,7 @@ class SectionUpdateRequest(BaseModel):
     display_order: Optional[int] = None
     columns: Optional[List[str]] = None
     details: Optional[List[DetailItem]] = None
+    selected_version: Optional[str] = None  # 추가
 
 
 # ------------------------------------------------------------------
@@ -255,14 +256,30 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
     try:
         supabase = get_supabase()
         update_data = {}
+        
         if payload.section_title is not None:
             update_data["section_title"] = payload.section_title
         if payload.display_order is not None:
             update_data["display_order"] = payload.display_order
         if payload.columns is not None:
             update_data["columns"] = payload.columns
+            
         if payload.details is not None:
-            update_data["details"] = [item.model_dump() for item in payload.details]
+            # 💡 원본 details 내용이 새로 수정/저장되는 경우:
+            # 교정본들을 초기화하고 선택 버전을 ORIGINAL로 재설정합니다.
+            cleaned_details = []
+            for item in payload.details:
+                detail_dict = item.model_dump()
+                detail_dict["spell_checked_text"] = None
+                detail_dict["ai_proofread_text"] = None
+                detail_dict["selected_version"] = "ORIGINAL"
+                cleaned_details.append(detail_dict)
+
+            update_data["details"] = cleaned_details
+            update_data["selected_version"] = "ORIGINAL"
+            # 섹션 레벨에 저장된 교정 목록도 함께 초기화
+            update_data["spell_checked_text"] = None
+            update_data["ai_proofread_text"] = None
 
         if not update_data:
             raise HTTPException(status_code=400, detail="수정할 정보가 없습니다.")
