@@ -15,36 +15,170 @@ router = APIRouter(
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
+# 💡 1. [태그] 기반 동적 컬럼 추출 및 정제 함수 (이력서 동일 로직)
+def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") -> tuple[str, list]:
+    if not raw_text:
+        return raw_text, columns or ["질문/항목", "작성 내용"]
+
+    cleaned_text = re.sub(r'^[•\s\-\*]+\s*', '', raw_text.strip())
+    tag_pattern = r'\[([^\]]+)\]'
+    matches = list(re.finditer(tag_pattern, cleaned_text))
+
+    final_columns = list(columns) if columns else []
+    for match in matches:
+        tag_name = match.group(1).strip()
+        if tag_name not in final_columns:
+            final_columns.append(tag_name)
+
+    if not final_columns:
+        final_columns = ["질문/항목", "작성 내용"]
+
+    col_data = {col: [] for col in final_columns}
+    norm_columns = [c.strip().lower() for c in final_columns]
+
+    if not matches:
+        lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
+        for line in lines:
+            line_content = re.sub(r'^[•\s\-\*]+\s*', '', line)
+            if line_content and line_content.strip().lower() not in norm_columns:
+                col_data[final_columns[0]].append(f"• {line_content}")
+    else:
+        for i, match in enumerate(matches):
+            tag_name = match.group(1).strip()
+            start_pos = match.end()
+            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned_text)
+            
+            content_block = cleaned_text[start_pos:end_pos].strip()
+            
+            target_col = None
+            for col in final_columns:
+                if col.lower() == tag_name.lower():
+                    target_col = col
+                    break
+            
+            if not target_col:
+                target_col = final_columns[-1]
+
+            lines = [l.strip() for l in content_block.split('\n') if l.strip()]
+            for l in lines:
+                l_content = re.sub(r'^[•\s\-\*]+\s*', '', l)
+                if (
+                    l_content 
+                    and not l_content.startswith('[') 
+                    and l_content.strip().lower() != tag_name.lower()
+                    and l_content.strip().lower() not in norm_columns
+                ):
+                    col_data[target_col].append(f"• {l_content}")
+
+    formatted_blocks = []
+    for col in final_columns:
+        items = col_data.get(col, [])
+        if items:
+            block = f"[{col}]\n" + "\n".join(items)
+            formatted_blocks.append(block)
+
+    return "\n\n".join(formatted_blocks), final_columns
+
+
+# 💡 2. 자소서 데이터를 다중 섹션 & 동적 컬럼으로 정제하는 함수
+def normalize_cover_letter_data(parsed_dict: dict) -> dict:
+    if not isinstance(parsed_dict, dict):
+        return {"doc_type": "COVER_LETTER", "sections": []}
+
+    raw_sections = parsed_dict.get("sections") or parsed_dict.get("data") or []
+    if isinstance(raw_sections, dict):
+        raw_sections = [raw_sections]
+
+    normalized_sections = []
+
+    for idx, sec in enumerate(raw_sections):
+        if not isinstance(sec, dict):
+            continue
+
+        section_title = sec.get("section_title") or sec.get("title") or f"자소서 문항 {idx + 1}"
+        section_type = sec.get("section_type") or "DYNAMIC_SECTION"
+        columns = sec.get("columns") or []
+
+        raw_details = sec.get("details") or sec.get("items") or []
+        if isinstance(raw_details, dict):
+            raw_details = [raw_details]
+
+        normalized_details = []
+        all_updated_columns = list(columns)
+
+        for d_idx, item in enumerate(raw_details):
+            if isinstance(item, dict):
+                card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
+                item_title = str(item.get("title") or item.get("name") or "항목").strip()
+                raw_orig = item.get("original_text") or item.get("content") or ""
+
+                structured_text, updated_cols = split_text_by_columns(str(raw_orig), all_updated_columns, item_title)
+
+                for c in updated_cols:
+                    if c not in all_updated_columns:
+                        all_updated_columns.append(c)
+
+                if structured_text.strip():
+                    normalized_details.append({
+                        "id": card_id,
+                        "title": item_title,
+                        "original_text": structured_text.strip()
+                    })
+
+        if normalized_details:
+            normalized_sections.append({
+                "section_type": str(section_type),
+                "section_title": str(section_title).strip(),
+                "display_order": idx + 1,
+                "columns": all_updated_columns if all_updated_columns else ["질문/항목", "작성 내용"],
+                "details": normalized_details
+            })
+
+    return {
+        "doc_type": parsed_dict.get("doc_type", "COVER_LETTER"),
+        "sections": normalized_sections
+    }
+
+
+# 💡 3. LLM 프롬프트 다중 섹션/다중 컬럼 허용으로 개편
 def parse_cover_letter_with_groq(raw_text: str) -> dict:
-    """문서 본문의 실제 키/헤더 구조를 제한 없이 동적으로 추출하도록 개선된 프롬프트"""
     if not groq_client:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY가 설정되지 않았습니다.")
 
-    # 고정 예시를 모두 제거하고 완전히 동적인 추출을 유도
-    SYSTEM_PROMPT = """You are an ultra-flexible document parser.
-Analyze the input text, detect its structural sections, and extract information dynamically without enforcing predefined key names or fixed templates.
+    SYSTEM_PROMPT = """You are an ultra-flexible document parsing engine specialized in cover letters.
 
-STRICT INSTRUCTIONS:
-1. DO NOT fix, correct, or alter any typos or spelling errors. Preserve exact raw text.
-2. DYNAMIC COLUMNS: Look at the text structure (e.g., key-value pairs, table headers, numbered lists, subheadings) and identify the column names (`columns`) purely based on the input context.
-   - You can create 2, 3, 4, or any N number of columns depending on what exists in the text.
-   - Do NOT force standard names like "질문" or "답변" if the text uses different labels or implicit structures.
-3. MATCHING TAGS: In `original_text`, every extracted field MUST be wrapped with `[Column Name]` matching the exact items listed in `columns`.
+CRITICAL GOALS:
+1. MULTIPLE SECTIONS: Separate EACH distinct question/topic into its OWN section in the `sections` array.
+2. DYNAMIC COLUMNS: Do NOT limit columns to ["질문/항목", "내용"]. Define custom column headers matching the text (e.g. ["질문 내용", "핵심 경험", "입사 후 포부"] or any relevant headers).
+3. TAG FORMAT: Wrap extracted fields in `original_text` using matching bracket tags like `[Column Name]`.
 
-JSON Output Schema:
+JSON Output Schema Example:
 {
   "doc_type": "COVER_LETTER",
   "sections": [
     {
-      "section_type": "DYNAMIC_SECTION",
-      "section_title": "Section title extracted from document",
+      "section_type": "MOTIVATION",
+      "section_title": "1. 지원 동기 및 포부",
       "display_order": 1,
-      "columns": ["Extracted Key 1", "Extracted Key 2", "Extracted Key 3"],
+      "columns": ["지원 이유", "달성 목표"],
       "details": [
         {
           "id": "card_1",
-          "title": "Card Summary or Title",
-          "original_text": "[Extracted Key 1]\nvalue1\n\n[Extracted Key 2]\nvalue2\n\n[Extracted Key 3]\nvalue3"
+          "title": "지원 동기",
+          "original_text": "[지원 이유]\n• 백엔드 개발자 성장 목표\n\n[달성 목표]\n• 시스템 최적화 기여"
+        }
+      ]
+    },
+    {
+      "section_type": "PROJECT",
+      "section_title": "2. 주요 프로젝트 및 성과",
+      "display_order": 2,
+      "columns": ["프로젝트명", "수행 역할", "성과"],
+      "details": [
+        {
+          "id": "card_2",
+          "title": "프로젝트 경험",
+          "original_text": "[프로젝트명]\n• AI 자소서 파서\n\n[수행 역할]\n• 백엔드 구축\n\n[성과]\n• 속도 개선"
         }
       ]
     }
@@ -61,7 +195,7 @@ Return raw JSON without markdown formatting."""
                 model=model_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse this document dynamically and extract exact column labels:\n\n{raw_text}"}
+                    {"role": "user", "content": f"Parse this cover letter dynamically into multiple sections and dynamic columns:\n\n{raw_text}"}
                 ],
                 temperature=0.1,
                 max_tokens=4096
@@ -71,8 +205,10 @@ Return raw JSON without markdown formatting."""
 
             if clean_json_str:
                 parsed = safe_json_parse(clean_json_str)
-                if parsed.get("sections"):
-                    return parsed
+                # 💡 정제 로직 실행
+                normalized = normalize_cover_letter_data(parsed)
+                if normalized.get("sections"):
+                    return normalized
         except Exception as e:
             last_error = e
             continue
@@ -80,6 +216,7 @@ Return raw JSON without markdown formatting."""
     raise HTTPException(status_code=500, detail=f"Groq 파싱 실패: {str(last_error)}")
 
 
+# 💡 4. 업로드 라우터 수정 (정제 함수 사용)
 @router.post("/upload")
 async def upload_cover_letter_file(
     member_id: str = Form(...),
@@ -116,17 +253,12 @@ async def upload_cover_letter_file(
         sections_payload = []
 
         for idx, sec in enumerate(sections_data):
-            extracted_columns = sec.get("columns")
-            # 컬럼이 완전히 비어서 오는 경우에만 파싱 불량 대비 기본 2칸 처리
-            if not extracted_columns or not isinstance(extracted_columns, list):
-                extracted_columns = ["항목", "내용"]
-
             sections_payload.append({
                 "document_id": created_document_id,
                 "section_type": sec.get("section_type", "DYNAMIC_SECTION"),
-                "section_title": sec.get("section_title", f"섹션 {idx + 1}"),
-                "display_order": idx + 1,
-                "columns": extracted_columns,
+                "section_title": sec.get("section_title", f"문항 {idx + 1}"),
+                "display_order": sec.get("display_order", idx + 1),
+                "columns": sec.get("columns", ["질문/항목", "작성 내용"]),
                 "details": sec.get("details", [])
             })
 
