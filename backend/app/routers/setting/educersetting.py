@@ -21,14 +21,14 @@ class EducationBase(BaseModel):
     major: str
     education_level: Optional[str] = "학사"
     status: Optional[str] = "재학"
-    admission_date: Union[date, str] # 💡 date 객체 또는 string 모두 허용[cite: 8]
+    admission_date: Union[date, str]
     graduation_date: Optional[Union[date, str]] = None
 
 class EducationCreate(EducationBase):
     pass
 
 class EducationResponse(EducationBase):
-    id: Union[str, int, Any]  # 👈 int/str 둘 다 수용 가능하도록 변경
+    id: Union[str, int, Any]
     member_id: str
     created_at: Optional[str] = None
 
@@ -40,13 +40,13 @@ class CertificateBase(BaseModel):
     certificate_name: str
     issuing_organization: Optional[str] = None
     certificate_number: Optional[str] = None
-    acquisition_date: Optional[Union[date, str]] = None # 💡 date 객체 또는 string 모두 허용[cite: 8]
+    acquisition_date: Optional[Union[date, str]] = None
 
 class CertificateCreate(CertificateBase):
     pass
 
 class CertificateResponse(CertificateBase):
-    id: Union[str, int, Any]  # 👈 int/str 둘 다 수용 가능하도록 변경
+    id: Union[str, int, Any]
     member_id: str
     created_at: Optional[str] = None
 
@@ -76,10 +76,14 @@ def create_education(member_id: str, edu: EducationCreate):
         data = edu.model_dump(exclude_none=True)
         data["member_id"] = member_id
         
+        # date 객체인 경우에만 isoformat() 호출, str이면 그대로 사용
         if "admission_date" in data and data["admission_date"]: 
-            data["admission_date"] = data["admission_date"].isoformat()
+            if isinstance(data["admission_date"], (date, datetime)):
+                data["admission_date"] = data["admission_date"].isoformat()
+
         if "graduation_date" in data and data["graduation_date"]: 
-            data["graduation_date"] = data["graduation_date"].isoformat()
+            if isinstance(data["graduation_date"], (date, datetime)):
+                data["graduation_date"] = data["graduation_date"].isoformat()
 
         response = supabase.table("educations").insert(data).execute()
         if not response.data:
@@ -118,11 +122,14 @@ def get_certificates(member_id: str):
 def create_certificate(member_id: str, cert: CertificateCreate):
     """자격증 정보 추가"""
     try:
+        supabase = get_supabase()  # 💡 누락되었던 supabase 인스턴스 추가
         data = cert.model_dump(exclude_none=True)
         data["member_id"] = member_id
         
+        # date 객체인 경우에만 isoformat() 호출, str이면 그대로 사용
         if "acquisition_date" in data and data["acquisition_date"]: 
-            data["acquisition_date"] = data["acquisition_date"].isoformat()
+            if isinstance(data["acquisition_date"], (date, datetime)):
+                data["acquisition_date"] = data["acquisition_date"].isoformat()
 
         response = supabase.table("certificates").insert(data).execute()
         if not response.data:

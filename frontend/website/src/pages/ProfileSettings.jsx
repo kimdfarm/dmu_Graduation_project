@@ -6,12 +6,13 @@ import {
   GraduationCap, Award, Plus, Trash2, Building, AlertTriangle, UserX, Loader2, X, MapPin,
   Search
 } from 'lucide-react';
+
 const Github = ({ className = "w-5 h-5" }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
   </svg>
 );
-// 💡 본인의 GitHub Client ID로 변경해 주세요
+
 const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || 'Ov23li4nl4BUypksPeOL'; 
 
 export default function ProfileSettings() {
@@ -20,7 +21,6 @@ export default function ProfileSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // 💡 GitHub 연동 정보 상태 관리 추가
   const [isGithubConnected, setIsGithubConnected] = useState(false);
   const [githubData, setGithubData] = useState({ github_id: '', github_api_key: '' });
 
@@ -63,13 +63,12 @@ export default function ProfileSettings() {
   const [isSyncingEmail, setIsSyncingEmail] = useState(false);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
 
-  // 🍪 쿠키 읽기 헬퍼 함수
   const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop().split(';').shift();
-  return null;
-};
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return null;
+  };
 
   const handleCompleteAddress = (data) => {
     let fullAddress = data.address;
@@ -157,7 +156,6 @@ export default function ProfileSettings() {
     const savedGithubId = getCookie('github_id') || localStorage.getItem('github_id');
     const savedAvatar = localStorage.getItem('github_avatar_url');
 
-    // 토큰과 github_id가 모두 존재하면 연동 상태로 변경
     if (token && savedGithubId) {
       setIsGithubConnected(true);
       setGithubData({
@@ -173,13 +171,11 @@ export default function ProfileSettings() {
     fetchCertificates();
   }, [navigate]);
 
-  // 💡 GitHub OAuth 이동 처리 핸들러
   const handleGithubOAuthLogin = () => {
     const CLIENT_ID = GITHUB_CLIENT_ID;
     const REDIRECT_URI = "http://localhost:5173/auth/github/callback";
     const currentPath = window.location.pathname + window.location.search;
-  sessionStorage.setItem('redirectAfterGithubAuth', currentPath);
-
+    sessionStorage.setItem('redirectAfterGithubAuth', currentPath);
 
     window.location.href = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=user,repo`;
   };
@@ -658,50 +654,47 @@ export default function ProfileSettings() {
               </div>
             </div>
 
-            {/* 💡 GitHub 계정 연동 버튼 영역 (추가됨) */}
-            {/* 💡 GitHub 계정 연동 영역 */}
-      
-        <div>
-        <label className="block text-xs font-medium text-slate-300 mb-2">GitHub 계정 연동</label>
-        <div className="flex items-center justify-between p-4 bg-[#0d0a2b] border border-indigo-800/40 rounded-xl">
-          <div className="flex items-center gap-3">
-            {/* 아바타 프로필 이미지가 있으면 렌더링, 없으면 기본 아이콘 */}
-            {isGithubConnected && githubData.github_avatar_url ? (
-              <img 
-                src={githubData.github_avatar_url} 
-                alt="GitHub Profile" 
-                className="w-6 h-6 rounded-full border border-indigo-500/50"
-              />
-            ) : (
-              <Github className="w-5 h-5 text-slate-300" />
-            )}
-
+            {/* GitHub 계정 연동 영역 */}
             <div>
-              <p className="text-sm font-medium text-white">
-                {isGithubConnected ? `연동됨 (${githubData.github_id})` : 'GitHub 미연동 계정'}
-              </p>
-              <p className="text-xs text-slate-400">
-                {isGithubConnected 
-                  ? 'GitHub 인증 토큰 및 계정이 정상적으로 연동되었습니다.' 
-                  : 'GitHub OAuth를 통해 계정을 연동해 주세요.'}
-              </p>
-            </div>
-          </div>
+              <label className="block text-xs font-medium text-slate-300 mb-2">GitHub 계정 연동</label>
+              <div className="flex items-center justify-between p-4 bg-[#0d0a2b] border border-indigo-800/40 rounded-xl">
+                <div className="flex items-center gap-3">
+                  {isGithubConnected && githubData.github_avatar_url ? (
+                    <img 
+                      src={githubData.github_avatar_url} 
+                      alt="GitHub Profile" 
+                      className="w-6 h-6 rounded-full border border-indigo-500/50"
+                    />
+                  ) : (
+                    <Github className="w-5 h-5 text-slate-300" />
+                  )}
 
-          <button
-            type="button"
-            onClick={handleGithubOAuthLogin}
-            className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
-              isGithubConnected 
-                ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-600/30' 
-                : 'bg-[#24292e] hover:bg-[#2c3137] text-white shadow-md'
-            }`}
-          >
-            <Github className="w-4 h-4" />
-            <span>{isGithubConnected ? '재연동하기' : 'GitHub 계정으로 연동하기'}</span>
-          </button>
-        </div>
-      </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {isGithubConnected ? `연동됨 (${githubData.github_id})` : 'GitHub 미연동 계정'}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {isGithubConnected 
+                        ? 'GitHub 인증 토큰 및 계정이 정상적으로 연동되었습니다.' 
+                        : 'GitHub OAuth를 통해 계정을 연동해 주세요.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGithubOAuthLogin}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
+                    isGithubConnected 
+                      ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-600/30' 
+                      : 'bg-[#24292e] hover:bg-[#2c3137] text-white shadow-md'
+                  }`}
+                >
+                  <Github className="w-4 h-4" />
+                  <span>{isGithubConnected ? '재연동하기' : 'GitHub 계정으로 연동하기'}</span>
+                </button>
+              </div>
+            </div>
 
             {/* 연락처 & 생년월일 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -729,7 +722,8 @@ export default function ProfileSettings() {
                     name="birth_date"
                     value={formData.birth_date}
                     onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 bg-[#0d0a2b] border border-indigo-800/40 rounded-xl text-white text-sm focus:outline-none focus:border-indigo-500 transition [color-scheme:dark]"
+                    onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                    className="w-full pl-10 pr-4 py-3 bg-[#0d0a2b] border border-indigo-800/40 rounded-xl text-white text-sm focus:outline-none focus:border-indigo-500 transition [color-scheme:dark] cursor-pointer"
                   />
                 </div>
               </div>
@@ -936,8 +930,10 @@ export default function ProfileSettings() {
                 <input
                   type="date"
                   value={newEdu.admission_date}
+                  max={newEdu.graduation_date || undefined}
                   onChange={(e) => setNewEdu({ ...newEdu, admission_date: e.target.value })}
-                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark] cursor-pointer"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -945,8 +941,10 @@ export default function ProfileSettings() {
                 <input
                   type="date"
                   value={newEdu.graduation_date}
+                  min={newEdu.admission_date || undefined}
                   onChange={(e) => setNewEdu({ ...newEdu, graduation_date: e.target.value })}
-                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark] cursor-pointer"
                 />
               </div>
             </div>
@@ -1044,7 +1042,8 @@ export default function ProfileSettings() {
                   type="date"
                   value={newCert.acquisition_date}
                   onChange={(e) => setNewCert({ ...newCert, acquisition_date: e.target.value })}
-                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 [color-scheme:dark] cursor-pointer"
                 />
               </div>
             </div>
