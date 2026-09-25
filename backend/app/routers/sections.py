@@ -6,6 +6,7 @@ from groq import Groq
 
 from app.core.config import get_supabase, GROQ_API_KEY
 
+
 router = APIRouter(
     prefix="/api/sections",
     tags=["sections"]
@@ -253,5 +254,61 @@ async def ai_proofread_section(
 
     return [AIProofreadResponseItem(**item) for item in proofread_results]
 
+async def run_cl_spell_check_llm(text: str) -> str:
+    if not text.strip():
+        return ""
 
+    prompt = f"""
+    다음 한국어 자기소개서 텍스트의 맞춤법, 띄어쓰기, 문맥적 오류를 올바르게 교정해 주세요.
+    원문의 의미와 문단 구조(줄바꿈 등)를 그대로 유지하되, 오직 맞춤법만 자연스럽게 수정해야 합니다.
+    부가적인 설명이나 인삿말 없이, 오직 교정된 결과 텍스트만 출력하세요.
+
+    [원문]
+    {text}
+    """
+
+    try:
+        response = await groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": "너는 한국어 맞춤법 및 문법 교정 전문가이다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Groq API Call Error (CL Spell Check): {e}")
+        return text
+
+
+async def run_cl_ai_proofread_llm(text: str) -> str:
+    if not text.strip():
+        return ""
+
+    prompt = f"""
+    다음 자기소개서 텍스트를 채용 담당자의 눈길을 사로잡을 수 있도록 전문적이고 매끄러운 문장으로 재작성해 주세요.
+
+    [작성 지침]
+    1. 구어체나 모호한 표현을 자연스럽고 신뢰감 주는 문장(~했습니다, ~하고자 합니다 등 완성형 경어체)으로 다듬어 주세요.
+    2. 원문의 주요 키워드, 수치, 핵심 경험은 손실 없이 그대로 유지해야 합니다.
+    3. 설명이나 인삿말 없이 오직 자기소개서용으로 재작성된 텍스트만 출력하세요.
+
+    [원문]
+    {text}
+    """
+
+    try:
+        response = await groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content": "너는 채용 담당자의 눈길을 사로잡는 전문 자기소개서 컨설턴트 및 라이터이다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Groq API Call Error (CL AI Proofread): {e}")
+        return text
 

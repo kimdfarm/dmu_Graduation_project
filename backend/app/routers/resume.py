@@ -193,6 +193,8 @@ async def get_resumes(member_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # [3] 특정 이력서 상세 및 섹션 조회
+# [3] 특정 이력서 상세 및 섹션 조회 (컬럼 기반 교정본 적용)
+# [3] 특정 이력서 상세 및 섹션 조회 (JSONB 맵핑 지원 버전)
 @router.get("/{resume_id}")
 async def get_resume_detail(resume_id: str):
     try:
@@ -208,7 +210,38 @@ async def get_resume_detail(resume_id: str):
             .execute()
 
         result = doc_res.data[0]
-        result["sections"] = sec_res.data
+        raw_sections = sec_res.data or []
+
+        for sec in raw_sections:
+            sec_version = sec.get("selected_version") or "ORIGINAL"
+            raw_details = sec.get("details") or []
+
+            # 💡 DB의 JSONB 컬럼에서 카드 ID별 텍스트 맵 추출
+            raw_spell = sec.get("spell_checked_text") or []
+            raw_ai = sec.get("ai_proofread_text") or []
+
+            spell_map = {item["id"]: item.get("spell_checked_text") for item in raw_spell if isinstance(item, dict) and "id" in item}
+            ai_map = {item["id"]: item.get("ai_proofread_text") for item in raw_ai if isinstance(item, dict) and "id" in item}
+
+            updated_details = []
+            for d in raw_details:
+                if isinstance(d, dict):
+                    card_id = d.get("id")
+                    updated_card = {
+                        **d,
+                        "selected_version": d.get("selected_version") or sec_version,
+                        # JSONB 컬럼에 있는 값이 우선시되도록 바인딩
+                        "spell_checked_text": d.get("spell_checked_text") or spell_map.get(card_id),
+                        "ai_proofread_text": d.get("ai_proofread_text") or ai_map.get(card_id)
+                    }
+                    updated_details.append(updated_card)
+                else:
+                    updated_details.append(d)
+
+            sec["details"] = updated_details
+            sec["selected_version"] = sec_version
+
+        result["sections"] = raw_sections
         return result
 
     except HTTPException as e:
@@ -251,6 +284,7 @@ async def create_section(resume_id: str, payload: SectionCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # [6] 섹션 업데이트
+# [6] 섹션 업데이트 (교정본 누락 방지 수정 버전)
 @router.patch("/sections/{section_id}")
 async def update_section(section_id: str, payload: SectionUpdateRequest):
     try:
@@ -265,21 +299,12 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
             update_data["columns"] = payload.columns
             
         if payload.details is not None:
-            # 💡 원본 details 내용이 새로 수정/저장되는 경우:
-            # 교정본들을 초기화하고 선택 버전을 ORIGINAL로 재설정합니다.
-            cleaned_details = []
-            for item in payload.details:
-                detail_dict = item.model_dump()
-                detail_dict["spell_checked_text"] = None
-                detail_dict["ai_proofread_text"] = None
-                detail_dict["selected_version"] = "ORIGINAL"
-                cleaned_details.append(detail_dict)
-
+            # 전달받은 details 내용을 보존하여 업데이트
+            cleaned_details = [item.model_dump() for item in payload.details]
             update_data["details"] = cleaned_details
-            update_data["selected_version"] = "ORIGINAL"
-            # 섹션 레벨에 저장된 교정 목록도 함께 초기화
-            update_data["spell_checked_text"] = None
-            update_data["ai_proofread_text"] = None
+            
+        if payload.selected_version is not None:
+            update_data["selected_version"] = payload.selected_version
 
         if not update_data:
             raise HTTPException(status_code=400, detail="수정할 정보가 없습니다.")
@@ -310,3 +335,49 @@ async def delete_resume_section(section_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# 💡 버전 선택 전용 요청 스키마
+class VersionUpdateRequest(BaseModel):
+    selected_version: str  # "ORIGINAL", "SPELL", "AI"
+    card_id: Optional[str] = None # 특정 카드만 바꿀 경우 (없으면 섹션 전체)
+
+# [8] 섹션/카드 버전 변경 (신규 추가)
+@router.patch("/sections/{section_id}/version")
+async def update_section_version(section_id: str, payload: VersionUpdateRequest):
+    try:
+        supabase = get_supabase()
+        
+        # 1. 기존 섹션 데이터 조회
+        sec_res = supabase.table("document_sections").select("*").eq("id", section_id).single().execute()
+        if not sec_res.data:
+            raise HTTPException(status_code=404, detail="섹션을 찾을 수 없습니다.")
+
+        sec_data = sec_res.data
+        raw_details = sec_data.get("details") or []
+        
+        updated_details = []
+        for d in raw_details:
+            if isinstance(d, dict):
+                # card_id가 지정된 경우 해당 카드만, 지정 안 됐으면 섹션 전체 카드 변경
+                if payload.card_id is None or d.get("id") == payload.card_id:
+                    d["selected_version"] = payload.selected_version
+                updated_details.append(d)
+            else:
+                updated_details.append(d)
+
+        # 2. DB 업데이트
+        update_payload = {
+            "selected_version": payload.selected_version,
+            "details": updated_details
+        }
+
+        response = supabase.table("document_sections") \
+            .update(update_payload) \
+            .eq("id", section_id) \
+            .execute()
+
+        return response.data[0]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"버전 업데이트 실패: {str(e)}")

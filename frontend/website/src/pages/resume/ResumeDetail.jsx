@@ -172,121 +172,111 @@ const ResumeDetail = () => {
     }
   };
 
-  // 2. 맞춤법 검사 및 교정 실행 함수
+  // 2. 맞춤법 검사 및 교정 실행 함수 (DB 영구 저장 로직 추가)
   const handleSpellCheckSection = async (sectionId) => {
-  setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
 
-  const targetSection = sections.find((s) => s.id === sectionId);
-  if (!targetSection || !targetSection.details) return;
+    const targetSection = sections.find((s) => s.id === sectionId);
+    if (!targetSection || !targetSection.details) return;
 
-  // 모든 항목에 이미 spell_checked_text가 있는지 확인
-  const hasUncheckedDetails = targetSection.details.some(
-    (d) => !d.spell_checked_text || !d.spell_checked_text.trim()
-  );
+    try {
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
 
-  // 이미 전부 검사되어 있다면 API 호출 없이 버전만 DB 업데이트 후 종료
-  if (!hasUncheckedDetails) {
-    await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selected_version: 'SPELL' })
-    });
-    return;
-  }
-
-  // 데이터가 없을 때만 POST 요청
-  try {
-    setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
-    const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        details: targetSection.details.map((d) => ({
-          id: d.id,
-          original_text: d.original_text || ''
-        }))
-      })
-    });
-
-    if (response.ok) {
-  const result = await response.json(); // [{ id: 'card_4_1', spell_checked_text: '...' }, ...]
-  setSections((prevSections) =>
-    prevSections.map((sec) => {
-      if (sec.id !== sectionId) return sec;
-      
-      const updatedDetails = sec.details.map((detail) => {
-        const checkedItem = result.find((item) => item.id === detail.id);
-        return checkedItem
-          ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
-          : detail;
+      // A. 맞춤법 검사 API 호출
+      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          details: targetSection.details.map((d) => ({
+            id: d.id,
+            original_text: d.original_text || ''
+          }))
+        })
       });
 
-      return { 
-        ...sec, 
-        spell_checked_text: result, // 섹션 레벨에도 저장
-        details: updatedDetails 
-      };
-    })
-  );
-}
-  } catch (err) {
-    console.error('맞춤법 교정 API 오류:', err);
-  } finally {
-    setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
-  }
-};
+      if (response.ok) {
+        const result = await response.json();
 
-  // 3. AI 교정 실행 함수
+        // B. 프론트엔드 details 데이터 업데이트
+        const updatedDetails = targetSection.details.map((detail) => {
+          const checkedItem = result.find((item) => item.id === detail.id);
+          return {
+            ...detail,
+            selected_version: 'SPELL',
+            spell_checked_text: checkedItem ? checkedItem.spell_checked_text : detail.spell_checked_text
+          };
+        });
+
+        // C. 상태 업데이트
+        setSections((prevSections) =>
+          prevSections.map((sec) => (sec.id === sectionId ? { ...sec, details: updatedDetails } : sec))
+        );
+
+        // D. 교정 결과를 DB document_sections 에 저장 (PATCH)
+        await fetch(`${BASE_URL}/api/resumes/sections/${sectionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            selected_version: 'SPELL',
+            details: updatedDetails
+          })
+        });
+      }
+    } catch (err) {
+      console.error('맞춤법 교정 API 오류:', err);
+    } finally {
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+    }
+  };
+
+  // 3. AI 교정 실행 함수 (DB 영구 저장 로직 추가)
   const handleAIProofreadSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
 
-    const hasUnproofreadDetails = targetSection.details.some((d) => !d.ai_proofread_text);
-
     try {
-      if (hasUnproofreadDetails) {
-        setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-        const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            details: targetSection.details.map((d) => ({
-              id: d.id,
-              original_text: d.original_text || ''
-            }))
-          })
-        });
-
-        if (response.ok) {
-  const result = await response.json(); // [{ id: 'card_4_1', ai_proofread_text: '...' }, ...]
-  setSections((prevSections) =>
-    prevSections.map((sec) => {
-      if (sec.id !== sectionId) return sec;
-
-      const updatedDetails = sec.details.map((detail) => {
-        const proofreadItem = result.find((item) => item.id === detail.id);
-        return proofreadItem
-          ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
-          : detail;
+      // A. AI 교정 API 호출
+      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          details: targetSection.details.map((d) => ({
+            id: d.id,
+            original_text: d.original_text || ''
+          }))
+        })
       });
 
-      return { 
-        ...sec, 
-        ai_proofread_text: result, // 섹션 레벨에도 저장
-        details: updatedDetails 
-      };
-    })
-  );
-}
-      } else {
-        // 이미 교정된 데이터가 존재하면 백엔드 DB 버전만 업데이트
-        await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+      if (response.ok) {
+        const result = await response.json();
+
+        // B. 프론트엔드 details 데이터 업데이트
+        const updatedDetails = targetSection.details.map((detail) => {
+          const proofreadItem = result.find((item) => item.id === detail.id);
+          return {
+            ...detail,
+            selected_version: 'AI',
+            ai_proofread_text: proofreadItem ? proofreadItem.ai_proofread_text : detail.ai_proofread_text
+          };
+        });
+
+        // C. 상태 업데이트
+        setSections((prevSections) =>
+          prevSections.map((sec) => (sec.id === sectionId ? { ...sec, details: updatedDetails } : sec))
+        );
+
+        // D. 교정 결과를 DB document_sections 에 저장 (PATCH)
+        await fetch(`${BASE_URL}/api/resumes/sections/${sectionId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selected_version: 'AI' })
+          body: JSON.stringify({
+            selected_version: 'AI',
+            details: updatedDetails
+          })
         });
       }
     } catch (err) {
@@ -343,46 +333,17 @@ const ResumeDetail = () => {
         const resumeData = await resumeRes.json();
         setResume(resumeData);
 
-        // useEffect 내 resumeRes 성공 처리 부분
+        // 💡 백엔드에서 불러온 섹션 배열 및 버전을 정상적으로 파싱하여 상태에 적용
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
-          const parsedSections = resumeData.sections.map((sec) => {
-            // 1. spell_checked_text 배열을 { "card_4_1": "교정된 텍스트..." } 형태의 맵으로 변환
-            const spellMap = {};
-            if (Array.isArray(sec.spell_checked_text)) {
-              sec.spell_checked_text.forEach((item) => {
-                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
-              });
-            }
-
-            // 2. ai_proofread_text 배열을 { "card_4_1": "교정된 텍스트..." } 형태의 맵으로 변환
-            const aiMap = {};
-            if (Array.isArray(sec.ai_proofread_text)) {
-              sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || '';
-              });
-            }
-
-            // 3. details의 각 detail 객체에 1:1로 텍스트 값을 정확히 병합
-            const updatedDetails = (sec.details || []).map((detail) => ({
-              ...detail,
-              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-              ai_proofread_text: aiMap[detail.id] || detail.ai_proofread_text || ''
-            }));
-
-            return { 
-              ...sec, 
-              details: updatedDetails 
-            };
-          });
-
-          setSections(parsedSections);
+          setSections(resumeData.sections);
 
           const initialVersions = {};
-          parsedSections.forEach((sec) => {
+          resumeData.sections.forEach((sec) => {
             initialVersions[sec.id] = sec.selected_version || 'ORIGINAL';
           });
           setSectionVersions(initialVersions);
         }
+
       } catch (err) {
         console.error('데이터 로딩 에러:', err);
         setErrorMessage(err.message);
@@ -562,7 +523,6 @@ const ResumeDetail = () => {
             )}
           </div>
 
-          {/* 💡 3개 초과 시에만 '더보기 / 접기' 버튼 노출 */}
           {educations.length > 3 && (
             <button
               onClick={() => setShowAllEducations(!showAllEducations)}
@@ -613,7 +573,6 @@ const ResumeDetail = () => {
             )}
           </div>
 
-          {/* 💡 3개 초과 시에만 '더보기 / 접기' 버튼 노출 */}
           {certificates.length > 3 && (
             <button
               onClick={() => setShowAllCertificates(!showAllCertificates)}

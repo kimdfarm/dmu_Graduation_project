@@ -5,11 +5,20 @@ import {
   CheckCircle2, ChevronDown, ChevronUp, Sparkles 
 } from 'lucide-react';
 
+const BASE_URL = 'http://localhost:8000';
+
+// 안전한 UUID 생성 함수
+const generateUniqueId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 11);
+};
+
 // ------------------------------------------------------------------
-// Table Schema 파싱 로직 (섹션별 선택된 텍스트 버전에 맞춰 동적 파싱)
+// Table Schema 파싱 로직
 // ------------------------------------------------------------------
-const parseDetailsToTableSchema = (details, secColumns = []) => {
-  // DB 섹션의 columns를 그대로 사용 (없을 때만 기본값)
+const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'ORIGINAL') => {
   const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
     ? [...secColumns]
     : ['질문', '답변'];
@@ -21,13 +30,17 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
   const extractedRows = details.map((detail) => {
     const rowValues = {};
 
-    // A. details 내부의 JSON 객체(또는 속성)가 직접 존재하면 1:1 매핑
     if (detail.values && typeof detail.values === 'object') {
       Object.assign(rowValues, detail.values);
     } else {
-      // B. text 데이터인 경우, [태그] 기반으로 모든 동적 컬럼을 추출
-      const text = detail.original_text || '';
-      const blocks = text.split(/\n\n(?=\[)/);
+      let targetText = detail.original_text || '';
+      if (currentVersion === 'SPELL' && detail.spell_checked_text) {
+        targetText = detail.spell_checked_text;
+      } else if (currentVersion === 'AI' && detail.ai_proofread_text) {
+        targetText = detail.ai_proofread_text;
+      }
+
+      const blocks = targetText.split(/\n\n(?=\[)/);
 
       blocks.forEach((block) => {
         const match = block.match(/^\[(.*?)\]\n?([\s\S]*)$/);
@@ -36,37 +49,32 @@ const parseDetailsToTableSchema = (details, secColumns = []) => {
           const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
           rowValues[colName] = content;
 
-          // DB에 없던 신규 컬럼 태그가 텍스트에서 발견되면 columns에 자동 추가
           if (!dynamicColumns.includes(colName)) {
             dynamicColumns.push(colName);
           }
         }
       });
 
-      // 태그가 없는 단순 텍스트인 경우 첫 번째/두 번째 컬럼에 매핑
-      if (Object.keys(rowValues).length === 0 && text) {
+      if (Object.keys(rowValues).length === 0 && targetText) {
         const col1 = dynamicColumns[0] || '질문';
         const col2 = dynamicColumns[1] || '답변';
         rowValues[col1] = detail.title || '';
-        rowValues[col2] = text.replace(/^[•\-\*\s]+/gm, '').trim();
+        rowValues[col2] = targetText.replace(/^[•\-\*\s]+/gm, '').trim();
       }
     }
 
     return {
-      id: detail.id || crypto.randomUUID(),
+      id: detail.id || generateUniqueId(),
       title: detail.title || '',
       spell_checked_text: detail.spell_checked_text || null,
       ai_proofread_text: detail.ai_proofread_text || null,
-      selected_version: detail.selected_version || 'ORIGINAL',
+      selected_version: currentVersion,
       values: rowValues
     };
   });
 
   return { columns: dynamicColumns, rows: extractedRows };
 };
-
-
-const BASE_URL = 'http://localhost:8000';
 
 const CoverLetterDetail = () => {
   const { coverLetterId } = useParams();
@@ -75,10 +83,7 @@ const CoverLetterDetail = () => {
   const [coverLetter, setCoverLetter] = useState(null);
   const [sections, setSections] = useState([]);
   
-  // 섹션별 텍스트 선택 버전 관리 상태 ({ [sectionId]: 'ORIGINAL' | 'SPELL' | 'AI' })
   const [sectionVersions, setSectionVersions] = useState({});
-
-  // 섹션별 로딩/교정 처리 상태 ({ [sectionId]: 'SPELL' | 'AI' | null })
   const [processingSections, setProcessingSections] = useState({});
 
   const [isLoading, setIsLoading] = useState(true);
@@ -93,7 +98,7 @@ const CoverLetterDetail = () => {
     }));
   };
 
-  // 1. 버전 변경
+  // 1. 버전 변경 (sections.py 경로 적용)
   const handleSectionVersionChange = async (sectionId, version) => {
     setSectionVersions((prev) => ({
       ...prev,
@@ -111,25 +116,12 @@ const CoverLetterDetail = () => {
     }
   };
 
-  // 2. 맞춤법 검사 실행
+  // 2. 맞춤법 검사 실행 (sections.py 경로 적용)
   const handleSpellCheckSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
-
-    const hasUncheckedDetails = targetSection.details.some(
-      (d) => !d.spell_checked_text || !d.spell_checked_text.trim()
-    );
-
-    if (!hasUncheckedDetails) {
-      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selected_version: 'SPELL' })
-      });
-      return;
-    }
 
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
@@ -139,7 +131,7 @@ const CoverLetterDetail = () => {
         body: JSON.stringify({
           details: targetSection.details.map((d) => ({
             id: d.id,
-            original_text: d.original_text || ''
+            original_text: d.original_text || d.values?.답변 || d.title || ''
           }))
         })
       });
@@ -151,7 +143,9 @@ const CoverLetterDetail = () => {
             if (sec.id !== sectionId) return sec;
             
             const updatedDetails = sec.details.map((detail) => {
-              const checkedItem = result.find((item) => item.id === detail.id);
+              const checkedItem = Array.isArray(result) 
+                ? result.find((item) => item.id === detail.id)
+                : null;
               return checkedItem
                 ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
                 : detail;
@@ -159,7 +153,6 @@ const CoverLetterDetail = () => {
 
             return { 
               ...sec, 
-              spell_checked_text: result,
               details: updatedDetails 
             };
           })
@@ -172,57 +165,48 @@ const CoverLetterDetail = () => {
     }
   };
 
-  // 3. AI 교정 실행
+  // 3. AI 교정 실행 (sections.py 경로 적용)
   const handleAIProofreadSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
 
-    const hasUnproofreadDetails = targetSection.details.some((d) => !d.ai_proofread_text);
-
     try {
-      if (hasUnproofreadDetails) {
-        setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-        const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            details: targetSection.details.map((d) => ({
-              id: d.id,
-              original_text: d.original_text || ''
-            }))
+      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          details: targetSection.details.map((d) => ({
+            id: d.id,
+            original_text: d.original_text || d.values?.답변 || d.title || ''
+          }))
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setSections((prevSections) =>
+          prevSections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+
+            const updatedDetails = sec.details.map((detail) => {
+              const proofreadItem = Array.isArray(result)
+                ? result.find((item) => item.id === detail.id)
+                : null;
+              return proofreadItem
+                ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
+                : detail;
+            });
+
+            return { 
+              ...sec, 
+              details: updatedDetails 
+            };
           })
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          setSections((prevSections) =>
-            prevSections.map((sec) => {
-              if (sec.id !== sectionId) return sec;
-
-              const updatedDetails = sec.details.map((detail) => {
-                const proofreadItem = result.find((item) => item.id === detail.id);
-                return proofreadItem
-                  ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
-                  : detail;
-              });
-
-              return { 
-                ...sec, 
-                ai_proofread_text: result,
-                details: updatedDetails 
-              };
-            })
-          );
-        }
-      } else {
-        await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selected_version: 'AI' })
-        });
+        );
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);

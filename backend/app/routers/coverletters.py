@@ -175,6 +175,7 @@ async def get_cover_letters(member_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # [3] 특정 자기소개서 상세 및 섹션 조회
+# [3] 특정 자기소개서 상세 및 섹션 조회 (이력서의 JSONB 맵핑 로직 적용)
 @router.get("/{cover_letter_id}")
 async def get_cover_letter_detail(cover_letter_id: str):
     try:
@@ -190,7 +191,36 @@ async def get_cover_letter_detail(cover_letter_id: str):
             .execute()
 
         result = doc_res.data[0]
-        result["sections"] = sec_res.data
+        raw_sections = sec_res.data or []
+
+        for sec in raw_sections:
+            sec_version = sec.get("selected_version") or "ORIGINAL"
+            raw_details = sec.get("details") or []
+
+            raw_spell = sec.get("spell_checked_text") or []
+            raw_ai = sec.get("ai_proofread_text") or []
+
+            spell_map = {item["id"]: item.get("spell_checked_text") for item in raw_spell if isinstance(item, dict) and "id" in item}
+            ai_map = {item["id"]: item.get("ai_proofread_text") for item in raw_ai if isinstance(item, dict) and "id" in item}
+
+            updated_details = []
+            for d in raw_details:
+                if isinstance(d, dict):
+                    card_id = d.get("id")
+                    updated_card = {
+                        **d,
+                        "selected_version": d.get("selected_version") or sec_version,
+                        "spell_checked_text": d.get("spell_checked_text") or spell_map.get(card_id),
+                        "ai_proofread_text": d.get("ai_proofread_text") or ai_map.get(card_id)
+                    }
+                    updated_details.append(updated_card)
+                else:
+                    updated_details.append(d)
+
+            sec["details"] = updated_details
+            sec["selected_version"] = sec_version
+
+        result["sections"] = raw_sections
         return result
 
     except HTTPException as e:
@@ -238,24 +268,33 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
     try:
         supabase = get_supabase()
         update_data = {}
+        
         if payload.section_title is not None:
             update_data["section_title"] = payload.section_title
         if payload.display_order is not None:
             update_data["display_order"] = payload.display_order
         if payload.columns is not None:
             update_data["columns"] = payload.columns
-        
+            
         if payload.details is not None:
-            # 💡 수정된 details를 DB에 반영할 때 맞춤법/AI교정본 초기화 및 selected_version="ORIGINAL" 설정
+            # 💡 [핵심 추가] 사용자가 내용을 수정하여 저장할 때:
+            # 1) spell_checked_text, ai_proofread_text를 None(null)으로 비움
+            # 2) selected_version을 'ORIGINAL'로 리셋
             cleaned_details = []
             for item in payload.details:
-                detail_dict = item.model_dump()
-                detail_dict["spell_checked_text"] = None
-                detail_dict["ai_proofread_text"] = None
-                detail_dict["selected_version"] = "ORIGINAL"
-                cleaned_details.append(detail_dict)
-            
+                item_dict = item.model_dump()
+                item_dict["spell_checked_text"] = None
+                item_dict["ai_proofread_text"] = None
+                item_dict["selected_version"] = "ORIGINAL"
+                cleaned_details.append(item_dict)
+
             update_data["details"] = cleaned_details
+            # 섹션 레벨 버전도 ORIGINAL로 리셋
+            update_data["selected_version"] = "ORIGINAL"
+            
+            # 💡 DB의 교정본 컬럼도 함께 초기화
+            update_data["spell_checked_text"] = None
+            update_data["ai_proofread_text"] = None
 
         if not update_data:
             raise HTTPException(status_code=400, detail="수정할 정보가 없습니다.")
@@ -265,10 +304,14 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
             .eq("id", section_id) \
             .execute()
 
+        if not response.data:
+            raise HTTPException(status_code=404, detail="업데이트할 섹션을 찾지 못했습니다.")
+
         return response.data[0]
     except Exception as e:
+        print(f"❌ 섹션 업데이트 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 # [7] 문항(섹션) 삭제
 @router.delete("/sections/{section_id}", status_code=status.HTTP_200_OK)
 async def delete_cover_letter_section(section_id: str):
@@ -295,9 +338,9 @@ async def delete_cover_letter_section(section_id: str):
 # -------------------------------------------------------------------
 class ResumeGenerateRequest(BaseModel):
     member_id: str
-    resume_id: str  # 또는 int (Supabase의 resumes PK 타입에 맞춰 조정)
+    resume_id: str
     title: str = "이력서 기반 AI 맞춤 자기소개서"
-    category: Optional[str] = "일반"
+    category: Optional[str] = None  # <--- 구문 마감 및 기본값 설정
 
 class CoverLetterResponse(BaseModel):
     id: int
@@ -538,3 +581,49 @@ async def generate_cover_letter_from_resume(payload: ResumeGenerateRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI 자기소개서 생성 중 오류 발생: {str(e)}"
         )
+
+# [8] 섹션/카드 버전 변경
+class VersionUpdateRequest(BaseModel):
+    selected_version: str  # "ORIGINAL", "SPELL", "AI"
+    card_id: Optional[str] = None
+
+@router.patch("/sections/{section_id}/version")
+async def update_section_version(section_id: str, payload: VersionUpdateRequest):
+    try:
+        supabase = get_supabase()
+        
+        sec_res = supabase.table("document_sections").select("*").eq("id", section_id).single().execute()
+        if not sec_res.data:
+            raise HTTPException(status_code=404, detail="섹션을 찾을 수 없습니다.")
+
+        sec_data = sec_res.data
+        raw_details = sec_data.get("details") or []
+        
+        updated_details = []
+        for d in raw_details:
+            if isinstance(d, dict):
+                if payload.card_id is None or d.get("id") == payload.card_id:
+                    d["selected_version"] = payload.selected_version
+                updated_details.append(d)
+            else:
+                updated_details.append(d)
+
+        update_payload = {
+            "selected_version": payload.selected_version,
+            "details": updated_details
+        }
+
+        response = supabase.table("document_sections") \
+            .update(update_payload) \
+            .eq("id", section_id) \
+            .execute()
+
+        return response.data[0]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"버전 업데이트 실패: {str(e)}")
+    
+
+# ------------------------------------------------------------------
+# Helper: Groq LLM 호출 함수 (자기소개서 전용 프롬프트 적용)
+# ------------------------------------------------------------------

@@ -137,10 +137,9 @@ const ResumeEdit = () => {
       id: row.id || crypto.randomUUID(),
       title: mainTitle,
       original_text: contentLines.join('\n\n'),
-      // 💡 저장 시 이전 교정 텍스트를 모두 비우고 ORIGINAL 버전으로 초기화
-      spell_checked_text: null,
+      spell_checked_text: null, // 내용 변경 시 교정본 초기화
       ai_proofread_text: null,
-      selected_version: 'ORIGINAL'
+      selected_version: 'ORIGINAL' // 💡 새로운 원본으로 버전 세팅
     };
   });
 };
@@ -855,47 +854,53 @@ const ResumeEdit = () => {
         </div>
       )}
 
-      {/* 3. 미저장 이탈 확인 모달 (예 / 아니오 / 취소) */}
-      {showNavigationModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
-            <div className="flex items-center gap-3 text-amber-400">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="text-base font-bold text-white">저장되지 않은 변경사항</h3>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              수정된 내용이나 삭제된 섹션이 있습니다.<br />
-              이동하기 전에 변경사항을 저장하시겠습니까?
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowNavigationModal(false)}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-400 text-xs font-semibold rounded-xl transition-all order-3 sm:order-1"
-              >
-                취소 (페이지 유지)
-              </button>
-              <button
-                onClick={() => {
-                  setShowNavigationModal(false);
-                  navigate(`/resume/${resumeId}`);
-                }}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/40 text-xs font-bold rounded-xl transition-all order-2"
-              >
-                아니오 (저장 안 함)
-              </button>
-              <button
-                onClick={async () => {
-                  setShowNavigationModal(false);
-                  await handleSaveAll(true);
-                }}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg order-1 sm:order-3"
-              >
-                예 (저장 후 이동)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 3. 미저장 이탈 확인 모달 (저장 안 함 / 저장 후 이동 핸들러 분리) */}
+{showNavigationModal && (
+  <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
+      <div className="flex items-center gap-3 text-amber-400">
+        <AlertTriangle className="w-6 h-6 shrink-0" />
+        <h3 className="text-base font-bold text-white">저장되지 않은 변경사항</h3>
+      </div>
+      <p className="text-xs text-slate-300 leading-relaxed">
+        수정된 내용이나 삭제된 섹션이 있습니다.<br />
+        이동하기 전에 변경사항을 저장하시겠습니까?
+      </p>
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+        {/* 1) 취소: 모달 닫기 */}
+        <button
+          onClick={() => setShowNavigationModal(false)}
+          className="w-full sm:w-auto px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-400 text-xs font-semibold rounded-xl transition-all order-3 sm:order-1"
+        >
+          취소 (페이지 유지)
+        </button>
+
+        {/* 2) 아니오 (저장 안 함): DB 저장 없이 상태만 리셋 후 원래 상세 화면으로 이동 */}
+        <button
+          onClick={() => {
+            setIsDirty(false); // Dirty 해제
+            setShowNavigationModal(false);
+            navigate(`/resume/${resumeId}`); // DB 호출 없이 이동
+          }}
+          className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/40 text-xs font-bold rounded-xl transition-all order-2"
+        >
+          아니오 (저장 안 함)
+        </button>
+
+        {/* 3) 예 (저장 후 이동): 백엔드 저장 API 호출 후 이동 */}
+        <button
+          onClick={async () => {
+            setShowNavigationModal(false);
+            await handleSaveAll(true); // true 전달 시 저장 완료 후 상세페이지로 navigate 수행
+          }}
+          className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg order-1 sm:order-3"
+        >
+          예 (저장 후 이동)
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
     </div>
   );

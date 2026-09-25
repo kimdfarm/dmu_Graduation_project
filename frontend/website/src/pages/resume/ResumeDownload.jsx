@@ -10,7 +10,10 @@ import {
 
 const BASE_URL = 'http://localhost:8000';
 
-const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
+// ------------------------------------------------------------------
+// 💡 selected_version 기준 실시간 텍스트 추출 및 파싱 함수 (완벽 개편)
+// ------------------------------------------------------------------
+const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'ORIGINAL') => {
   let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
     ? [...secColumns] 
     : [];
@@ -32,40 +35,54 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
     const rowValues = {};
 
     if (typeof cardObj === 'object' && cardObj !== null) {
-      let textToParse = cardObj.original_text || '';
-      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
-        textToParse = cardObj.spell_checked_text;
-      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
-        textToParse = cardObj.ai_proofread_text;
+      // 1. 선택된 버전 감지 (카드 자체 버전 > 섹션 버전 > ORIGINAL)
+      const versionToUse = cardObj.selected_version || defaultVersion;
+      
+      // 2. 버전별 텍스트 선택 (우선순위 분기)
+      let textToParse = '';
+      
+      if (versionToUse === 'AI') {
+        textToParse = cardObj.ai_proofread_text || cardObj.original_text || '';
+      } else if (versionToUse === 'SPELL') {
+        textToParse = cardObj.spell_checked_text || cardObj.original_text || '';
+      } else {
+        textToParse = cardObj.original_text || '';
       }
 
-      if (textToParse) {
-        const lines = textToParse.split('\n').map((l) => l.trim()).filter(Boolean);
-        let currentSection = null;
+      // 3. 추출된 텍스트 파싱
+      if (textToParse && typeof textToParse === 'string') {
+        const blocks = textToParse.split('\n\n');
+        
+        blocks.forEach((block) => {
+          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+          if (lines.length === 0) return;
 
-        lines.forEach((line) => {
-          if (line.startsWith('[') && line.endsWith(']')) {
-            currentSection = line.slice(1, -1).trim();
-            addColumn(currentSection);
-            if (!rowValues[currentSection]) rowValues[currentSection] = '';
-            return;
-          }
-
-          const colonIdx = line.indexOf(':');
-          if (colonIdx !== -1 && !line.startsWith('•') && !line.startsWith('-')) {
-            const k = line.slice(0, colonIdx).trim();
-            const v = line.slice(colonIdx + 1).trim();
-            addColumn(k);
-            rowValues[k] = v;
+          if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
+            const keyName = lines[0].slice(1, -1).trim();
+            addColumn(keyName);
+            rowValues[keyName] = lines
+              .slice(1)
+              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
+              .join('\n');
           } else {
-            const cleanLine = line.replace(/^[•\-\*\s]+/, '').trim();
-            if (!cleanLine) return;
+            lines.forEach((line) => {
+              const colonIdx = line.indexOf(':');
+              if (colonIdx !== -1 && !line.startsWith('•') && !line.startsWith('-')) {
+                const k = line.slice(0, colonIdx).trim();
+                const v = line.slice(colonIdx + 1).trim();
+                addColumn(k);
+                rowValues[k] = v;
+              } else {
+                const cleanLine = line.replace(/^[•\-\*\s]+/, '').trim();
+                if (!cleanLine) return;
 
-            const targetCol = currentSection || '상세 내용';
-            addColumn(targetCol);
-            
-            const currentVal = rowValues[targetCol] || '';
-            rowValues[targetCol] = currentVal ? `${currentVal}\n• ${cleanLine}` : `• ${cleanLine}`;
+                const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무') || c.includes('내용')) || detectedColumns[0] || '상세 내용';
+                addColumn(targetCol);
+                
+                const currentVal = rowValues[targetCol] || '';
+                rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
+              }
+            });
           }
         });
       } else {
@@ -99,6 +116,8 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
       values: rowValues
     });
   });
+
+  if (detectedColumns.length === 0) detectedColumns = ['상세 내용'];
 
   return { columns: detectedColumns, rows: extractedRows };
 };
@@ -134,8 +153,8 @@ const ResumeDownload = () => {
       id: 'KR',
       country: '대한민국',
       flag: '🇰🇷',
-      name: '한국 표준형 이력서',
-      desc: '신입 및 경력직 공용 표준 인적사항 및 테이블 서식',
+      name: '한국 모던 이력서',
+      desc: '깔끔한 구분선과 구조화된 프로페셔널 서식',
       icon: Globe2,
       badge: '표준'
     },
@@ -208,42 +227,43 @@ const ResumeDownload = () => {
         }
 
         const resumeRes = await fetch(`${BASE_URL}/api/resumes/${resumeId}`);
-        if (!resumeRes.ok) throw new Error('이력서 정보를 불러오는데 실패했습니다.');
+        if (!resumeRes.ok) throw new Error('이력서 정보를 불러오는 데 실패했습니다.');
 
         const resumeData = await resumeRes.json();
         setResume(resumeData);
 
+        // 💡 [핵심 교정] 백엔드 데이터를 가져올 때 섹션/카드의 버전 데이터 상호 합성
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
           const parsedSections = resumeData.sections.map((sec) => {
+            const secVersion = sec.selected_version || 'ORIGINAL';
+
+            // 섹션 단위에 매핑된 배열형 교정본이 있는 경우 ID 맵 생성
             const spellMap = {};
             if (Array.isArray(sec.spell_checked_text)) {
               sec.spell_checked_text.forEach((item) => {
-                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
+                if (item && item.id) spellMap[item.id] = item.spell_checked_text || item.text || '';
               });
             }
 
             const aiMap = {};
             if (Array.isArray(sec.ai_proofread_text)) {
               sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || '';
+                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || item.text || '';
               });
             }
 
+            // 개별 detail 객체 내부로 교정본 및 selected_version 확실히 주입
             const updatedDetails = (sec.details || []).map((detail) => ({
               ...detail,
-              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-              ai_proofread_text: aiMap[detail.id] || detail.ai_proofread_text || ''
+              selected_version: detail.selected_version || secVersion,
+              spell_checked_text: detail.spell_checked_text || spellMap[detail.id] || (typeof sec.spell_checked_text === 'string' ? sec.spell_checked_text : ''),
+              ai_proofread_text: detail.ai_proofread_text || aiMap[detail.id] || (typeof sec.ai_proofread_text === 'string' ? sec.ai_proofread_text : '')
             }));
-
-            const secVersion = sec.selected_version || 'ORIGINAL';
-            const { columns, rows } = parseDetailsToTableSchema(updatedDetails, sec.columns, secVersion);
 
             return {
               ...sec,
               details: updatedDetails,
-              columns,
-              rows,
-              currentVersion: secVersion
+              selected_version: secVersion
             };
           });
 
@@ -328,16 +348,12 @@ const ResumeDownload = () => {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            tr { 
-              page-break-inside: avoid !important; 
-              break-inside: avoid !important; 
-            }
           }
-          td { word-break: keep-all !important; overflow-wrap: break-word !important; }
+          td, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
-        <div style="background-color: #ffffff; color: #000000; width: 210mm; padding: 8mm; box-sizing: border-box;">
+        <div style="background-color: #ffffff; color: #000000; width: 210mm; padding: 10mm; box-sizing: border-box;">
           ${content}
         </div>
       </body>
@@ -358,6 +374,17 @@ const ResumeDownload = () => {
     window.print();
     document.title = originalTitle;
   };
+
+  // 💡 실시간 selected_version 상태에 맞춰 렌더링용 섹션 및 rows 동적 파싱
+  const activeSections = orderedSections.map((sec) => {
+    const defaultVersion = sec.selected_version || 'ORIGINAL';
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, defaultVersion);
+    return {
+      ...sec,
+      columns,
+      rows
+    };
+  });
 
   if (isLoading) {
     return (
@@ -387,10 +414,6 @@ const ResumeDownload = () => {
             box-shadow: none !important;
             border: none !important;
           }
-          tr {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
         }
 
         .resume-paper {
@@ -398,7 +421,7 @@ const ResumeDownload = () => {
           color: #111827 !important;
         }
         
-        .resume-paper td, .resume-paper div {
+        .resume-paper td, .resume-paper div, .resume-paper p {
           word-break: keep-all !important;
           word-wrap: break-word !important;
         }
@@ -414,7 +437,7 @@ const ResumeDownload = () => {
           <span>뒤로가기</span>
         </button>
         <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-          4대 국가별 이력서 커스텀 & 내보내기
+          국가별 이력서 커스텀 & 내보내기
         </h1>
       </div>
 
@@ -540,7 +563,7 @@ const ResumeDownload = () => {
               <Droppable droppableId="sections">
                 {(provided) => (
                   <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-2">
-                    {orderedSections.map((sec, index) => (
+                    {activeSections.map((sec, index) => (
                       <Draggable key={sec.id} draggableId={String(sec.id)} index={index}>
                         {(provided, snapshot) => (
                           <div
@@ -571,7 +594,7 @@ const ResumeDownload = () => {
                               </button>
                               <button
                                 onClick={() => moveDown(index)}
-                                disabled={index === orderedSections.length - 1}
+                                disabled={index === activeSections.length - 1}
                                 className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
                               >
                                 <ChevronDown className="w-4 h-4" />
@@ -590,75 +613,89 @@ const ResumeDownload = () => {
 
         </div>
 
-        {/* 실시간 이력서 뷰어 영역 (4종 스타일) */}
+        {/* 💡 실시간 이력서 뷰어 영역 (미국 ATS 포함 4종 템플릿) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
-          {/* 1. 한국 표준형 (KR) */}
+          {/* 1. 한국 모던 이력서 (KR) */}
           {selectedStyle === 'KR' && (
             <div 
               ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-5 font-sans"
+              className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-relaxed flex flex-col space-y-6 font-sans"
             >
-              <div className="border-b-2 border-gray-900 pb-4 flex justify-between items-start">
-                <div className="space-y-1.5">
-                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{profile.name}</h1>
-                  <div className="text-xs text-gray-600 space-y-1">
-                    <p className="flex items-center gap-2">
-                      <span>{profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>
-                      <span>•</span>
-                      <span>{profile.phone_number}</span>
-                      <span>•</span>
-                      <span>{profile.email}</span>
-                    </p>
-                    <p>{profile.address} {profile.detail_address}</p>
+              <div className="border-b-2 border-gray-900 pb-5 flex justify-between items-start gap-4">
+                <div className="space-y-2 flex-1">
+                  <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name}</h1>
+                  <p className="text-sm font-semibold text-indigo-900">{resume?.category || 'SW 개발자 이력서'}</p>
+                  
+                  <div className="text-xs text-gray-600 space-y-1 pt-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span>생년월일: {profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>
+                      <span>연락처: {profile.phone_number}</span>
+                      <span>이메일: {profile.email}</span>
+                    </div>
+                    {profile.address && <p>주소: {profile.address} {profile.detail_address}</p>}
                   </div>
                 </div>
+
                 {profile.avatar_url && (
-                  <img src={profile.avatar_url} alt="프로필" className="w-20 h-24 object-cover rounded border border-gray-300 shadow-sm" />
+                  <img src={profile.avatar_url} alt="프로필" className="w-24 h-32 object-cover rounded border border-gray-300 shadow-sm shrink-0" />
                 )}
               </div>
 
-              <div className="space-y-2">
-                <h2 className="text-sm font-bold text-indigo-900 border-b border-indigo-900/30 pb-1">학력 및 자격사항</h2>
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div>
-                    <span className="font-semibold text-gray-700 block mb-1">[학력]</span>
+              <div className="grid grid-cols-2 gap-6 pb-2">
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-900 border-b border-indigo-900/30 pb-1 mb-2">학력 사항</h2>
+                  <div className="space-y-1.5 text-xs">
                     {educations.map((edu) => (
-                      <div key={edu.id} className="flex justify-between border-b border-gray-100 py-1">
-                        <span className="font-medium text-gray-900">{edu.school_name} ({edu.major})</span>
-                        <span className="text-gray-500">{edu.status}</span>
+                      <div key={edu.id} className="flex justify-between items-baseline">
+                        <span className="font-semibold text-gray-800">{edu.school_name} <span className="font-normal text-gray-600">({edu.major})</span></span>
+                        <span className="text-gray-500 text-[11px]">{edu.status}</span>
                       </div>
                     ))}
                   </div>
-                  <div>
-                    <span className="font-semibold text-gray-700 block mb-1">[자격증]</span>
+                </div>
+
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-900 border-b border-indigo-900/30 pb-1 mb-2">자격증 및 면허</h2>
+                  <div className="space-y-1.5 text-xs">
                     {certificates.map((cert) => (
-                      <div key={cert.id} className="flex justify-between border-b border-gray-100 py-1">
-                        <span className="font-medium text-gray-900">{cert.certificate_name}</span>
-                        <span className="text-gray-500">{cert.acquisition_date}</span>
+                      <div key={cert.id} className="flex justify-between items-baseline">
+                        <span className="font-semibold text-gray-800">{cert.certificate_name}</span>
+                        <span className="text-gray-500 text-[11px]">{cert.acquisition_date}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h2 className="text-sm font-bold text-indigo-900 border-b border-indigo-900/30 pb-1">경력 및 주요 프로젝트</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1.5 bg-gray-50/60 p-3 rounded-lg border border-gray-200/80">
-                    <h3 className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
-                      {sec.section_title || '세부 사항'}
+              <div className="space-y-5">
+                <h2 className="text-sm font-bold text-indigo-950 border-b-2 border-indigo-900/20 pb-1 uppercase tracking-wider">주요 경력 및 프로젝트</h2>
+                
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-3">
+                    <h3 className="text-xs font-bold text-indigo-900 bg-indigo-50/80 px-2.5 py-1 rounded border-l-4 border-indigo-600">
+                      {sec.section_title || '세부 정보'}
                     </h3>
+
                     {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1">
+                      <div key={row.id} className="pl-2 border-l border-gray-200 space-y-2 mb-3">
                         {(sec.columns || []).map((col) => {
                           const val = row.values[col] || '';
                           if (!val) return null;
+
+                          const lines = val.split('\n').filter(Boolean);
+
                           return (
-                            <div key={col} className="grid grid-cols-12 gap-2 text-xs">
-                              <span className="col-span-3 font-semibold text-gray-700 text-right pr-2 border-r border-gray-200">{col}</span>
-                              <div className="col-span-9 whitespace-pre-line text-gray-800 leading-snug">{val}</div>
+                            <div key={col} className="space-y-1">
+                              <span className="text-xs font-bold text-gray-700 block">[{col}]</span>
+                              <div className="text-xs text-gray-800 space-y-0.5 pl-2">
+                                {lines.map((line, idx) => (
+                                  <div key={idx} className="flex items-start gap-1.5">
+                                    <span className="text-indigo-500 shrink-0">•</span>
+                                    <span className="leading-relaxed">{line.replace(/^•\s*/, '')}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           );
                         })}
@@ -674,62 +711,100 @@ const ResumeDownload = () => {
           {selectedStyle === 'US' && (
             <div 
               ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-4 font-serif"
+              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-3.5 font-serif"
             >
-              <div className="text-center border-b border-black pb-3 space-y-1">
-                <h1 className="text-2xl font-bold uppercase tracking-widest text-black">{profile.name}</h1>
-                <p className="text-xs text-gray-800 font-sans">
-                  {profile.email} | {profile.phone_number} | {profile.address} {profile.detail_address}
+              <div className="text-center border-b-2 border-black pb-2 space-y-1">
+                <h1 className="text-2xl font-bold uppercase tracking-wider text-black">{profile.name}</h1>
+                <p className="text-xs text-gray-800 font-sans tracking-tight">
+                  {profile.email} • {profile.phone_number} • {profile.address} {profile.detail_address}
                 </p>
               </div>
 
-              <div className="space-y-1.5">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">EDUCATION</h2>
-                {educations.map((edu) => (
-                  <div key={edu.id} className="flex justify-between items-baseline text-xs font-sans">
-                    <div>
-                      <span className="font-bold text-black">{edu.school_name}</span>
-                      <span className="text-gray-800"> — {edu.major}</span>
-                    </div>
-                    <span className="text-gray-600 font-serif italic text-[11px]">{edu.status}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-1.5">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">CERTIFICATIONS & SKILLS</h2>
-                <div className="text-xs font-sans space-y-1">
-                  {certificates.map((cert) => (
-                    <div key={cert.id} className="flex justify-between text-gray-900">
-                      <span>• <strong>{cert.certificate_name}</strong> ({cert.issuer || 'N/A'})</span>
-                      <span className="text-gray-600 italic text-[11px]">{cert.acquisition_date}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">PROJECTS & EXPERIENCE</h2>
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1 font-sans">
-                    <h3 className="text-xs font-bold text-black border-l-2 border-black pl-1.5">{sec.section_title || 'Project Detail'}</h3>
-                    {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-1 pl-2">
-                        {(sec.columns || []).map((col) => {
-                          const val = row.values[col] || '';
-                          if (!val) return null;
-                          return (
-                            <div key={col} className="text-gray-900">
-                              <span className="font-semibold text-black">[{col}]</span>
-                              <div className="whitespace-pre-line pl-2 text-gray-800 text-[11px] leading-relaxed">{val}</div>
-                            </div>
-                          );
-                        })}
+              {certificates.length > 0 && (
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                    TECHNICAL SKILLS & CERTIFICATIONS
+                  </h2>
+                  <div className="text-xs font-sans text-gray-900 pt-0.5 space-y-0.5">
+                    {certificates.map((cert) => (
+                      <div key={cert.id} className="flex justify-between items-baseline">
+                        <span>• <strong>{cert.certificate_name}</strong> ({cert.issuer || 'N/A'})</span>
+                        <span className="text-gray-600 font-serif italic text-[11px]">{cert.acquisition_date}</span>
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                  PROFESSIONAL EXPERIENCE & PROJECTS
+                </h2>
+                
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-2 font-sans">
+                    <h3 className="text-xs font-bold text-black uppercase tracking-wide border-b border-gray-300 pb-0.5">
+                      {sec.section_title || 'Project Detail'}
+                    </h3>
+
+                    {sec.rows && sec.rows.map((row) => {
+                      const cols = sec.columns || [];
+                      const titleCol = cols.find(c => c.includes('제목') || c.includes('역할') || c.includes('프로젝트') || c.includes('카테고리')) || cols[0];
+                      const periodCol = cols.find(c => c.includes('기간') || c.includes('일자') || c.includes('날짜'));
+
+                      const mainTitle = row.values[titleCol] || 'Project / Role';
+                      const periodText = periodCol ? row.values[periodCol] : '';
+
+                      return (
+                        <div key={row.id} className="text-xs space-y-1 pl-0.5">
+                          <div className="flex justify-between items-baseline font-bold text-black">
+                            <span className="text-[12px]">{mainTitle}</span>
+                            {periodText && <span className="text-[11px] font-mono text-gray-700 italic font-normal">{periodText}</span>}
+                          </div>
+
+                          <div className="space-y-0.5 pl-2">
+                            {cols.map((col) => {
+                              if (col === titleCol || col === periodCol) return null;
+                              const val = row.values[col] || '';
+                              if (!val) return null;
+
+                              const lines = val.split('\n').filter(Boolean);
+
+                              return (
+                                <div key={col} className="space-y-0.5">
+                                  {lines.map((line, idx) => (
+                                    <p key={idx} className="text-gray-800 text-[11px] leading-relaxed flex items-start gap-1.5">
+                                      <span className="shrink-0">•</span>
+                                      <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
+                                    </p>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ))}
               </div>
+
+              {educations.length > 0 && (
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                    EDUCATION
+                  </h2>
+                  {educations.map((edu) => (
+                    <div key={edu.id} className="flex justify-between items-baseline text-xs font-sans">
+                      <div>
+                        <span className="font-bold text-black">{edu.school_name}</span>
+                        <span className="text-gray-800"> — {edu.major}</span>
+                      </div>
+                      <span className="text-gray-600 font-serif italic text-[11px]">{edu.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -737,7 +812,7 @@ const ResumeDownload = () => {
           {selectedStyle === 'EU' && (
             <div 
               ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
+              className="print-area resume-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
             >
               <div className="bg-slate-900 text-white p-5 rounded-lg flex justify-between items-center shadow-sm">
                 <div className="space-y-1">
@@ -787,18 +862,24 @@ const ResumeDownload = () => {
 
                 <div className="col-span-8 space-y-4">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Projects & Work Experience</h3>
-                  {orderedSections.map((sec) => (
-                    <div key={sec.id} className="space-y-1 bg-indigo-50/30 p-2.5 rounded border border-indigo-100">
+                  {activeSections.map((sec) => (
+                    <div key={sec.id} className="space-y-2 bg-indigo-50/30 p-3 rounded border border-indigo-100">
                       <h4 className="text-xs font-bold text-indigo-950">{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
-                        <div key={row.id} className="text-xs space-y-1 pl-1">
+                        <div key={row.id} className="text-xs space-y-1.5 pl-1">
                           {(sec.columns || []).map((col) => {
                             const val = row.values[col] || '';
                             if (!val) return null;
+                            const lines = val.split('\n').filter(Boolean);
+
                             return (
                               <div key={col} className="space-y-0.5">
                                 <span className="font-bold text-indigo-900 text-[11px]">[{col}]</span>
-                                <div className="whitespace-pre-line text-slate-700 pl-2 border-l-2 border-indigo-300 leading-relaxed text-[11px]">{val}</div>
+                                <div className="text-slate-700 pl-2 border-l-2 border-indigo-300 leading-relaxed text-[11px] space-y-0.5">
+                                  {lines.map((line, idx) => (
+                                    <p key={idx}>• {line.replace(/^•\s*/, '')}</p>
+                                  ))}
+                                </div>
                               </div>
                             );
                           })}
@@ -815,7 +896,7 @@ const ResumeDownload = () => {
           {selectedStyle === 'JP' && (
             <div 
               ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[8mm] text-left leading-normal flex flex-col justify-start space-y-3 font-sans"
+              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[8mm] text-left leading-normal flex flex-col space-y-4 font-sans"
             >
               <div className="border-b-2 border-black pb-1 flex justify-between items-center">
                 <h1 className="text-lg font-bold tracking-widest text-black">履 歴 書</h1>
@@ -885,34 +966,28 @@ const ResumeDownload = () => {
 
               <div className="space-y-2">
                 <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">職歴・プロジェクト (경력 및 프로젝트)</h2>
-                {orderedSections.map((sec) => (
+                {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-1">
                     <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
                       ■ {sec.section_title || '세부사항'}
                     </div>
                     {sec.rows && sec.rows.length > 0 && (
-                      <table className="w-full border-collapse border border-black text-xs !bg-white" style={{ tableLayout: 'fixed' }}>
-                        <tbody>
-                          {sec.rows.map((row) => (
-                            <React.Fragment key={row.id}>
-                              {(sec.columns || []).map((col) => {
-                                const val = row.values[col] || '';
-                                if (!val) return null;
-                                return (
-                                  <tr key={col}>
-                                    <td className="border border-black bg-gray-50 font-bold w-[90px] p-1.5 text-center align-middle">
-                                      {col}
-                                    </td>
-                                    <td className="border border-black p-1.5 whitespace-pre-line leading-relaxed align-top">
-                                      {val}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))}
-                        </tbody>
-                      </table>
+                      <div className="border border-black p-2 space-y-2 text-xs">
+                        {sec.rows.map((row) => (
+                          <div key={row.id} className="space-y-1 border-b border-gray-200 pb-1.5 last:border-0 last:pb-0">
+                            {(sec.columns || []).map((col) => {
+                              const val = row.values[col] || '';
+                              if (!val) return null;
+                              return (
+                                <div key={col} className="space-y-0.5">
+                                  <span className="font-bold text-black block">[{col}]</span>
+                                  <p className="whitespace-pre-line leading-relaxed pl-2 text-gray-800">{val}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}
