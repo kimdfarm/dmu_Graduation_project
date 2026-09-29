@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 import { FRAME_TEMPLATES } from '../../templates/resumeTemplates';
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const GithubIcon = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">

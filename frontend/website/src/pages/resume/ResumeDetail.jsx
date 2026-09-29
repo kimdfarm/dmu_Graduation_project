@@ -108,7 +108,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
   return { columns: detectedColumns, rows: extractedRows };
 };
 
-const BASE_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const ResumeDetail = () => {
   const { resumeId } = useParams();
