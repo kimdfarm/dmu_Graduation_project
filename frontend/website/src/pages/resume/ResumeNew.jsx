@@ -221,7 +221,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
       alert('GitHub 계정이 연동되어 있지 않습니다. 연동 페이지로 이동합니다.');
       const currentPath = window.location.pathname + window.location.search;
       sessionStorage.setItem('redirectAfterGithubAuth', currentPath);
-      navigate('/auth/github/callback');
+      navigate('/profileSettings');
       return;
     }
 
