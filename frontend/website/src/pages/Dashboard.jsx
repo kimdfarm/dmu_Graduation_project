@@ -4,7 +4,7 @@ import {
   Home, FileText, UserCheck, Sparkles, Settings, 
   Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, Edit3
 } from 'lucide-react';
-
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 export default function Dashboard() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState('home');
@@ -40,9 +40,9 @@ export default function Dashboard() {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-
+          
         // (1) 프로필 로드
-        const userRes = await fetch(`http://127.0.0.1:8000/login/me?user_id=${userId}`);
+        const userRes = await fetch(`${API_URL}/login/me?user_id=${userId}`);
         if (userRes.ok) {
           const userData = await userRes.json();
           setUserName(userData.name);

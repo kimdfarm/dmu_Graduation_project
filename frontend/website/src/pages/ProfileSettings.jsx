@@ -104,7 +104,8 @@ export default function ProfileSettings() {
   const fetchCertificates = async () => {
     if (!userId) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/profile-settings/certificates/${userId}`);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+      const res = await fetch(`${API_URL}/api/profile-settings/certificates/${userId}`);
       if (res.ok) {
         const data = await res.json();
         setCertificates(data);

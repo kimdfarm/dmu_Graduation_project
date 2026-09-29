@@ -4,7 +4,7 @@ import {
   ArrowLeft, Save, Plus, Trash2, CheckCircle2, Loader2, 
   PlusCircle, X, GripVertical, Maximize2, Check, AlertTriangle 
 } from 'lucide-react';
-
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const ResumeEdit = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
@@ -149,7 +149,7 @@ const ResumeEdit = () => {
       try {
         setIsLoading(true);
         setErrorMessage('');
-        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        
         const response = await fetch(`${API_URL}/api/resumes/${resumeId}`);
         if (!response.ok) throw new Error('이력서 정보를 불러오지 못했습니다.');
 
@@ -228,7 +228,8 @@ const ResumeEdit = () => {
 
       // A. 삭제할 섹션 DB API 호출
       const deletePromises = deletedSectionIds.map(async (secId) => {
-        const res = await fetch(`/api/resumes/sections/${secId}`, {
+        
+        const res = await fetch(`${API_URL}/api/resumes/sections/${secId}`, {
           method: 'DELETE',
         });
         if (!res.ok) {
@@ -240,7 +241,7 @@ const ResumeEdit = () => {
       // B. 섹션 수정 및 데이터 (columns, details 통째로 덮어쓰기) DB API 호출
       const updatePromises = sections.map(async (sec) => {
         const cleanDetails = serializeTableToDetails(sec.columns, sec.rows);
-        const res = await fetch(`/api/resumes/sections/${sec.id}`, {
+        const res = await fetch(`${API_URL}/api/resumes/sections/${sec.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -458,7 +459,7 @@ const ResumeEdit = () => {
       const defaultColumns = ['항목/제목', '내용'];
 
       // API 호출 - 백엔드 DB에 새 이력서 섹션 생성
-      const res = await fetch(`/api/resumes/${resumeId}/sections`, {
+      const res = await fetch(`${API_URL}/api/resumes/${resumeId}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
