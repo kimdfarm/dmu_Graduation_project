@@ -54,6 +54,7 @@ app = FastAPI(title="Graduation Project AI App API", lifespan=lifespan)
 
 # 🛠️ CORS 설정 (수정 포인트!)
 origins = [
+    "https://dmu-graduation-project.vercel.app",
     "http://localhost:5173",
     "http://localhost:3000",
 ]
