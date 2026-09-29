@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { COVER_LETTER_TEMPLATES as FRAME_TEMPLATES } from '../../templates/coverLetterTemplates';
 
-const BASE_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const CoverLetterNew = () => {
   const navigate = useNavigate();
@@ -42,7 +42,7 @@ const CoverLetterNew = () => {
 
   const categoryOptions = ['백엔드 개발자', '프론트엔드 개발자', '풀스택 개발자', 'AI / 데이터 엔지니어', '기타 / 자유 양식'];
   const ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx', 'hwp', 'hwpx', 'txt', 'rtf', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif', 'tiff'];
-
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
   // 초기화 및 이력서 목록 조회
   useEffect(() => {
     if (createMode === 'RESUME') {
@@ -67,7 +67,7 @@ const CoverLetterNew = () => {
       setIsFetchingResumes(true);
       setErrorMessage('');
 
-      const res = await fetch(`${BASE_URL}/api/resumes?member_id=${userId}`);
+      const res = await fetch(`${API_URL}/api/resumes?member_id=${userId}`);
       if (!res.ok) throw new Error('이력서 목록을 불러오지 못했습니다.');
 
       const data = await res.json();
@@ -98,7 +98,7 @@ const CoverLetterNew = () => {
       setErrorMessage('');
       setLoadingText('선택한 이력서 데이터 분석 및 AI 자소서 작성 중...');
 
-      const generateRes = await fetch(`${BASE_URL}/api/cover-letters/resume-generate`, {
+      const generateRes = await fetch(`${API_URL}/api/cover-letters/resume-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,7 +200,7 @@ const CoverLetterNew = () => {
         formData.append('category', category);
         formData.append('file', selectedFile);
 
-        const response = await fetch(`${BASE_URL}/api/cover-letters/upload`, { method: 'POST', body: formData });
+        const response = await fetch(`${API_URL}/api/cover-letters/upload`, { method: 'POST', body: formData });
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.detail || '파일 기반 자소서 분석에 실패했습니다.');
@@ -218,7 +218,7 @@ const CoverLetterNew = () => {
           display_order: idx + 1
         }));
 
-        const response = await fetch(`${BASE_URL}/api/cover-letters`, {
+        const response = await fetch(`${API_URL}/api/cover-letters`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ member_id: userId, title: title.trim(), category, custom_sections: formattedSections }),

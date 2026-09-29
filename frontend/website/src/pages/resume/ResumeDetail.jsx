@@ -183,7 +183,8 @@ const ResumeDetail = () => {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
 
       // A. 맞춤법 검사 API 호출
-      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/api/sections/${sectionId}/spell-check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -240,7 +241,8 @@ const ResumeDetail = () => {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
       // A. AI 교정 API 호출
-      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/api/sections/${sectionId}/ai-proofread`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

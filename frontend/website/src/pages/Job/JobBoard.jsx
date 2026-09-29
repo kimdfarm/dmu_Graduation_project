@@ -9,7 +9,7 @@ import JobCard from './JobCard';
 const JobBoard = () => {
   const navigate = useNavigate();
   const location = useLocation();
-
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
   // 1. 사이드바 메뉴 정의 및 현재 경로 기반 activeNav 상태 초기화
   const sidebarItems = [
     { id: 'home', label: '홈', icon: Home, path: '/' },
@@ -40,7 +40,7 @@ const JobBoard = () => {
         ...(search && { search }),
       });
 
-      const res = await fetch(`http://localhost:8000/api/jobs?${params}`);
+      const res = await fetch(`${API_URL}/api/jobs?${params}`);
       const result = await res.json();
 
       setJobs(result.data || []);

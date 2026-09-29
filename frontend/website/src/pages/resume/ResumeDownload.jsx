@@ -8,7 +8,7 @@ import {
   CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon
 } from 'lucide-react';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // ------------------------------------------------------------------
 // 💡 selected_version 기준 실시간 텍스트 추출 및 파싱 함수 (완벽 개편)

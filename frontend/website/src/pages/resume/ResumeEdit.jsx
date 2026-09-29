@@ -149,7 +149,8 @@ const ResumeEdit = () => {
       try {
         setIsLoading(true);
         setErrorMessage('');
-        const response = await fetch(`/api/resumes/${resumeId}`);
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${API_URL}/api/resumes/${resumeId}`);
         if (!response.ok) throw new Error('이력서 정보를 불러오지 못했습니다.');
 
         const data = await response.json();

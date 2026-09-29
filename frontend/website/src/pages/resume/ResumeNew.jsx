@@ -389,8 +389,8 @@ const [endDate, setEndDate] = useState(initialDates.end);
           repo_name: selectedRepos.join(', '),
           analysis_data: analysisResult
         };
-
-        const response = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${API_URL}/api/resumes/github-generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestData),
@@ -413,7 +413,8 @@ const [endDate, setEndDate] = useState(initialDates.end);
         formData.append('category', category);
         formData.append('file', selectedFile);
 
-        const response = await fetch(`${BASE_URL}/api/resumes/upload`, { method: 'POST', body: formData });
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${API_URL}/api/resumes/upload`, { method: 'POST', body: formData });
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.detail || '파일 기반 이력서 파싱에 실패했습니다.');
@@ -431,7 +432,8 @@ const [endDate, setEndDate] = useState(initialDates.end);
           display_order: idx + 1
         }));
 
-        const response = await fetch(`${BASE_URL}/api/resumes`, {
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${API_URL}/api/resumes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ member_id: userId, title: title.trim(), category, custom_sections: formattedSections }),

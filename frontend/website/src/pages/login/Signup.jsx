@@ -44,7 +44,8 @@ export default function Signup() {
     setMessage('');
 
     try {
-      const response = await fetch('/sign/send-otp', {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/sign/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,7 +78,8 @@ export default function Signup() {
     setMessage('');
 
     try {
-      const response = await fetch('/sign/emailok', {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/sign/emailok`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -111,7 +113,8 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      const response = await fetch(`/sign/check-name?name=${encodeURIComponent(name)}`);
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/sign/check-name?name=${encodeURIComponent(name)}`);
 
       if (response.ok) {
         // DB에 name이 존재하지 않을 때 (사용 가능)

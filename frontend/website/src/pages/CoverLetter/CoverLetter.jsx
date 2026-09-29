@@ -4,7 +4,7 @@ import {
   Menu, Home, FileText, UserCheck, Sparkles, Plus, 
   Search, Trash2, Calendar, CheckCircle2, ArrowRight, RefreshCw 
 } from 'lucide-react';
-
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export default function CoverLetter() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState('coverletter');
@@ -32,7 +32,7 @@ export default function CoverLetter() {
     try {
       setLoading(true);
       const memberId = userid;
-      const response = await fetch(`/api/cover-letters?member_id=${memberId}`);
+      const response = await fetch(`${API_URL}/api/cover-letters?member_id=${memberId}`);
       if (!response.ok) throw new Error('목록을 불러오지 못했습니다.');
       
       const data = await response.json();
@@ -50,7 +50,7 @@ export default function CoverLetter() {
     if (!window.confirm('이 자기소개서를 정말 삭제하시겠습니까?')) return;
 
     try {
-      const response = await fetch(`/api/cover-letters/${id}`, { method: 'DELETE' });
+      const response = await fetch(`${API_URL}/api/cover-letters/${id}`, { method: 'DELETE' });
       if (response.ok) {
         setCoverLetters(prev => prev.filter(item => item.id !== id));
       } else {

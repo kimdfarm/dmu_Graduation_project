@@ -21,7 +21,8 @@ export default function Login() {
 
     try {
       // FastAPI /login/login 엔드포인트 호출
-      const response = await fetch('http://localhost:8000/login/login', {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/login/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

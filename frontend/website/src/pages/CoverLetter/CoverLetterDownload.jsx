@@ -8,7 +8,7 @@ import {
   FileText, Layout, Award, CheckCircle2, ChevronDown as ChevronIcon
 } from 'lucide-react';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
   const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0

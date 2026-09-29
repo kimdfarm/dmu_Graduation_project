@@ -51,7 +51,8 @@ export default function Resume() {
     if (!window.confirm('이 이력서를 정말 삭제하시겠습니까?')) return;
 
     try {
-      const response = await fetch(`/api/resumes/${id}`, { method: 'DELETE' });
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/api/resumes/${id}`, { method: 'DELETE' });
       if (response.ok) {
         setResumes(prev => prev.filter(item => item.id !== id));
       } else {

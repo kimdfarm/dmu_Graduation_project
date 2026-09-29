@@ -5,7 +5,7 @@ import {
   CheckCircle2, ChevronDown, ChevronUp, Sparkles 
 } from 'lucide-react';
 
-const BASE_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // 안전한 UUID 생성 함수
 const generateUniqueId = () => {
@@ -106,7 +106,7 @@ const CoverLetterDetail = () => {
     }));
 
     try {
-      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+      await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selected_version: version })
@@ -125,7 +125,7 @@ const CoverLetterDetail = () => {
 
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
-      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
+      const response = await fetch(`${API_URL}/api/sections/${sectionId}/spell-check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -175,7 +175,7 @@ const CoverLetterDetail = () => {
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
+      const response = await fetch(`${API_URL}/api/sections/${sectionId}/ai-proofread`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -228,7 +228,7 @@ const CoverLetterDetail = () => {
       try {
         setIsLoading(true);
 
-        const res = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
+        const res = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}`);
         if (!res.ok) throw new Error('자기소개서 정보를 불러오는 데 실패했습니다.');
 
         const data = await res.json();

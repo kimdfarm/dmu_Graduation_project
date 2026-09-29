@@ -14,7 +14,7 @@ const Github = ({ className = "w-5 h-5" }) => (
 );
 
 const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || 'Ov23li4nl4BUypksPeOL'; 
-
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export default function ProfileSettings() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -124,7 +124,8 @@ export default function ProfileSettings() {
 
     const fetchProfile = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/users/${userId}`);
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${API_URL}/users/${userId}`);
         
         if (response.ok) {
           const result = await response.json();
@@ -198,7 +199,7 @@ export default function ProfileSettings() {
     if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
 
     try {
-      const response = await fetch(`http://localhost:8000/api/profile-settings/educations/${userId}`, {
+      const response = await fetch(`${API_URL}/api/profile-settings/educations/${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,7 +233,7 @@ export default function ProfileSettings() {
     if (!window.confirm('해당 학력 정보를 삭제하시겠습니까?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/profile-settings/educations/${educationId}`, {
+      const response = await fetch(`${API_URL}/api/profile-settings/educations/${educationId}`, {
         method: 'DELETE',
       });
 
@@ -254,7 +255,7 @@ export default function ProfileSettings() {
     if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
 
     try {
-      const response = await fetch(`http://localhost:8000/api/profile-settings/certificates/${userId}`, {
+      const response = await fetch(`${API_URL}/api/profile-settings/certificates/${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -284,7 +285,7 @@ export default function ProfileSettings() {
     if (!window.confirm('해당 자격증 정보를 삭제하시겠습니까?')) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/profile-settings/certificates/${certificateId}`, {
+      const response = await fetch(`${API_URL}/api/profile-settings/certificates/${certificateId}`, {
         method: 'DELETE',
       });
 
@@ -314,7 +315,7 @@ export default function ProfileSettings() {
     const userId = localStorage.getItem('userId');
 
     try {
-      const response = await fetch(`http://localhost:8000/users/${userId}/profile`, {
+      const response = await fetch(`${API_URL}/users/${userId}/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -373,7 +374,7 @@ export default function ProfileSettings() {
         return;
       }
 
-      const response = await fetch("http://localhost:8000/login/delete", {
+      const response = await fetch(`${API_URL}/login/delete`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId }),
@@ -425,7 +426,7 @@ export default function ProfileSettings() {
       uploadFormData.append("file", file);
       uploadFormData.append("user_id", userId);
 
-      const response = await fetch("http://localhost:8000/login/upload-avatar", {
+      const response = await fetch(`${API_URL}/login/upload-avatar`, {
         method: "POST",
         body: uploadFormData,
       });
@@ -458,7 +459,7 @@ export default function ProfileSettings() {
 
     try {
       setIsSyncingEmail(true);
-      const response = await fetch(`http://localhost:8000/users/${userId}/sync-email`, {
+      const response = await fetch(`${API_URL}/users/${userId}/sync-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
