@@ -24,7 +24,7 @@ export default function GithubCallback() {
       try {
         const userId = localStorage.getItem('userId');
         const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${API_URL}/api/auth/github/callback`, {
+        const response = await fetch(`${API_URL}/auth/github/callback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
