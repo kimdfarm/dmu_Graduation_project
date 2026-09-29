@@ -33,7 +33,8 @@ export default function Resume() {
       setLoading(true);
       // 테스트용 member_id쿼리 (로그인 적용 시 유저 ID로 변경)
       const memberId = userid
-      const response = await fetch(`/api/resumes?member_id=${memberId}`);
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_URL}/api/resumes?member_id=${memberId}`);
       if (!response.ok) throw new Error('목록을 불러오지 못했습니다.');
       
       const data = await response.json();

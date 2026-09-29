@@ -91,7 +91,8 @@ export default function ProfileSettings() {
   const fetchEducations = async () => {
     if (!userId) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/profile-settings/educations/${userId}`);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+      const res = await fetch(`${API_URL}/api/profile-settings/educations/${userId}`);
       if (res.ok) {
         const data = await res.json();
         setEducations(data);
@@ -175,7 +176,7 @@ export default function ProfileSettings() {
 
   const handleGithubOAuthLogin = () => {
     const CLIENT_ID = GITHUB_CLIENT_ID;
-    const REDIRECT_URI = "http://localhost:5173/auth/github/callback";
+    const REDIRECT_URI = "https://dmu-graduation-project.vercel.app/auth/github/callback";
     const currentPath = window.location.pathname + window.location.search;
     sessionStorage.setItem('redirectAfterGithubAuth', currentPath);
 
