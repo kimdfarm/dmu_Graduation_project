@@ -53,8 +53,8 @@ export default function Dashboard() {
 
         // (2) 실제 이력서 & 자소서 병렬 로드
         const [resumeRes, coverLetterRes] = await Promise.all([
-          fetch(`/api/resumes?member_id=${userId}`).catch(() => null),
-          fetch(`/api/cover-letters?member_id=${userId}`).catch(() => null)
+          fetch(`${API_URL}/api/resumes?member_id=${userId}`).catch(() => null),
+          fetch(`${API_URL}/api/cover-letters?member_id=${userId}`).catch(() => null)
         ]);
 
         let resumesData = [];
@@ -110,8 +110,8 @@ export default function Dashboard() {
 
     try {
       const endpoint = doc.type === 'resume' 
-        ? `/api/resumes/${doc.id}` 
-        : `/api/cover-letters/${doc.id}`;
+        ? `${API_URL}/api/resumes/${doc.id}` 
+        : `${API_URL}/api/cover-letters/${doc.id}`;
 
       const res = await fetch(endpoint, { method: 'DELETE' });
       if (res.ok) {
