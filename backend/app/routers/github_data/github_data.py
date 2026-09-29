@@ -53,10 +53,10 @@ def github_callback(payload: GithubAuthRequest, response: Response): # 💡 Resp
     response.set_cookie(
         key="github_access_token",
         value=access_token,
-        httponly=True,       # JS에서 직접 접근 불가 (XSS 보안 강화)
-        max_age=60 * 60 * 24 * 7, # 쿠키 유효기간 (7일)
-        samesite="lax",      # CSRF 방지
-        secure=False         # 로컬 테스트용 (운영/HTTPS 환경에서는 True로 변경)
+        httponly=True,
+        max_age=60 * 60 * 24 * 7,
+        samesite="none",      # 크로스 도메인 쿠키 전송을 위해 "none" 설정 (HTTPS 환경)[cite: 13]
+        secure=True          # samesite="none" 사용 시 True 필수[cite: 13]
     )
 
     # 4. JSON 응답 반환 (프론트엔드용)
