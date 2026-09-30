@@ -1,10 +1,11 @@
 import os
 import random
 import uuid
+import smtplib
+from email.mime.text import MIMEText
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
-import resend  # resend 라이브러리로 변경[cite: 18]
 from app.core.config import get_supabase
 
 router = APIRouter(
@@ -12,8 +13,11 @@ router = APIRouter(
     tags=["sign"]
 )
 
-# Resend API 키 설정 (Render 대시보드 Environment 변수에 RESEND_API_KEY 추가 등록 권장)
-resend.api_key = os.getenv("RESEND_API_KEY")
+# Resend SMTP 설정
+SMTP_SERVER = "smtp.resend.com"
+SMTP_PORT = 465  # SSL 포트
+SMTP_SENDER_EMAIL = "resend"  # ⚠️️ 'resend' 문자열 고정
+SMTP_SENDER_PASSWORD = os.getenv("RESEND_API_KEY")  # Render 환경 변수에 등록된 re_... 키
 
 # 1. OTP 발송 요청 DTO
 class EmailVerifyRequest(BaseModel):
@@ -33,7 +37,7 @@ class FinalSignUpRequest(BaseModel):
     password: str
 
 
-# --- 1️⃣ OTP 발송 (Resend API 적용으로 Errno 101 해결) ---
+# --- 1️⃣ OTP 발송 (Resend SMTP Relay 방식 적용) ---
 @router.post("/send-otp")
 def send_otp_email(payload: EmailVerifyRequest):
     try:
@@ -67,15 +71,18 @@ def send_otp_email(payload: EmailVerifyRequest):
         }.get(payload.purpose, "본인 인증")
 
         subject = f"[{purpose_korean}] 요청하신 인증번호 안내"
-        html_content = f"<p>안녕하세요! 요청하신 {purpose_korean}을 위한 인증번호는 <strong>[{generated_otp}]</strong> 입니다.</p>"
+        body = f"안녕하세요! 요청하신 {purpose_korean}을 위한 인증번호는 [{generated_otp}] 입니다."
 
-        # Resend HTTP API 호출 (Render의 포트 차단 방화벽 영향을 받지 않음)
-        resend.Emails.send({
-            "from": "onboarding@resend.dev",  # Resend에서 기본 제공하는 도메인
-            "to": payload.email,
-            "subject": subject,
-            "html": html_content
-        })
+        # MIME 메시지 생성
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = "onboarding@resend.dev"  # 기본 테스트 발신용 주소
+        msg["To"] = payload.email
+
+        # Resend SMTP 서버로 로그인 및 발송
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
+            server.sendmail("onboarding@resend.dev", payload.email, msg.as_string())
 
         return {"status": "success", "message": f"{purpose_korean} 코드가 발송되었습니다."}
 
