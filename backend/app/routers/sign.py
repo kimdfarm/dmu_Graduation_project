@@ -14,7 +14,7 @@ router = APIRouter(
 
 # --- 구글 SMTP 설정 (여기에 본인 정보 입력) ---
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_PORT = 465
 SMTP_SENDER_EMAIL = os.getenv("SMTP_SENDER_EMAIL")
 SMTP_SENDER_PASSWORD = os.getenv("SMTP_SENDER_PASSWORD")
 
@@ -75,8 +75,7 @@ def send_otp_email(payload: EmailVerifyRequest):
         msg["From"] = SMTP_SENDER_EMAIL
         msg["To"] = payload.email
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
             server.sendmail(SMTP_SENDER_EMAIL, payload.email, msg.as_string())
 
