@@ -5,6 +5,7 @@ import json
 import base64
 import urllib.request
 import urllib.parse
+import urllib.error
 from email.mime.text import MIMEText
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status
@@ -22,7 +23,7 @@ router = APIRouter(
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
-SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")  # 본인 Gmail 주소 (예: test@gmail.com)
+SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")  # 본인 Gmail 주소
 
 def get_gmail_access_token() -> str:
     """
@@ -47,6 +48,9 @@ def get_gmail_access_token() -> str:
         with urllib.request.urlopen(req) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["access_token"]
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise Exception(f"Gmail Access Token 발급 실패 [{e.code}]: {error_body}")
     except Exception as e:
         raise Exception(f"Gmail Access Token 발급 실패: {str(e)}")
 
@@ -58,7 +62,7 @@ def send_gmail_api(to_email: str, subject: str, body: str):
     access_token = get_gmail_access_token()
 
     # MIME 메시지 생성
-    msg = MIMEText(body)
+    msg = MIMEText(body, "plain", "utf-8")
     msg["to"] = to_email
     msg["from"] = SENDER_EMAIL
     msg["subject"] = subject
@@ -66,7 +70,8 @@ def send_gmail_api(to_email: str, subject: str, body: str):
     # Gmail API 규격에 맞게 Base64URL 인코딩
     raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
 
-    api_url = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send"
+    # 💡 [수정] 표준 Gmail API 메일 전송 URL (upload/ 제거)
+    api_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
     post_data = json.dumps({"raw": raw_message}).encode("utf-8")
 
     req = urllib.request.Request(
@@ -82,9 +87,11 @@ def send_gmail_api(to_email: str, subject: str, body: str):
     try:
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise Exception(f"Gmail API 전송 실패 [{e.code}]: {error_body}")
     except Exception as e:
         raise Exception(f"Gmail API 전송 실패: {str(e)}")
-
 
 # --- DTO 정의 ---
 class EmailVerifyRequest(BaseModel):
