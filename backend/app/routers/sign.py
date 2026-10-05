@@ -1,7 +1,10 @@
 import os
 import random
 import uuid
-import smtplib
+import json
+import base64
+import urllib.request
+import urllib.parse
 from email.mime.text import MIMEText
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status
@@ -13,42 +16,105 @@ router = APIRouter(
     tags=["sign"]
 )
 
-# Resend SMTP 설정
-SMTP_SERVER = "smtp.resend.com"
-SMTP_PORT = 465  # SSL 포트
-SMTP_SENDER_EMAIL = "resend"  # ⚠️️ 'resend' 문자열 고정
-SMTP_SENDER_PASSWORD = os.getenv("RESEND_API_KEY")  # Render 환경 변수에 등록된 re_... 키
+# ==========================================
+# Google OAuth 2.0 & Gmail API 설정 (HTTPS / 443 포트)
+# ==========================================
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
+SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")  # 본인 Gmail 주소 (예: test@gmail.com)
 
-# 1. OTP 발송 요청 DTO
+def get_gmail_access_token() -> str:
+    """
+    Refresh Token을 이용해 HTTPS POST(443) 요청으로 새로운 Access Token을 발급받습니다.
+    """
+    token_url = "https://oauth2.googleapis.com/token"
+    payload = urllib.parse.urlencode({
+        "client_id": GMAIL_CLIENT_ID,
+        "client_secret": GMAIL_CLIENT_SECRET,
+        "refresh_token": GMAIL_REFRESH_TOKEN,
+        "grant_type": "refresh_token"
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        token_url,
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            return res_data["access_token"]
+    except Exception as e:
+        raise Exception(f"Gmail Access Token 발급 실패: {str(e)}")
+
+
+def send_gmail_api(to_email: str, subject: str, body: str):
+    """
+    Gmail REST API 엔드포인트로 HTTPS POST(443) 웹 요청을 보내 메일을 전송합니다.
+    """
+    access_token = get_gmail_access_token()
+
+    # MIME 메시지 생성
+    msg = MIMEText(body)
+    msg["to"] = to_email
+    msg["from"] = SENDER_EMAIL
+    msg["subject"] = subject
+
+    # Gmail API 규격에 맞게 Base64URL 인코딩
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    api_url = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send"
+    post_data = json.dumps({"raw": raw_message}).encode("utf-8")
+
+    req = urllib.request.Request(
+        api_url,
+        data=post_data,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        raise Exception(f"Gmail API 전송 실패: {str(e)}")
+
+
+# --- DTO 정의 ---
 class EmailVerifyRequest(BaseModel):
     email: EmailStr
     purpose: str                     # "signup" | "find_id" | "find_pw"
 
-# OTP 검증 요청 DTO
 class EmailCheckRequest(BaseModel):
     email: EmailStr
     token: str
     purpose: str                     # "signup" | "find_id" | "find_pw"
 
-# 최종 가입 DTO
 class FinalSignUpRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
 
 
-# --- 1️⃣ OTP 발송 (Resend SMTP Relay 방식 적용) ---
+# --- 1️⃣ OTP 발송 (Gmail REST API - HTTPS 443 적용) ---
 @router.post("/send-otp")
 def send_otp_email(payload: EmailVerifyRequest):
     try:
         supabase = get_supabase()
-        # [CASE A] 회원가입인 경우: 이미 가입된 이메일 체크
+        
+        # [CASE A] 회원가입인 경우
         if payload.purpose == "signup":
             result = supabase.table("members").select("email").eq("email", payload.email).execute()
             if result.data:
                 raise HTTPException(status_code=400, detail="이미 가입된 아이디(이메일)입니다.")
 
-        # [CASE B] 아이디/비번 찾기인 경우: 회원 존재 여부 체크
+        # [CASE B] 아이디/비번 찾기인 경우
         elif payload.purpose in ["find_id", "find_pw"]:
             result = supabase.table("members").select("email").eq("email", payload.email).execute()
             if not result.data:
@@ -63,7 +129,7 @@ def send_otp_email(payload: EmailVerifyRequest):
             "purpose": payload.purpose
         }).execute()
 
-        # 메일 발송 제목 및 용어 설정
+        # 메일 발송 제목 및 내용 구성
         purpose_korean = {
             "signup": "회원가입",
             "find_id": "아이디 찾기",
@@ -73,16 +139,8 @@ def send_otp_email(payload: EmailVerifyRequest):
         subject = f"[{purpose_korean}] 요청하신 인증번호 안내"
         body = f"안녕하세요! 요청하신 {purpose_korean}을 위한 인증번호는 [{generated_otp}] 입니다."
 
-        # MIME 메시지 생성
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = "onboarding@resend.dev"  # 기본 테스트 발신용 주소
-        msg["To"] = payload.email
-
-        # Resend SMTP 서버로 로그인 및 발송
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
-            server.sendmail("onboarding@resend.dev", payload.email, msg.as_string())
+        # Gmail API (HTTPS / 443 포트) 전송 실행
+        send_gmail_api(payload.email, subject, body)
 
         return {"status": "success", "message": f"{purpose_korean} 코드가 발송되었습니다."}
 
@@ -103,10 +161,8 @@ def check_email_ok(payload: EmailCheckRequest):
         db_otp = result.data[0]["otp_code"]
 
         if db_otp == payload.token:
-            # 인증 성공 처리
             supabase.table("email_otps").update({"is_approved": True}).eq("email", payload.email).execute()
             
-            # 아이디 찾기인 경우 이름 조회 후 리턴
             if payload.purpose == "find_id":
                 user_query = supabase.table("members").select("name").eq("email", payload.email).execute()
                 user_name = user_query.data[0]["name"] if user_query.data else "이름 없음"
@@ -149,12 +205,11 @@ def check_name_duplicate(name: str):
     return {"message": "사용 가능한 이름입니다."}
 
 
-# --- 4️⃣ 최종 회원가입 (중복 통합 및 정리) ---
+# --- 4️⃣ 최종 회원가입 ---
 @router.post("/signup-final")
 def signup_final(user_data: FinalSignUpRequest):
     try:
         supabase = get_supabase()   
-        # OTP 승인 여부 확인
         otp_response = (
             supabase.table("email_otps")
             .select("is_approved")
@@ -170,7 +225,6 @@ def signup_final(user_data: FinalSignUpRequest):
             
         new_user_uuid = str(uuid.uuid4())
         
-        # members 테이블 저장
         supabase.table("members").insert({
             "id": new_user_uuid,
             "email": user_data.email, 
@@ -180,13 +234,11 @@ def signup_final(user_data: FinalSignUpRequest):
             "status": "active"
         }).execute()
         
-        # member_profiles 테이블 저장
         supabase.table("member_profiles").insert({
             "member_id": new_user_uuid, 
             "name": user_data.name
         }).execute()
         
-        # 임시 OTP 데이터 삭제
         supabase.table("email_otps").delete().eq("email", user_data.email).execute()
         
         return {
