@@ -1,0 +1,15 @@
+# 데이터 처리 & Hugging Face
+pandas>=2.0.0
+datasets>=2.14.0
+requests>=2.31.0
+
+# 한국어 형태소 분석기 (기술 스택 추출용)
+kiwipiepy>=0.16.0
+
+# LSI / LDA 토픽 모델링 & 코사인 유사도
+scikit-learn>=1.3.0
+numpy>=1.24.0
+
+# OpenAI API & 환경변수
+openai>=1.0.0
+python-dotenv>=1.0.0
