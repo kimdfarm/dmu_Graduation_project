@@ -5,13 +5,13 @@ import html2canvas from 'html2canvas';
 import { 
   ArrowLeft, Image as ImageIcon, Code, Printer, 
   GripVertical, ChevronUp, ChevronDown, Loader2, Mail, Phone, MapPin,
-  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon
+  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User
 } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // ------------------------------------------------------------------
-// 💡 selected_version 기준 실시간 텍스트 추출 및 파싱 함수 (완벽 개편)
+// 💡 selected_version 기준 실시간 텍스트 추출 및 파싱 함수
 // ------------------------------------------------------------------
 const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'ORIGINAL') => {
   let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
@@ -35,12 +35,9 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
     const rowValues = {};
 
     if (typeof cardObj === 'object' && cardObj !== null) {
-      // 1. 선택된 버전 감지 (카드 자체 버전 > 섹션 버전 > ORIGINAL)
       const versionToUse = cardObj.selected_version || defaultVersion;
       
-      // 2. 버전별 텍스트 선택 (우선순위 분기)
       let textToParse = '';
-      
       if (versionToUse === 'AI') {
         textToParse = cardObj.ai_proofread_text || cardObj.original_text || '';
       } else if (versionToUse === 'SPELL') {
@@ -49,7 +46,6 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
         textToParse = cardObj.original_text || '';
       }
 
-      // 3. 추출된 텍스트 파싱
       if (textToParse && typeof textToParse === 'string') {
         const blocks = textToParse.split('\n\n');
         
@@ -232,12 +228,10 @@ const ResumeDownload = () => {
         const resumeData = await resumeRes.json();
         setResume(resumeData);
 
-        // 💡 [핵심 교정] 백엔드 데이터를 가져올 때 섹션/카드의 버전 데이터 상호 합성
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
           const parsedSections = resumeData.sections.map((sec) => {
             const secVersion = sec.selected_version || 'ORIGINAL';
 
-            // 섹션 단위에 매핑된 배열형 교정본이 있는 경우 ID 맵 생성
             const spellMap = {};
             if (Array.isArray(sec.spell_checked_text)) {
               sec.spell_checked_text.forEach((item) => {
@@ -252,7 +246,6 @@ const ResumeDownload = () => {
               });
             }
 
-            // 개별 detail 객체 내부로 교정본 및 selected_version 확실히 주입
             const updatedDetails = (sec.details || []).map((detail) => ({
               ...detail,
               selected_version: detail.selected_version || secVersion,
@@ -349,6 +342,7 @@ const ResumeDownload = () => {
               print-color-adjust: exact !important;
             }
           }
+          .resume-section { page-break-inside: avoid; break-inside: avoid; }
           td, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
@@ -375,7 +369,6 @@ const ResumeDownload = () => {
     document.title = originalTitle;
   };
 
-  // 💡 실시간 selected_version 상태에 맞춰 렌더링용 섹션 및 rows 동적 파싱
   const activeSections = orderedSections.map((sec) => {
     const defaultVersion = sec.selected_version || 'ORIGINAL';
     const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, defaultVersion);
@@ -419,6 +412,11 @@ const ResumeDownload = () => {
         .resume-paper {
           background-color: #ffffff !important;
           color: #111827 !important;
+        }
+
+        .resume-section {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
         }
         
         .resume-paper td, .resume-paper div, .resume-paper p {
@@ -613,7 +611,7 @@ const ResumeDownload = () => {
 
         </div>
 
-        {/* 💡 실시간 이력서 뷰어 영역 (미국 ATS 포함 4종 템플릿) */}
+        {/* 💡 실시간 이력서 뷰어 영역 (수정된 4종 템플릿) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
           {/* 1. 한국 모던 이력서 (KR) */}
@@ -622,48 +620,60 @@ const ResumeDownload = () => {
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-relaxed flex flex-col space-y-6 font-sans"
             >
-              <div className="border-b-2 border-gray-900 pb-5 flex justify-between items-start gap-4">
+              <div className="border-b-2 border-indigo-900 pb-5 flex justify-between items-start gap-4">
                 <div className="space-y-2 flex-1">
-                  <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name}</h1>
+                  <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name || '김동혁'}</h1>
                   <p className="text-sm font-semibold text-indigo-900">{resume?.category || 'SW 개발자 이력서'}</p>
                   
                   <div className="text-xs text-gray-600 space-y-1 pt-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span>생년월일: {profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>
-                      <span>연락처: {profile.phone_number}</span>
-                      <span>이메일: {profile.email}</span>
+                      {profile.birth_date && <span>생년월일: {profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>}
+                      {profile.phone_number && <span>연락처: {profile.phone_number}</span>}
+                      {profile.email && <span>이메일: {profile.email}</span>}
                     </div>
                     {profile.address && <p>주소: {profile.address} {profile.detail_address}</p>}
                   </div>
                 </div>
 
-                {profile.avatar_url && (
-                  <img src={profile.avatar_url} alt="프로필" className="w-24 h-32 object-cover rounded border border-gray-300 shadow-sm shrink-0" />
-                )}
+                <div className="w-24 h-32 bg-gray-100 rounded border border-gray-300 shadow-sm shrink-0 flex items-center justify-center overflow-hidden">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="프로필" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-10 h-10 text-gray-400" />
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6 pb-2">
+              <div className="grid grid-cols-2 gap-6 pb-2 resume-section">
                 <div>
                   <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-900 border-b border-indigo-900/30 pb-1 mb-2">학력 사항</h2>
                   <div className="space-y-1.5 text-xs">
-                    {educations.map((edu) => (
-                      <div key={edu.id} className="flex justify-between items-baseline">
-                        <span className="font-semibold text-gray-800">{edu.school_name} <span className="font-normal text-gray-600">({edu.major})</span></span>
-                        <span className="text-gray-500 text-[11px]">{edu.status}</span>
-                      </div>
-                    ))}
+                    {educations.length > 0 ? (
+                      educations.map((edu) => (
+                        <div key={edu.id} className="flex justify-between items-baseline">
+                          <span className="font-semibold text-gray-800">{edu.school_name} <span className="font-normal text-gray-600">({edu.major})</span></span>
+                          <span className="text-gray-500 text-[11px]">{edu.status}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-400 italic">등록된 학력이 없습니다.</p>
+                    )}
                   </div>
                 </div>
 
                 <div>
                   <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-900 border-b border-indigo-900/30 pb-1 mb-2">자격증 및 면허</h2>
                   <div className="space-y-1.5 text-xs">
-                    {certificates.map((cert) => (
-                      <div key={cert.id} className="flex justify-between items-baseline">
-                        <span className="font-semibold text-gray-800">{cert.certificate_name}</span>
-                        <span className="text-gray-500 text-[11px]">{cert.acquisition_date}</span>
-                      </div>
-                    ))}
+                    {certificates.length > 0 ? (
+                      certificates.map((cert) => (
+                        <div key={cert.id} className="flex justify-between items-baseline">
+                          <span className="font-semibold text-gray-800">{cert.certificate_name}</span>
+                          <span className="text-gray-500 text-[11px]">{cert.acquisition_date}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-400 italic">등록된 자격증이 없습니다.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -672,13 +682,13 @@ const ResumeDownload = () => {
                 <h2 className="text-sm font-bold text-indigo-950 border-b-2 border-indigo-900/20 pb-1 uppercase tracking-wider">주요 경력 및 프로젝트</h2>
                 
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-3">
+                  <div key={sec.id} className="space-y-3 resume-section">
                     <h3 className="text-xs font-bold text-indigo-900 bg-indigo-50/80 px-2.5 py-1 rounded border-l-4 border-indigo-600">
                       {sec.section_title || '세부 정보'}
                     </h3>
 
                     {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="pl-2 border-l border-gray-200 space-y-2 mb-3">
+                      <div key={row.id} className="pl-3 border-l-2 border-indigo-100 space-y-2 mb-4">
                         {(sec.columns || []).map((col) => {
                           const val = row.values[col] || '';
                           if (!val) return null;
@@ -687,12 +697,12 @@ const ResumeDownload = () => {
 
                           return (
                             <div key={col} className="space-y-1">
-                              <span className="text-xs font-bold text-gray-700 block">[{col}]</span>
-                              <div className="text-xs text-gray-800 space-y-0.5 pl-2">
+                              <span className="text-xs font-bold text-gray-800 block">[{col}]</span>
+                              <div className="text-xs text-gray-700 space-y-0.5 pl-2">
                                 {lines.map((line, idx) => (
-                                  <div key={idx} className="flex items-start gap-1.5">
+                                  <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
                                     <span className="text-indigo-500 shrink-0">•</span>
-                                    <span className="leading-relaxed">{line.replace(/^•\s*/, '')}</span>
+                                    <span>{line.replace(/^•\s*/, '')}</span>
                                   </div>
                                 ))}
                               </div>
@@ -707,28 +717,30 @@ const ResumeDownload = () => {
             </div>
           )}
 
-          {/* 2. 미국 ATS 최적화 (US) */}
+          {/* 2. 미국 ATS 최적화 (US) - 사진 제거 및 ATS 표준 서식 */}
           {selectedStyle === 'US' && (
             <div 
               ref={printRef}
-              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-3.5 font-serif"
+              className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-4 font-serif"
             >
-              <div className="text-center border-b-2 border-black pb-2 space-y-1">
-                <h1 className="text-2xl font-bold uppercase tracking-wider text-black">{profile.name}</h1>
+              {/* ATS 표준 헤더 (사진 없음, 중앙 정렬) */}
+              <div className="text-center border-b-2 border-black pb-3 space-y-1">
+                <h1 className="text-2xl font-bold uppercase tracking-widest text-black">{profile.name || 'DONGOO KIM'}</h1>
                 <p className="text-xs text-gray-800 font-sans tracking-tight">
-                  {profile.email} • {profile.phone_number} • {profile.address} {profile.detail_address}
+                  {[profile.email, profile.phone_number, `${profile.address || ''} ${profile.detail_address || ''}`.trim()].filter(Boolean).join(' • ')}
                 </p>
               </div>
 
+              {/* 기술 및 자격사항 */}
               {certificates.length > 0 && (
-                <div className="space-y-1">
+                <div className="space-y-1.5 resume-section">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
                     TECHNICAL SKILLS & CERTIFICATIONS
                   </h2>
                   <div className="text-xs font-sans text-gray-900 pt-0.5 space-y-0.5">
                     {certificates.map((cert) => (
                       <div key={cert.id} className="flex justify-between items-baseline">
-                        <span>• <strong>{cert.certificate_name}</strong> ({cert.issuer || 'N/A'})</span>
+                        <span>• <strong>{cert.certificate_name}</strong> {cert.issuer ? `(${cert.issuer})` : ''}</span>
                         <span className="text-gray-600 font-serif italic text-[11px]">{cert.acquisition_date}</span>
                       </div>
                     ))}
@@ -736,15 +748,16 @@ const ResumeDownload = () => {
                 </div>
               )}
 
-              <div className="space-y-3">
+              {/* 주요 경력 및 프로젝트 */}
+              <div className="space-y-3.5">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
                   PROFESSIONAL EXPERIENCE & PROJECTS
                 </h2>
                 
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-2 font-sans">
-                    <h3 className="text-xs font-bold text-black uppercase tracking-wide border-b border-gray-300 pb-0.5">
-                      {sec.section_title || 'Project Detail'}
+                  <div key={sec.id} className="space-y-2.5 font-sans resume-section">
+                    <h3 className="text-xs font-bold text-black uppercase tracking-wide border-b border-gray-200 pb-0.5">
+                      {sec.section_title || 'Projects & Achievements'}
                     </h3>
 
                     {sec.rows && sec.rows.map((row) => {
@@ -756,13 +769,13 @@ const ResumeDownload = () => {
                       const periodText = periodCol ? row.values[periodCol] : '';
 
                       return (
-                        <div key={row.id} className="text-xs space-y-1 pl-0.5">
+                        <div key={row.id} className="text-xs space-y-1">
                           <div className="flex justify-between items-baseline font-bold text-black">
                             <span className="text-[12px]">{mainTitle}</span>
-                            {periodText && <span className="text-[11px] font-mono text-gray-700 italic font-normal">{periodText}</span>}
+                            {periodText && <span className="text-[11px] font-mono text-gray-600 italic font-normal">{periodText}</span>}
                           </div>
 
-                          <div className="space-y-0.5 pl-2">
+                          <div className="space-y-1 pl-1">
                             {cols.map((col) => {
                               if (col === titleCol || col === periodCol) return null;
                               const val = row.values[col] || '';
@@ -789,8 +802,9 @@ const ResumeDownload = () => {
                 ))}
               </div>
 
+              {/* 학력 */}
               {educations.length > 0 && (
-                <div className="space-y-1">
+                <div className="space-y-1.5 resume-section">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
                     EDUCATION
                   </h2>
@@ -798,7 +812,7 @@ const ResumeDownload = () => {
                     <div key={edu.id} className="flex justify-between items-baseline text-xs font-sans">
                       <div>
                         <span className="font-bold text-black">{edu.school_name}</span>
-                        <span className="text-gray-800"> — {edu.major}</span>
+                        {edu.major && <span className="text-gray-800"> — {edu.major}</span>}
                       </div>
                       <span className="text-gray-600 font-serif italic text-[11px]">{edu.status}</span>
                     </div>
@@ -814,31 +828,39 @@ const ResumeDownload = () => {
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
             >
+              {/* 상단 프로필 배너 */}
               <div className="bg-slate-900 text-white p-5 rounded-lg flex justify-between items-center shadow-sm">
-                <div className="space-y-1">
-                  <h1 className="text-2xl font-bold tracking-tight text-white">{profile.name}</h1>
-                  <div className="text-xs text-slate-300 space-y-0.5">
-                    <p className="flex items-center gap-2"><Mail className="w-3 h-3"/> {profile.email}</p>
-                    <p className="flex items-center gap-2"><Phone className="w-3 h-3"/> {profile.phone_number}</p>
-                    <p className="flex items-center gap-2"><MapPin className="w-3 h-3"/> {profile.address} {profile.detail_address}</p>
+                <div className="space-y-1.5">
+                  <h1 className="text-2xl font-bold tracking-tight text-white">{profile.name || '김동혁'}</h1>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    {profile.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-indigo-400"/> {profile.email}</p>}
+                    {profile.phone_number && <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-indigo-400"/> {profile.phone_number}</p>}
+                    {profile.address && <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5 text-indigo-400"/> {profile.address} {profile.detail_address}</p>}
                   </div>
                 </div>
-                {profile.avatar_url && (
-                  <img src={profile.avatar_url} alt="Profile" className="w-16 h-20 object-cover rounded border border-slate-700 shadow-inner" />
-                )}
+
+                <div className="w-20 h-24 bg-slate-800 rounded border border-slate-700 shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-8 h-8 text-slate-500" />
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-12 gap-5">
-                <div className="col-span-4 space-y-4 border-r border-slate-200 pr-3">
-                  <div className="space-y-1">
+              {/* 2단 메인 레이아웃 */}
+              <div className="grid grid-cols-12 gap-6">
+                {/* 좌측 사이드바 */}
+                <div className="col-span-4 space-y-4 border-r border-slate-200 pr-4">
+                  <div className="space-y-1.5">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Profile</h3>
-                    <div className="text-xs text-slate-600 space-y-0.5">
-                      <p><span className="font-semibold text-slate-800">DOB:</span> {profile.birth_date}</p>
+                    <div className="text-xs text-slate-600 space-y-1">
+                      {profile.birth_date && <p><span className="font-semibold text-slate-800">DOB:</span> {profile.birth_date}</p>}
                       <p><span className="font-semibold text-slate-800">Gender:</span> {profile.gender === 'M' ? 'Male' : 'Female'}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Education</h3>
                     {educations.map((edu) => (
                       <div key={edu.id} className="text-xs space-y-0.5 mb-2">
@@ -849,10 +871,10 @@ const ResumeDownload = () => {
                     ))}
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Certificates</h3>
                     {certificates.map((cert) => (
-                      <div key={cert.id} className="text-xs text-slate-700 space-y-0.5 mb-1">
+                      <div key={cert.id} className="text-xs text-slate-700 space-y-0.5 mb-1.5">
                         <p className="font-semibold text-slate-900">{cert.certificate_name}</p>
                         <p className="text-slate-500 text-[10px]">{cert.issuer || '-'} | {cert.acquisition_date}</p>
                       </div>
@@ -860,10 +882,11 @@ const ResumeDownload = () => {
                   </div>
                 </div>
 
+                {/* 우측 주요 경력 및 프로젝트 */}
                 <div className="col-span-8 space-y-4">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Projects & Work Experience</h3>
                   {activeSections.map((sec) => (
-                    <div key={sec.id} className="space-y-2 bg-indigo-50/30 p-3 rounded border border-indigo-100">
+                    <div key={sec.id} className="space-y-2 bg-indigo-50/30 p-3 rounded border border-indigo-100 resume-section">
                       <h4 className="text-xs font-bold text-indigo-950">{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
                         <div key={row.id} className="text-xs space-y-1.5 pl-1">
@@ -903,7 +926,8 @@ const ResumeDownload = () => {
                 <span className="text-[11px] text-gray-600">작성일자: {new Date().toLocaleDateString('ko-KR')}</span>
               </div>
 
-              <div>
+              {/* 기본 프로필 테이블 */}
+              <div className="resume-section">
                 <table className="w-full border-collapse border border-black text-xs text-center !bg-white" style={{ tableLayout: 'fixed' }}>
                   <tbody>
                     <tr>
@@ -915,7 +939,7 @@ const ResumeDownload = () => {
                         {profile.avatar_url ? (
                           <img src={profile.avatar_url} alt="사진" className="w-full h-full object-cover max-h-[90px]" />
                         ) : (
-                          <span className="text-gray-400 text-[11px]">사진</span>
+                          <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-400 text-[10px]">사진</div>
                         )}
                       </td>
                     </tr>
@@ -935,7 +959,8 @@ const ResumeDownload = () => {
                 </table>
               </div>
 
-              <div className="space-y-1">
+              {/* 학력 및 자격사항 테이블 */}
+              <div className="space-y-1 resume-section">
                 <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">学歴・免許・資格 (학력 및 자격사항)</h2>
                 <table className="w-full border-collapse border border-black text-xs text-center !bg-white" style={{ tableLayout: 'fixed' }}>
                   <thead>
@@ -964,10 +989,11 @@ const ResumeDownload = () => {
                 </table>
               </div>
 
+              {/* 경력 및 프로젝트 상세 */}
               <div className="space-y-2">
                 <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">職歴・プロジェクト (경력 및 프로젝트)</h2>
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1">
+                  <div key={sec.id} className="space-y-1 resume-section">
                     <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
                       ■ {sec.section_title || '세부사항'}
                     </div>

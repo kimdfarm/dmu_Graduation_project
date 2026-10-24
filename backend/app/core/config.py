@@ -20,6 +20,13 @@ def get_supabase() -> Client:
         _client_instance = create_client(SUPABASE_URL, SUPABASE_KEY)
     return _client_instance
 
+CRAWL_URL = os.getenv("CRAWL_URL")
+CRAWL_KEY = os.getenv("CRAWL_KEY")
+
+def get_CRAWL_supabase() -> Client:
+    if not CRAWL_URL or not CRAWL_KEY:
+        raise ValueError("Supabase environment variables (CRAWL_URL, CRAWL_KEY) are missing.")
+    return create_client(CRAWL_URL, CRAWL_KEY)
 def reset_supabase():
     """DB 연결이 끊겼을 때 세션을 재설정하기 위한 유틸리티"""
     global _client_instance

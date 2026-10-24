@@ -4,63 +4,118 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
 import { 
   ArrowLeft, Image as ImageIcon, Code, Printer, 
-  GripVertical, ChevronUp, ChevronDown, Loader2, Globe2,
-  FileText, Layout, Award, CheckCircle2, ChevronDown as ChevronIcon
+  GripVertical, ChevronUp, ChevronDown, Loader2, Mail, Phone, MapPin,
+  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User
 } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
-  const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
-    ? [...secColumns]
-    : ['질문', '답변'];
+// ------------------------------------------------------------------
+// 💡 selected_version 기준 실시간 텍스트 추출 및 파싱 함수 (ResumeDownload와 통일)
+// ------------------------------------------------------------------
+const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'ORIGINAL') => {
+  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
+    ? [...secColumns] 
+    : [];
 
-  if (!details || details.length === 0) {
-    return { columns: dynamicColumns, rows: [] };
+  if (!details) {    return { columns: detectedColumns.length > 0 ? detectedColumns : ['상세 내용'], rows: [] };
   }
 
-  const extractedRows = details.map((detail) => {
+  const rawList = Array.isArray(details) ? details : [details];
+  const extractedRows = [];
+
+  const addColumn = (colName) => {
+    if (colName && !detectedColumns.includes(colName)) {
+      detectedColumns.push(colName);
+    }
+  };
+
+  rawList.forEach((cardObj) => {
     const rowValues = {};
 
-    let textToParse = detail.original_text || '';
-    if (secVersion === 'SPELL' && detail.spell_checked_text) {
-      textToParse = detail.spell_checked_text;
-    } else if (secVersion === 'AI' && detail.ai_proofread_text) {
-      textToParse = detail.ai_proofread_text;
-    }
-
-    if (detail.values && typeof detail.values === 'object') {
-      Object.assign(rowValues, detail.values);
-    } else if (textToParse) {
-      const blocks = textToParse.split(/\n\n(?=\[)/);
-      blocks.forEach((block) => {
-        const match = block.match(/^\[(.*?)\]\n?([\s\S]*)$/);
-        if (match) {
-          const colName = match[1].trim();
-          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-          rowValues[colName] = content;
-          if (!dynamicColumns.includes(colName)) {
-            dynamicColumns.push(colName);
-          }
-        }
-      });
-
-      if (Object.keys(rowValues).length === 0 && textToParse) {
-        const col1 = dynamicColumns[0] || '질문';
-        const col2 = dynamicColumns[1] || '답변';
-        rowValues[col1] = detail.title || '';
-        rowValues[col2] = textToParse.replace(/^[•\-\*\s]+/gm, '').trim();
+    if (typeof cardObj === 'object' && cardObj !== null) {
+      const versionToUse = cardObj.selected_version || defaultVersion;
+      
+      let textToParse = '';
+      if (versionToUse === 'AI') {
+        textToParse = cardObj.ai_proofread_text || cardObj.original_text || '';
+      } else if (versionToUse === 'SPELL') {
+        textToParse = cardObj.spell_checked_text || cardObj.original_text || '';
+      } else {
+        textToParse = cardObj.original_text || '';
       }
+
+      if (textToParse && typeof textToParse === 'string') {
+        const blocks = textToParse.split('\n\n');
+        
+        blocks.forEach((block) => {
+          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+          if (lines.length === 0) return;
+
+          if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
+            const keyName = lines[0].slice(1, -1).trim();
+            addColumn(keyName);
+            rowValues[keyName] = lines
+              .slice(1)
+              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
+              .join('\n');
+          } else {
+            lines.forEach((line) => {
+              const colonIdx = line.indexOf(':');
+              if (colonIdx !== -1 && !line.startsWith('•') && !line.startsWith('-')) {
+                const k = line.slice(0, colonIdx).trim();
+                const v = line.slice(colonIdx + 1).trim();
+                addColumn(k);
+                rowValues[k] = v;
+              } else {
+                const cleanLine = line.replace(/^[•\-\*\s]+/, '').trim();
+                if (!cleanLine) return;
+
+                const targetCol = detectedColumns.find(c => c.includes('내용') || c.includes('답변') || c.includes('질문')) || detectedColumns[0] || '상세 내용';
+                addColumn(targetCol);
+                
+                const currentVal = rowValues[targetCol] || '';
+                rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
+              }
+            });
+          }
+        });
+      } else {
+        Object.entries(cardObj).forEach(([k, v]) => {
+          if (['id', 'selected_version', 'ai_proofread_text', 'spell_checked_text', 'original_text'].includes(k)) return;
+          
+          if (k === 'title') {
+            const titleCol = '문항 제목';
+            addColumn(titleCol);
+            // 💡 정규식 슬래시 이스케이프(\/) 수정 부분
+            rowValues[titleCol] = String(v || '').replace(/^(제목\/역할:\s*)+/, '').trim();
+            return;
+          }
+
+          addColumn(k);
+          let formattedValue = Array.isArray(v) ? v.join('\n') : String(v || '');
+          if (formattedValue.startsWith('•')) {
+            formattedValue = formattedValue.replace(/^•\s*/, '');
+          }
+          rowValues[k] = formattedValue;
+        });
+      }
+    } else {
+      addColumn('상세 내용');
+      let valStr = String(cardObj);
+      if (valStr.startsWith('•')) valStr = valStr.replace(/^•\s*/, '');
+      rowValues['상세 내용'] = valStr;
     }
 
-    return {
-      id: detail.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString()),
-      title: detail.title || '',
+    extractedRows.push({
+      id: cardObj.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString()),
       values: rowValues
-    };
+    });
   });
 
-  return { columns: dynamicColumns, rows: extractedRows };
+  if (detectedColumns.length === 0) detectedColumns = ['상세 내용'];
+
+  return { columns: detectedColumns, rows: extractedRows };
 };
 
 const CoverLetterDownload = () => {
@@ -70,13 +125,14 @@ const CoverLetterDownload = () => {
 
   const [coverLetter, setCoverLetter] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
-  const [selectedStyle, setSelectedStyle] = useState('US_ATS');
+  const [selectedStyle, setSelectedStyle] = useState('KR');
   const [profile, setProfile] = useState({
     name: '',
     email: '',
     phone_number: '',
     birth_date: '',
     gender: 'M',
+    avatar_url: '',
     address: '',
     detail_address: ''
   });
@@ -88,38 +144,38 @@ const CoverLetterDownload = () => {
 
   const mainStyleOptions = [
     {
-      id: 'US_ATS',
-      country: '미국 / 북미',
-      flag: '🇺🇸',
-      name: '미국 ATS 최적화 Cover Letter',
-      desc: '단일 칼럼, 흑백 중심의 깔끔하고 가독성 높은 미국 표준',
-      icon: FileText,
-      badge: 'ATS'
-    },
-    {
-      id: 'UK_EU',
-      country: '영국 / 유럽',
-      flag: '🇬🇧',
-      name: '유럽형 2단 Curriculum Vitae',
-      desc: '신뢰감을 주는 네이비 포인트와 체계적인 라이너 구획',
-      icon: Layout,
-      badge: 'CV'
-    },
-    {
-      id: 'DE_CV',
-      country: '독일',
-      flag: '🇩🇪',
-      name: '독일 Lebenslauf 스타일',
-      desc: '2열 분할 레이아웃으로 직관적이고 정확성을 강조',
+      id: 'KR',
+      country: '대한민국',
+      flag: '🇰🇷',
+      name: '한국 모던 자기소개서',
+      desc: '깔끔한 구분선과 구조화된 프로페셔널 서식',
       icon: Globe2,
       badge: '표준'
     },
     {
-      id: 'JP_MODERN',
+      id: 'US',
+      country: '미국 / 북미',
+      flag: '🇺🇸',
+      name: '미국 ATS 최적화 Cover Letter',
+      desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식',
+      icon: FileText,
+      badge: 'ATS'
+    },
+    {
+      id: 'EU',
+      country: '유럽 연합',
+      flag: '🇪🇺',
+      name: '유럽형 2단 Cover Letter',
+      desc: '좌측 프로필 사이드바와 우측 문항 분리 2단 레이아웃',
+      icon: Layout,
+      badge: 'CV'
+    },
+    {
+      id: 'JP',
       country: '일본',
       flag: '🇯🇵',
-      name: '일본 모던 자기소개서',
-      desc: '전통 격자 구조를 렌더링한 정갈하고 격식 있는 서식',
+      name: '일본 정규 志望動機서',
+      desc: '격자 그리드 형태의 규격화된 테이블 레이아웃',
       icon: Award,
       badge: '정규'
     }
@@ -146,48 +202,47 @@ const CoverLetterDownload = () => {
             phone_number: data.phone_number || '',
             birth_date: data.birth_date || '',
             gender: data.gender || 'M',
+            avatar_url: data.avatar_url || '',
             address: data.address || '',
             detail_address: data.detail_address || ''
           });
         }
 
         const coverRes = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
-        if (!coverRes.ok) throw new Error('자기소개서 정보를 불러오는데 실패했습니다.');
+        if (!coverRes.ok) throw new Error('자기소개서 정보를 불러오는 데 실패했습니다.');
 
         const coverData = await coverRes.json();
         setCoverLetter(coverData);
 
         if (coverData.sections && Array.isArray(coverData.sections)) {
           const parsedSections = coverData.sections.map((sec) => {
+            const secVersion = sec.selected_version || 'ORIGINAL';
+
             const spellMap = {};
             if (Array.isArray(sec.spell_checked_text)) {
               sec.spell_checked_text.forEach((item) => {
-                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
+                if (item && item.id) spellMap[item.id] = item.spell_checked_text || item.text || '';
               });
             }
 
             const aiMap = {};
             if (Array.isArray(sec.ai_proofread_text)) {
               sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || '';
+                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || item.text || '';
               });
             }
 
             const updatedDetails = (sec.details || []).map((detail) => ({
               ...detail,
-              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-              ai_proofread_text: aiMap[detail.id] || detail.ai_proofread_text || ''
+              selected_version: detail.selected_version || secVersion,
+              spell_checked_text: detail.spell_checked_text || spellMap[detail.id] || (typeof sec.spell_checked_text === 'string' ? sec.spell_checked_text : ''),
+              ai_proofread_text: detail.ai_proofread_text || aiMap[detail.id] || (typeof sec.ai_proofread_text === 'string' ? sec.ai_proofread_text : '')
             }));
-
-            const secVersion = sec.selected_version || 'ORIGINAL';
-            const { columns, rows } = parseDetailsToTableSchema(updatedDetails, sec.columns, secVersion);
 
             return {
               ...sec,
               details: updatedDetails,
-              columns,
-              rows,
-              currentVersion: secVersion
+              selected_version: secVersion
             };
           });
 
@@ -241,7 +296,7 @@ const CoverLetterDownload = () => {
       const image = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       link.href = image;
-      link.download = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter.png`;
+      link.download = `${profile.name || '자기소개서'}_${selectedStyle}_CoverLetter.png`;
       link.click();
     } catch (err) {
       console.error('PNG 저장 실패:', err);
@@ -255,7 +310,7 @@ const CoverLetterDownload = () => {
     if (!printRef.current) return;
     setDownloadingFormat('html');
     const content = printRef.current.innerHTML;
-    const fileName = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter`;
+    const fileName = `${profile.name || '자기소개서'}_${selectedStyle}_CoverLetter`;
     const fullHtml = `
       <!DOCTYPE html>
       <html lang="ko">
@@ -272,16 +327,13 @@ const CoverLetterDownload = () => {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            .section-block { 
-              page-break-inside: avoid !important; 
-              break-inside: avoid !important; 
-            }
           }
+          .cover-section { page-break-inside: avoid; break-inside: avoid; }
           td, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
-        <div style="background-color: #ffffff; color: #000000; width: 210mm; padding: 8mm; box-sizing: border-box;">
+        <div style="background-color: #ffffff; color: #000000; width: 210mm; padding: 10mm; box-sizing: border-box;">
           ${content}
         </div>
       </body>
@@ -298,16 +350,26 @@ const CoverLetterDownload = () => {
 
   const handlePrint = () => {
     const originalTitle = document.title;
-    document.title = `${profile.name || 'Application'}_${selectedStyle}_CoverLetter`;
+    document.title = `${profile.name || '자기소개서'}_${selectedStyle}_CoverLetter`;
     window.print();
     document.title = originalTitle;
   };
+
+  const activeSections = orderedSections.map((sec) => {
+    const defaultVersion = sec.selected_version || 'ORIGINAL';
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, defaultVersion);
+    return {
+      ...sec,
+      columns,
+      rows
+    };
+  });
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-        <p className="text-sm">글로벌 양식을 불러오는 중입니다...</p>
+        <p className="text-sm">자기소개서를 불러오는 중입니다...</p>
       </div>
     );
   }
@@ -331,24 +393,25 @@ const CoverLetterDownload = () => {
             box-shadow: none !important;
             border: none !important;
           }
-          .section-block {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
         }
 
         .cover-paper {
           background-color: #ffffff !important;
           color: #111827 !important;
         }
+
+        .cover-section {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+        }
         
-        .cover-paper td, .cover-paper div {
+        .cover-paper td, .cover-paper div, .cover-paper p {
           word-break: keep-all !important;
           word-wrap: break-word !important;
         }
       `}</style>
 
-      {/* 헤더 */}
+      {/* 상단 헤더 */}
       <div className="max-w-7xl mx-auto flex items-center justify-between mb-6 no-print">
         <button 
           onClick={() => navigate(-1)}
@@ -358,7 +421,7 @@ const CoverLetterDownload = () => {
           <span>뒤로가기</span>
         </button>
         <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-          4대 국가별 이력서 커스텀 & 내보내기
+          국가별 자기소개서 커스텀 & 내보내기
         </h1>
       </div>
 
@@ -447,7 +510,7 @@ const CoverLetterDownload = () => {
 
           {/* 저장 & 내보내기 버튼 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-3">
-            <h2 className="text-base font-semibold text-white">이력서 저장 & 내보내기</h2>
+            <h2 className="text-base font-semibold text-white">자기소개서 저장 & 내보내기</h2>
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={downloadPNG}
@@ -479,12 +542,12 @@ const CoverLetterDownload = () => {
 
           {/* 문항 순서 관리 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
-            <h2 className="text-base font-semibold text-white">문항 순서 조정</h2>
+            <h2 className="text-base font-semibold text-white">자기소개서 문항 순서 관리</h2>
             <DragDropContext onDragEnd={handleOnDragEnd}>
               <Droppable droppableId="sections">
                 {(provided) => (
                   <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-2">
-                    {orderedSections.map((sec, index) => (
+                    {activeSections.map((sec, index) => (
                       <Draggable key={sec.id} draggableId={String(sec.id)} index={index}>
                         {(provided, snapshot) => (
                           <div
@@ -515,7 +578,7 @@ const CoverLetterDownload = () => {
                               </button>
                               <button
                                 onClick={() => moveDown(index)}
-                                disabled={index === orderedSections.length - 1}
+                                disabled={index === activeSections.length - 1}
                                 className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
                               >
                                 <ChevronDown className="w-4 h-4" />
@@ -534,43 +597,62 @@ const CoverLetterDownload = () => {
 
         </div>
 
-        {/* 우측 뷰어 영역 */}
+        {/* 💡 실시간 자기소개서 뷰어 영역 (4종 템플릿) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
-          {/* 1.🇺🇸 미국 / 북미 스타일 (US ATS-Friendly) */}
-          {selectedStyle === 'US_ATS' && (
+          {/* 1. 한국 모던 자기소개서 (KR) */}
+          {selectedStyle === 'KR' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-5 font-serif"
+              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-relaxed flex flex-col space-y-6 font-sans"
             >
-              <div className="text-center border-b border-black pb-3 space-y-1">
-                <h1 className="text-2xl font-bold uppercase tracking-widest">{profile.name || 'APPLICANT NAME'}</h1>
-                <p className="text-xs text-gray-700 font-sans">
-                  {profile.email} | {profile.phone_number} | {profile.address}
-                </p>
+              <div className="border-b-2 border-indigo-900 pb-5 flex justify-between items-start gap-4">
+                <div className="space-y-2 flex-1">
+                  <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name || '김동혁'}</h1>
+                  <p className="text-sm font-semibold text-indigo-900">{coverLetter?.title || '자기소개서'}</p>
+                  
+                  <div className="text-xs text-gray-600 space-y-1 pt-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {profile.birth_date && <span>생년월일: {profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>}
+                      {profile.phone_number && <span>연락처: {profile.phone_number}</span>}
+                      {profile.email && <span>이메일: {profile.email}</span>}
+                    </div>
+                    {profile.address && <p>주소: {profile.address} {profile.detail_address}</p>}
+                  </div>
+                </div>
+
+                <div className="w-24 h-32 bg-gray-100 rounded border border-gray-300 shadow-sm shrink-0 flex items-center justify-center overflow-hidden">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="프로필" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-10 h-10 text-gray-400" />
+                  )}
+                </div>
               </div>
 
-              <div className="text-center py-1">
-                <h2 className="text-sm font-bold uppercase tracking-wider underline">{coverLetter?.title || 'COVER LETTER STATEMENT'}</h2>
-              </div>
-
-              <div className="space-y-5 font-sans">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block space-y-2">
-                    <h3 className="text-xs font-bold text-black uppercase border-b border-black pb-0.5 tracking-wider">
-                      {sec.section_title || 'SECTION'}
+              <div className="space-y-5">
+                <h2 className="text-sm font-bold text-indigo-950 border-b-2 border-indigo-900/20 pb-1 uppercase tracking-wider">자기소개서 세부 문항</h2>
+                
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-3 cover-section">
+                    <h3 className="text-xs font-bold text-indigo-900 bg-indigo-50/80 px-2.5 py-1.5 rounded border-l-4 border-indigo-600">
+                      {sec.section_title || '문항 내용'}
                     </h3>
+
                     {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="text-xs space-y-2">
+                      <div key={row.id} className="pl-3 border-l-2 border-indigo-100 space-y-2 mb-4">
                         {(sec.columns || []).map((col) => {
                           const val = row.values[col] || '';
                           if (!val) return null;
+
+                          const lines = val.split('\n').filter(Boolean);
+
                           return (
                             <div key={col} className="space-y-1">
-                              <span className="font-semibold text-black block text-[11px] underline">
-                                {col}
-                              </span>
-                              <div className="whitespace-pre-line text-gray-900 leading-relaxed text-[11px] pl-2">{val}</div>
+                              <span className="text-xs font-bold text-gray-800 block">[{col}]</span>
+                              <div className="text-xs text-gray-700 space-y-1 pl-2 whitespace-pre-line leading-relaxed">
+                                {val}
+                              </div>
                             </div>
                           );
                         })}
@@ -582,146 +664,181 @@ const CoverLetterDownload = () => {
             </div>
           )}
 
-          {/* 2. 🇬🇧 영국 / 유럽 스타일 (UK & EU Europass-inspired) */}
-          {selectedStyle === 'UK_EU' && (
+          {/* 2. 미국 ATS 최적화 (US) */}
+          {selectedStyle === 'US' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-slate-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
+              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-4 font-serif"
             >
-              <div className="flex justify-between items-start border-b-2 border-blue-900 pb-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-widest">CURRICULUM VITAE</span>
-                  <h1 className="text-2xl font-bold text-slate-900">{profile.name}</h1>
-                  <p className="text-xs text-slate-600">{coverLetter?.title || 'Personal Statement'}</p>
-                </div>
-                <div className="text-right text-[11px] text-slate-600 space-y-0.5 border-l-2 border-blue-900 pl-3">
-                  <div>{profile.email}</div>
-                  <div>{profile.phone_number}</div>
-                  <div>{profile.address}</div>
-                </div>
+              <div className="text-center border-b-2 border-black pb-3 space-y-1">
+                <h1 className="text-2xl font-bold uppercase tracking-widest text-black">{profile.name || 'APPLICANT'}</h1>
+                <p className="text-xs text-gray-800 font-sans tracking-tight">
+                  {[profile.email, profile.phone_number, `${profile.address || ''} ${profile.detail_address || ''}`.trim()].filter(Boolean).join(' • ')}
+                </p>
+                <p className="text-xs font-bold text-gray-900 pt-1 uppercase tracking-wider">{coverLetter?.title || 'Cover Letter'}</p>
               </div>
 
-              <div className="space-y-5">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-4 bg-blue-900"></div>
-                      <h3 className="text-xs font-bold text-blue-950 uppercase tracking-wider">
-                        {sec.section_title || 'Section'}
-                      </h3>
-                    </div>
-                    <div className="pl-3.5 space-y-2 border-l border-slate-200 ml-0.5">
-                      {sec.rows && sec.rows.map((row) => (
-                        <div key={row.id} className="text-xs space-y-2">
-                          {(sec.columns || []).map((col) => {
-                            const val = row.values[col] || '';
-                            if (!val) return null;
-                            return (
-                              <div key={col} className="space-y-1">
-                                <span className="font-semibold text-blue-900 text-[11px] block">
-                                  [{col}]
-                                </span>
-                                <div className="whitespace-pre-line text-slate-800 leading-relaxed text-[11px]">{val}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
+              <div className="space-y-4 pt-2">
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-2 font-sans cover-section">
+                    <h3 className="text-xs font-bold text-black uppercase tracking-wide border-b border-gray-300 pb-0.5">
+                      {sec.section_title || 'Cover Letter Statement'}
+                    </h3>
+
+                    {sec.rows && sec.rows.map((row) => (
+                      <div key={row.id} className="text-xs space-y-2">
+                        {(sec.columns || []).map((col) => {
+                          const val = row.values[col] || '';
+                          if (!val) return null;
+                          return (
+                            <div key={col} className="space-y-1">
+                              <span className="font-bold text-black text-[11px] underline block">{col}</span>
+                              <div className="text-gray-900 text-[11px] leading-relaxed whitespace-pre-line pl-1">{val}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* 3. 🇩🇪 독일 스타일 (German Lebenslauf) */}
-          {selectedStyle === 'DE_CV' && (
+          {/* 3. 유럽 2단 커버레터 (EU) */}
+          {selectedStyle === 'EU' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col justify-start space-y-6 font-sans"
+              className="print-area cover-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
             >
-              <div className="border-b-2 border-gray-800 pb-3 flex justify-between items-baseline">
-                <h1 className="text-xl font-bold text-gray-900 tracking-wider">LEBENSLAUF / APPLICATION</h1>
-                <span className="text-xs font-medium text-gray-600">{profile.name}</span>
+              <div className="bg-slate-900 text-white p-5 rounded-lg flex justify-between items-center shadow-sm">
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">COVER LETTER</span>
+                  <h1 className="text-2xl font-bold tracking-tight text-white">{profile.name || '김동혁'}</h1>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    {profile.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-indigo-400"/> {profile.email}</p>}
+                    {profile.phone_number && <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-indigo-400"/> {profile.phone_number}</p>}
+                    {profile.address && <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5 text-indigo-400"/> {profile.address} {profile.detail_address}</p>}
+                  </div>
+                </div>
+
+                <div className="w-20 h-24 bg-slate-800 rounded border border-slate-700 shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-8 h-8 text-slate-500" />
+                  )}
+                </div>
               </div>
 
-              {/* 기본 지원 정보 박스 */}
-              <div className="bg-gray-100 p-3 rounded text-xs grid grid-cols-2 gap-2 text-gray-700">
-                <div><span className="font-bold">Contact:</span> {profile.email} / {profile.phone_number}</div>
-                <div><span className="font-bold">Document:</span> {coverLetter?.title || 'Cover Letter'}</div>
-              </div>
-
-              <div className="space-y-6">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block grid grid-cols-12 gap-4 border-b border-gray-200 pb-4">
-                    <div className="col-span-4 text-xs font-bold text-gray-800 uppercase tracking-tight">
-                      {sec.section_title || 'Angaben'}
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-4 space-y-4 border-r border-slate-200 pr-4">
+                  <div className="space-y-1.5">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Information</h3>
+                    <div className="text-xs text-slate-600 space-y-1">
+                      {profile.birth_date && <p><span className="font-semibold text-slate-800">DOB:</span> {profile.birth_date}</p>}
+                      <p><span className="font-semibold text-slate-800">Gender:</span> {profile.gender === 'M' ? 'Male' : 'Female'}</p>
+                      <p className="pt-2 text-[11px] text-slate-500">{coverLetter?.title}</p>
                     </div>
-                    <div className="col-span-8 space-y-3">
+                  </div>
+                </div>
+
+                <div className="col-span-8 space-y-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 border-b border-indigo-200 pb-0.5">Motivation & Statements</h3>
+                  {activeSections.map((sec) => (
+                    <div key={sec.id} className="space-y-2 bg-indigo-50/30 p-3 rounded border border-indigo-100 cover-section">
+                      <h4 className="text-xs font-bold text-indigo-950">{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
-                        <div key={row.id} className="text-xs space-y-2">
+                        <div key={row.id} className="text-xs space-y-1.5 pl-1">
                           {(sec.columns || []).map((col) => {
                             const val = row.values[col] || '';
                             if (!val) return null;
                             return (
-                              <div key={col} className="space-y-1">
-                                <span className="font-semibold text-gray-900 text-[11px] block bg-gray-200/60 px-1.5 py-0.5 rounded w-fit">
-                                  {col}
-                                </span>
-                                <div className="whitespace-pre-line text-gray-800 leading-relaxed text-[11px] pl-1">{val}</div>
+                              <div key={col} className="space-y-0.5">
+                                <span className="font-bold text-indigo-900 text-[11px]">[{col}]</span>
+                                <div className="text-slate-700 pl-2 border-l-2 border-indigo-300 leading-relaxed text-[11px] whitespace-pre-line">
+                                  {val}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
                       ))}
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          {/* 4. 🇯🇵 일본 스타일 (Japanese Modern Rirekisho Style) */}
-          {selectedStyle === 'JP_MODERN' && (
+          {/* 4. 일본 정규 志望動機 (JP) */}
+          {selectedStyle === 'JP' && (
             <div 
               ref={printRef}
-              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col justify-start space-y-4 font-sans"
+              className="print-area cover-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[8mm] text-left leading-normal flex flex-col space-y-4 font-sans"
             >
-              <div className="border-2 border-gray-900 p-3 flex justify-between items-center bg-gray-50">
-                <div>
-                  <h1 className="text-lg font-bold text-gray-900 tracking-widest">志望動機・自己PR (자기소개서)</h1>
-                  <p className="text-xs text-gray-600 mt-0.5">{coverLetter?.title || '지원 서류'}</p>
-                </div>
-                <div className="text-right text-xs text-gray-800 border-l border-gray-400 pl-3">
-                  <div><span className="font-bold">氏名:</span> {profile.name}</div>
-                  <div><span className="font-bold">連絡先:</span> {profile.email}</div>
-                </div>
+              <div className="border-b-2 border-black pb-1 flex justify-between items-center">
+                <h1 className="text-lg font-bold tracking-widest text-black">志望動機書 (자기소개서)</h1>
+                <span className="text-[11px] text-gray-600">작성일자: {new Date().toLocaleDateString('ko-KR')}</span>
               </div>
 
-              <div className="space-y-3">
-                {orderedSections.map((sec) => (
-                  <div key={sec.id} className="section-block border-2 border-gray-900">
-                    <div className="bg-gray-200 border-b-2 border-gray-900 px-3 py-1.5 text-xs font-bold text-gray-900">
-                      ■ {sec.section_title || '項目'}
+              <div className="cover-section">
+                <table className="w-full border-collapse border border-black text-xs text-center !bg-white" style={{ tableLayout: 'fixed' }}>
+                  <tbody>
+                    <tr>
+                      <td className="border border-black bg-gray-100 font-bold w-[65px] py-1.5">성 명</td>
+                      <td className="border border-black font-semibold text-left px-2">{profile.name}</td>
+                      <td className="border border-black bg-gray-100 font-bold w-[60px]">성 별</td>
+                      <td className="border border-black w-[40px]">{profile.gender === 'M' ? '남' : '여'}</td>
+                      <td rowSpan={3} className="border border-black w-[80px] h-[95px] p-1 align-middle">
+                        {profile.avatar_url ? (
+                          <img src={profile.avatar_url} alt="사진" className="w-full h-full object-cover max-h-[90px]" />
+                        ) : (
+                          <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-400 text-[10px]">사진</div>
+                        )}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="border border-black bg-gray-100 font-bold py-1.5">생년월일</td>
+                      <td className="border border-black text-left px-2">{profile.birth_date}</td>
+                      <td className="border border-black bg-gray-100 font-bold">연락처</td>
+                      <td className="border border-black text-left px-1">{profile.phone_number}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-black bg-gray-100 font-bold py-1.5">주 소</td>
+                      <td colSpan={3} className="border border-black text-left px-2">
+                        {profile.address} {profile.detail_address}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-2">
+                <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">志望動機 및 자기소개 상세</h2>
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-1 cover-section">
+                    <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
+                      ■ {sec.section_title || '세부사항'}
                     </div>
-                    <div className="p-3 space-y-3">
-                      {sec.rows && sec.rows.map((row) => (
-                        <div key={row.id} className="text-xs space-y-2">
-                          {(sec.columns || []).map((col) => {
-                            const val = row.values[col] || '';
-                            if (!val) return null;
-                            return (
-                              <div key={col} className="space-y-1">
-                                <span className="font-bold text-gray-900 text-[11px] block border-b border-gray-300 pb-0.5">
-                                  【 {col} 】
-                                </span>
-                                <div className="whitespace-pre-line text-gray-800 leading-relaxed text-[11px] p-1">{val}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
+                    {sec.rows && sec.rows.length > 0 && (
+                      <div className="border border-black p-3 space-y-2 text-xs">
+                        {sec.rows.map((row) => (
+                          <div key={row.id} className="space-y-1 border-b border-gray-200 pb-2 last:border-0 last:pb-0">
+                            {(sec.columns || []).map((col) => {
+                              const val = row.values[col] || '';
+                              if (!val) return null;
+                              return (
+                                <div key={col} className="space-y-0.5">
+                                  <span className="font-bold text-black block">【 {col} 】</span>
+                                  <p className="whitespace-pre-line leading-relaxed pl-2 text-gray-800">{val}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
