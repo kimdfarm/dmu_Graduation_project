@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/recommend", tags=["Job Recommendation"])
 class RecommendRequest(BaseModel):
     user_resume: str = Field(..., description="사용자 자소서 또는 보유 기술 스택 텍스트")
     top_n: Optional[int] = Field(default=3, ge=1, le=10, description="추천받을 공고 수")
-    sample_size: Optional[int] = Field(default=300, description="학습용 공고 샘플 수")
+    sample_size: Optional[int] = Field(default=50, description="학습용 공고 샘플 수")
 
 class RecommendedJobItem(BaseModel):
     rank: int
@@ -42,7 +42,7 @@ class RecommendResponse(BaseModel):
 # 2. 추천 엔진 싱글톤 관리 컨테이너 (임베딩 부분 주석 처리)
 # ------------------------------------------------------------------
 class PipelineServiceContainer:
-    def __init__(self, sample_size: int = 300):
+    def __init__(self, sample_size: int = 50):
         print("⚡ [Pipeline Init] 채용 DB 데이터 로드 및 LSI 추천 엔진 학습 중...")
         self.loader = RecruitDataLoader()
         self.df = self.loader.preprocess_for_analysis(sample_size=sample_size)
@@ -64,7 +64,7 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        # 💡 샘플 수를 300개로 설정
+        # 💡 샘플 수를 50개로 설정
         _container = PipelineServiceContainer(sample_size=50) 
     return _container
 
