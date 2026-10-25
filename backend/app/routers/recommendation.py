@@ -64,7 +64,8 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        _container = PipelineServiceContainer(sample_size=200) # 가볍게 설정
+        # 💡 Render 무료 서버 타임아웃(30초) 방지를 위해 샘플 수를 50개로 대폭 축소
+        _container = PipelineServiceContainer(sample_size=50) 
     return _container
 
 TECH_KEYWORDS = [
