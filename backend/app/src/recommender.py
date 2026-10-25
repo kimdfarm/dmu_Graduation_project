@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics.pairwise import cosine_similarity
@@ -27,8 +27,8 @@ class JobRecommender:
         self.tfidf_matrix = None
         self.lsi_matrix = None
 
-        self.embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-        self.jd_embeddings = None
+        # self.embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        # self.jd_embeddings = None
 
     def fit(self, df: pd.DataFrame, text_column: str = 'full_jd_text'):
             """TF-IDF 및 LSI 행렬 학습"""
@@ -42,7 +42,7 @@ class JobRecommender:
             self.lsi_matrix = self.svd.fit_transform(self.tfidf_matrix)
             return self
 
-
+    '''
     def fit_embedding(self, df: pd.DataFrame, text_column: str = 'full_jd_text'):
         """임베딩 기반 추천을 위한 공고 벡터화 학습"""
         from sentence_transformers import SentenceTransformer
@@ -51,7 +51,7 @@ class JobRecommender:
         print("🔮 [Embedding 모델] 공고 텍스트 임베딩 생성 중...")
         self.jd_embeddings = self.embedder.encode(jd_texts, show_progress_bar=True)
         return self
-
+    
     def recommend_by_embedding(self, user_resume: str, top_n: int = 3) -> pd.DataFrame:
         """문장 의미 기반 임베딩 코사인 유사도 추천"""
         user_embedding = self.embedder.encode([user_resume])
@@ -62,6 +62,7 @@ class JobRecommender:
         result_df['similarity_score'] = [round(float(s) * 100, 2) for s in sims]
         
         return result_df.sort_values(by='similarity_score', ascending=False).head(top_n)
+    '''
 
     def recommend(self, user_resume: str, top_n: int = 3) -> pd.DataFrame:
         """
