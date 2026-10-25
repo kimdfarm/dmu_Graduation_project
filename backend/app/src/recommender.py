@@ -60,6 +60,7 @@ class JobRecommender:
         result_df = self.df.copy()
         # 💡 파이썬 내장 round()를 사용하여 부동소수점 오차를 없애고 소수점 2자리로 고정
         result_df['similarity_score'] = [round(float(s) * 100, 2) for s in sims]
+        
         return result_df.sort_values(by='similarity_score', ascending=False).head(top_n)
 
     def recommend(self, user_resume: str, top_n: int = 3) -> pd.DataFrame:

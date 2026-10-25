@@ -61,7 +61,7 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        _container = PipelineServiceContainer(sample_size=300)
+        _container = PipelineServiceContainer(sample_size=100) # 👈 샘플 수를 낮춰서 부팅 속도 개선
     return _container
 
 TECH_KEYWORDS = [

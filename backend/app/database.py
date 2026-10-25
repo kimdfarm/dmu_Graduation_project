@@ -8,7 +8,7 @@ class RecommendRequest(BaseModel):
         example="Python, PyTorch, FastAPI를 활용한 백엔드 API 및 AI 서비스 구축 경험이 있습니다."
     )
     top_n: Optional[int] = Field(default=3, ge=1, le=10, description="추천받을 공고 수")
-    sample_size: Optional[int] = Field(default=300, description="학습용 공고 데이터 샘플 수")
+    sample_size: Optional[int] = Field(default=100, description="학습용 공고 데이터 샘플 수")
 
 class RecommendedJobItem(BaseModel):
     rank: int
