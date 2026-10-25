@@ -24,7 +24,7 @@ from app.routers import coverletters
 from app.routers.imageandfileupload import savepile_coverletters
 from app.routers.recommendation import router as recommendation_router
 from app.routers.feedback import router as feedback_router
-
+from app.routers.recommendation import warm_up_pipeline
 
 load_dotenv()
 
@@ -42,6 +42,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 async def lifespan(app: FastAPI):
     # [Startup] 서버 가동 시 스케줄러 시작
     if not scheduler.running:
+        warm_up_pipeline()
         scheduler.start()
         print("📡 [시스템 가동] 백그라운드 실시간 수집 및 만료 삭제 엔진이 정상 시작되었습니다.")
         

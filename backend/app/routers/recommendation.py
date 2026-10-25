@@ -61,13 +61,22 @@ class PipelineServiceContainer:
         print("✅ [Pipeline Init] 추천 엔진 준비 완료")
 
 _container = None
+
 def get_pipeline_container():
     global _container
     if _container is None:
-        # 💡 샘플 수를 50개로 설정
-        _container = PipelineServiceContainer(sample_size=50) 
+        # 혹시라도 미리 안 켜졌을 경우를 대비한 방어 코드 (샘플 30개로 가볍게)
+        _container = PipelineServiceContainer(sample_size=30)
     return _container
 
+# 💡 [핵심] 서버가 시작되는 시점에 미리 모델을 생성하도록 호출하는 함수
+def warm_up_pipeline():
+    global _container
+    if _container is None:
+        print("🔥 [Server Startup Warm-up] 서버 기동 중 사전 추천 모델 학습 시작...")
+        _container = PipelineServiceContainer(sample_size=30)
+        print("✨ [Server Startup Warm-up] 사전 학습 완료! 첫 요청 대기 시간 제거됨.")
+        
 TECH_KEYWORDS = [
     'Python', 'PyTorch', 'TensorFlow', 'FastAPI', 'Streamlit', 'Pandas', 'NumPy', 
     'SQL', 'MySQL', 'PostgreSQL', 'Docker', 'Kubernetes', 'Git', 'GitHub', 
