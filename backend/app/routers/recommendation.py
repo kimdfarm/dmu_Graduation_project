@@ -65,7 +65,7 @@ def get_pipeline_container():
     global _container
     if _container is None:
         # 💡 샘플 수를 300개로 설정
-        _container = PipelineServiceContainer(sample_size=300) 
+        _container = PipelineServiceContainer(sample_size=50) 
     return _container
 
 TECH_KEYWORDS = [
