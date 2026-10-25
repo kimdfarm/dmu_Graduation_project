@@ -97,7 +97,7 @@ def run_realtime_pipeline():
         # 💡 [핵심 최적화] 수집 전후 개수를 비교하여 신규 공고가 유입된 경우에만 재학습
         if count_after > count_before:
             new_jobs_count = count_after - count_before
-            print(f"🚀 [신규 공고 감지] {new_jobs_count개의} 새로운 공고가 추가되었습니다. 추천 엔진을 동기화합니다...")
+            print(f"🚀 [신규 공고 감지] {new_jobs_count}개의 새로운 공고가 추가되었습니다. 추천 엔진을 동기화합니다...")
             reload_pipeline_container()
             print("✅ [동기화 완료] 추천 엔진 갱신이 완료되었습니다.")
         else:
