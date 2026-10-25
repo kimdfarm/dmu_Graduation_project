@@ -27,7 +27,7 @@ class RecommendedJobItem(BaseModel):
     lsi_sim: float
     matched_keywords: List[str]
     full_jd_text: str
-    job_url: str  # 채용 DB의 원본 공고 링크
+    job_url: str
 
 class TopKeywordItem(BaseModel):
     keyword: str
@@ -39,11 +39,11 @@ class RecommendResponse(BaseModel):
     top_tech_keywords: List[TopKeywordItem]
 
 # ------------------------------------------------------------------
-# 2. 추천 엔진 싱글톤 관리 컨테이너
+# 2. 추천 엔진 싱글톤 관리 컨테이너 (임베딩 부분 주석 처리)
 # ------------------------------------------------------------------
 class PipelineServiceContainer:
     def __init__(self, sample_size: int = 300):
-        print("⚡ [Pipeline Init] 채용 DB 데이터 로드 및 하이브리드 추천 엔진 학습 중...")
+        print("⚡ [Pipeline Init] 채용 DB 데이터 로드 및 LSI 추천 엔진 학습 중...")
         self.loader = RecruitDataLoader()
         self.df = self.loader.preprocess_for_analysis(sample_size=sample_size)
         
@@ -52,7 +52,10 @@ class PipelineServiceContainer:
             self.topic_modeler.fit_lsi(self.df['full_jd_text'].tolist())
         
         self.recommender = JobRecommender(alpha=0.7)
-        self.recommender.fit_embedding(self.df)
+        
+        # 💡 [나중에 임베딩을 다시 쓸 때 이 주석을 해제하세요]
+        # self.recommender.fit_embedding(self.df)
+        
         if not self.df.empty:
             self.recommender.fit(self.df)
         print("✅ [Pipeline Init] 추천 엔진 준비 완료")
@@ -61,7 +64,7 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        _container = PipelineServiceContainer(sample_size=100) # 👈 샘플 수를 낮춰서 부팅 속도 개선
+        _container = PipelineServiceContainer(sample_size=200) # 가볍게 설정
     return _container
 
 TECH_KEYWORDS = [
@@ -82,11 +85,10 @@ def extract_matched_keywords(user_text: str, jd_text: str):
 def reload_pipeline_container():
     global _container
     print("🔄 [Pipeline Reload] 채용 DB 최신 데이터로 추천 엔진 재학습 중...")
-    _container = PipelineServiceContainer(sample_size=300)
+    _container = PipelineServiceContainer(sample_size=200)
     return _container
 
-# 관리자용 또는 크롤링 연동용 엔드포인트
-@router.post("/reload", summary="추천 엔진 데이터 및 임베딩 강제 갱신")
+@router.post("/reload", summary="추천 엔진 데이터 강제 갱신")
 async def refresh_recommendation_engine():
     reload_pipeline_container()
     return {"message": "추천 엔진이 최신 DB 기준으로 성공적으로 갱신되었습니다."}
@@ -95,7 +97,7 @@ async def refresh_recommendation_engine():
 # ------------------------------------------------------------------
 # 3. API 엔드포인트
 # ------------------------------------------------------------------
-@router.post("", response_model=RecommendResponse, summary="채용 DB 기반 맞춤 추천 및 키워드 분석")
+@router.post("", response_model=RecommendResponse, summary="LSI 기반 맞춤 추천 및 키워드 분석")
 async def recommend_jobs(
     req: RecommendRequest,
     container: PipelineServiceContainer = Depends(get_pipeline_container)
@@ -103,7 +105,7 @@ async def recommend_jobs(
     if container.df.empty:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="채용 DB(companies 테이블)에 데이터가 없거나 연결에 실패했습니다."
+            detail="채용 DB에 데이터가 없거나 연결에 실패했습니다."
         )
 
     if not req.user_resume.strip():
@@ -136,7 +138,6 @@ async def recommend_jobs(
         )
         recommended_items.append(item)
 
-    # 워드클라우드용 상위 기술 키워드 집계
     kw_counts = Counter()
     for kw in TECH_KEYWORDS:
         matches = len(re.findall(r'\b' + re.escape(kw) + r'\b', combined_jds_text, re.IGNORECASE))
@@ -155,7 +156,8 @@ async def recommend_jobs(
     )
 
 
-
+# 💡 [나중에 임베딩 API를 다시 활성화할 때 이 아래 전체 주석을 해제하세요]
+"""
 @router.post("/embedding", response_model=RecommendResponse, summary="임베딩 모델 기반 맞춤 추천")
 async def recommend_jobs_by_embedding(
     req: RecommendRequest,
@@ -164,7 +166,7 @@ async def recommend_jobs_by_embedding(
     if container.df.empty:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="채용 DB(companies 테이블)에 데이터가 없거나 연결에 실패했습니다."
+            detail="채용 DB에 데이터가 없거나 연결에 실패했습니다."
         )
 
     if not req.user_resume.strip():
@@ -197,7 +199,6 @@ async def recommend_jobs_by_embedding(
         )
         recommended_items.append(item)
 
-    # 워드클라우드용 상위 기술 키워드 집계
     kw_counts = Counter()
     for kw in TECH_KEYWORDS:
         matches = len(re.findall(r'\b' + re.escape(kw) + r'\b', combined_jds_text, re.IGNORECASE))
@@ -214,7 +215,4 @@ async def recommend_jobs_by_embedding(
         recommendations=recommended_items,
         top_tech_keywords=top_keywords
     )
-
-
-
-
+"""

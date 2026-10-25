@@ -712,9 +712,10 @@ const executeRecommendation = async (endpoint) => {
           <div className="space-y-6">
             
             {/* 1단계 배너 내부 오른쪽 버튼 그룹 영역 */}
-            <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
-              
-              {/* 추천 개수 선택 드롭다운 */}
+            {/* 1단계 배너 내부 오른쪽 버튼 그룹 영역 */}
+<div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+
+  {/* 추천 개수 선택 드롭다운 */}
   <div className="flex items-center gap-2 bg-[#07051E] px-3 py-2 rounded-xl border border-indigo-900/80">
     <span className="text-xs font-semibold text-indigo-300">개수:</span>
     <select
@@ -738,7 +739,9 @@ const executeRecommendation = async (endpoint) => {
     LSI형 맞춤 공고 추천
   </button>
 
-  {/* 임베딩형 맞춤 공고 추천 실행 버튼 (프리미엄 전용) */}
+  {/* 임베딩형 맞춤 공고 추천 실행 버튼 (프리미엄 전용)
+  아직 서버 부족으로 인한 주석처리 */}
+  {/* 
   <button
     onClick={handleFetchRecommendationsEmbedding}
     disabled={isRecommending}
@@ -751,7 +754,8 @@ const executeRecommendation = async (endpoint) => {
     <Sparkles className="w-4 h-4 text-amber-300" />
     임베딩형 추천 {isEmbeddingLocked && "🔒 (프리미엄)"}
   </button>
-            </div>
+    */}
+</div>
 
             {analysisError && (
               <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-xl text-xs text-rose-300">
