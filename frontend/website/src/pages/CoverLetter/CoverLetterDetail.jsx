@@ -326,7 +326,7 @@ const executeRecommendation = async (endpoint) => {
         currentResumeText = coverLetter?.title || "백엔드 소프트웨어 개발자";
       }
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
 
       // ✅ 올바르게 async 함수 내부에 위치한 API 호출부
       const endpoint = recommendEngine === 'embedding' 
