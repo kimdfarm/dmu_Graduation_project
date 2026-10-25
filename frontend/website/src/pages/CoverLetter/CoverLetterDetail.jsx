@@ -325,6 +325,8 @@ const executeRecommendation = async (endpoint) => {
       if (!currentResumeText.trim()) {
         currentResumeText = coverLetter?.title || "백엔드 소프트웨어 개발자";
       }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       // ✅ 올바르게 async 함수 내부에 위치한 API 호출부
       const endpoint = recommendEngine === 'embedding' 
@@ -337,8 +339,16 @@ const executeRecommendation = async (endpoint) => {
         body: JSON.stringify({
           user_resume: currentResumeText,
           top_n: parseInt(topN, 10)
-        })
+        }),
+        signal: controller.signal // 👈 타임아웃 시그널 연결
       });
+
+      // 요청이 성공하면 타이머 해제
+      clearTimeout(timeoutId);
+
+      if (!recRes.ok) {
+        throw new Error(`서버 응답 오류: ${recRes.status}`);
+      }
 
       if (!recRes.ok) throw new Error('공고 추천을 불러오는 데 실패했습니다.');
       const recData = await recRes.json();
