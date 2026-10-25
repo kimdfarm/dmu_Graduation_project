@@ -86,7 +86,7 @@ def extract_matched_keywords(user_text: str, jd_text: str):
 def reload_pipeline_container():
     global _container
     print("🔄 [Pipeline Reload] 채용 DB 최신 데이터로 추천 엔진 재학습 중...")
-    _container = PipelineServiceContainer(sample_size=20)
+    _container = PipelineServiceContainer(sample_size=50)
     return _container
 
 @router.post("/reload", summary="추천 엔진 데이터 강제 갱신")
