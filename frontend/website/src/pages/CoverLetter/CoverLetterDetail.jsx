@@ -361,6 +361,11 @@ const executeRecommendation = async (endpoint) => {
       }
     } catch (err) {
       console.error('공고 추천 실패:', err);
+      if (err.name === 'AbortError') {
+    setAnalysisError('서버 응답 시간이 초과되었습니다. 무료 서버가 깨어나는 중이므로 잠시 후 다시 시도해 주세요.');
+  } else {
+    setAnalysisError('서버와 통신하지 못했습니다. Render 무료 서버가 일시적으로 잠들어 있을 수 있으니 10초 후 다시 시도해 주세요.');
+  }
       setAnalysisError(err.message);
     } finally {
       setIsRecommending(false);
