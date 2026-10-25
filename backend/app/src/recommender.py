@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics.pairwise import cosine_similarity
@@ -26,20 +27,40 @@ class JobRecommender:
         self.tfidf_matrix = None
         self.lsi_matrix = None
 
+        self.embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        self.jd_embeddings = None
+
     def fit(self, df: pd.DataFrame, text_column: str = 'full_jd_text'):
-        """
-        채용 공고 데이터셋 학습 및 TF-IDF / LSI 행렬 구축
-        """
-        self.df = df.copy().reset_index(drop=True)
-        jd_texts = self.df[text_column].fillna('').tolist()
-        
-        # 1. TF-IDF 행렬 생성
-        self.tfidf_matrix = self.vectorizer.fit_transform(jd_texts)
-        
-        # 2. LSI (TruncatedSVD) 행렬 생성
-        self.lsi_matrix = self.svd.fit_transform(self.tfidf_matrix)
-        
+            """TF-IDF 및 LSI 행렬 학습"""
+            self.df = df.reset_index(drop=True)
+            texts = self.df[text_column].fillna('').tolist()
+            
+            print("📊 [TF-IDF] 공고 텍스트 벡터화 중...")
+            self.tfidf_matrix = self.vectorizer.fit_transform(texts)
+            
+            print("📉 [LSI] 차원 축소 및 SVD 학습 중...")
+            self.lsi_matrix = self.svd.fit_transform(self.tfidf_matrix)
+            return self
+
+
+    def fit_embedding(self, df: pd.DataFrame, text_column: str = 'full_jd_text'):
+        """임베딩 기반 추천을 위한 공고 벡터화 학습"""
+        from sentence_transformers import SentenceTransformer
+        self.embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        jd_texts = df[text_column].fillna('').tolist()
+        print("🔮 [Embedding 모델] 공고 텍스트 임베딩 생성 중...")
+        self.jd_embeddings = self.embedder.encode(jd_texts, show_progress_bar=True)
         return self
+
+    def recommend_by_embedding(self, user_resume: str, top_n: int = 3) -> pd.DataFrame:
+        """문장 의미 기반 임베딩 코사인 유사도 추천"""
+        user_embedding = self.embedder.encode([user_resume])
+        sims = cosine_similarity(user_embedding, self.jd_embeddings).flatten()
+
+        result_df = self.df.copy()
+        # 💡 파이썬 내장 round()를 사용하여 부동소수점 오차를 없애고 소수점 2자리로 고정
+        result_df['similarity_score'] = [round(float(s) * 100, 2) for s in sims]
+        return result_df.sort_values(by='similarity_score', ascending=False).head(top_n)
 
     def recommend(self, user_resume: str, top_n: int = 3) -> pd.DataFrame:
         """
@@ -48,30 +69,23 @@ class JobRecommender:
         if self.tfidf_matrix is None or self.lsi_matrix is None:
             raise ValueError("Recommender가 학습되지 않았습니다. fit()을 먼저 실행해 주세요.")
 
-        # 1. 사용자 입력 텍스트 벡터화
         user_tfidf = self.vectorizer.transform([user_resume])
         user_lsi = self.svd.transform(user_tfidf)
         
-        # 2. TF-IDF 코사인 유사도 계산
         tfidf_sim = cosine_similarity(user_tfidf, self.tfidf_matrix).flatten()
-        
-        # 3. LSI 코사인 유사도 계산
         lsi_sim = cosine_similarity(user_lsi, self.lsi_matrix).flatten()
         
-        # 4. 하이브리드 유사도 결합 (0~100 퍼센트 스케일링)
         hybrid_sim = (self.alpha * tfidf_sim) + ((1 - self.alpha) * lsi_sim)
         
-        # 유사도 점수를 DataFrame에 결합
         result_df = self.df.copy()
-        result_df['similarity_score'] = np.round(hybrid_sim * 100, 2)
-        result_df['tfidf_sim'] = np.round(tfidf_sim * 100, 2)
-        result_df['lsi_sim'] = np.round(lsi_sim * 100, 2)
+        # 💡 동일하게 파이썬 내장 round() 적용
+        result_df['similarity_score'] = [round(float(s) * 100, 2) for s in hybrid_sim]
+        result_df['tfidf_sim'] = [round(float(s) * 100, 2) for s in tfidf_sim]
+        result_df['lsi_sim'] = [round(float(s) * 100, 2) for s in lsi_sim]
         
-        # 상위 top_n개 추출
         top_recommendations = result_df.sort_values(by='similarity_score', ascending=False).head(top_n)
         
         return top_recommendations
-
 
 if __name__ == "__main__":
     from src.data_loader import RecruitDataLoader

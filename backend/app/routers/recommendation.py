@@ -52,6 +52,7 @@ class PipelineServiceContainer:
             self.topic_modeler.fit_lsi(self.df['full_jd_text'].tolist())
         
         self.recommender = JobRecommender(alpha=0.7)
+        self.recommender.fit_embedding(self.df)
         if not self.df.empty:
             self.recommender.fit(self.df)
         print("✅ [Pipeline Init] 추천 엔진 준비 완료")
@@ -77,6 +78,19 @@ def extract_matched_keywords(user_text: str, jd_text: str):
            re.search(r'\b' + re.escape(kw) + r'\b', jd_text, re.IGNORECASE):
             matched.append(kw)
     return matched
+
+def reload_pipeline_container():
+    global _container
+    print("🔄 [Pipeline Reload] 채용 DB 최신 데이터로 추천 엔진 재학습 중...")
+    _container = PipelineServiceContainer(sample_size=3000)
+    return _container
+
+# 관리자용 또는 크롤링 연동용 엔드포인트
+@router.post("/reload", summary="추천 엔진 데이터 및 임베딩 강제 갱신")
+async def refresh_recommendation_engine():
+    reload_pipeline_container()
+    return {"message": "추천 엔진이 최신 DB 기준으로 성공적으로 갱신되었습니다."}
+
 
 # ------------------------------------------------------------------
 # 3. API 엔드포인트
@@ -139,3 +153,68 @@ async def recommend_jobs(
         recommendations=recommended_items,
         top_tech_keywords=top_keywords
     )
+
+
+
+@router.post("/embedding", response_model=RecommendResponse, summary="임베딩 모델 기반 맞춤 추천")
+async def recommend_jobs_by_embedding(
+    req: RecommendRequest,
+    container: PipelineServiceContainer = Depends(get_pipeline_container)
+):
+    if container.df.empty:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="채용 DB(companies 테이블)에 데이터가 없거나 연결에 실패했습니다."
+        )
+
+    if not req.user_resume.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="자소서 또는 보유 기술 스택 텍스트를 입력해주세요."
+        )
+
+    recommendations_df = container.recommender.recommend_by_embedding(req.user_resume, top_n=req.top_n)
+    
+    recommended_items = []
+    combined_jds_text = ""
+
+    for rank, (idx, row) in enumerate(recommendations_df.iterrows(), 1):
+        jd_text = str(row.get('full_jd_text', ''))
+        combined_jds_text += " " + jd_text
+        
+        matched_kws = extract_matched_keywords(req.user_resume, jd_text)
+        
+        item = RecommendedJobItem(
+            rank=rank,
+            company=str(row.get('company', '미지정 기업')),
+            title=str(row.get('title', 'IT 개발 공고')),
+            similarity_score=float(row.get('similarity_score', 0.0)),
+            tfidf_sim=float(row.get('tfidf_sim', 0.0)),
+            lsi_sim=float(row.get('lsi_sim', 0.0)),
+            matched_keywords=matched_kws,
+            full_jd_text=jd_text,
+            job_url=str(row.get('job_url', ''))
+        )
+        recommended_items.append(item)
+
+    # 워드클라우드용 상위 기술 키워드 집계
+    kw_counts = Counter()
+    for kw in TECH_KEYWORDS:
+        matches = len(re.findall(r'\b' + re.escape(kw) + r'\b', combined_jds_text, re.IGNORECASE))
+        if matches > 0:
+            kw_counts[kw] = matches
+            
+    top_keywords = [
+        TopKeywordItem(keyword=kw, count=cnt)
+        for kw, cnt in kw_counts.most_common(10)
+    ]
+
+    return RecommendResponse(
+        total_count=len(recommended_items),
+        recommendations=recommended_items,
+        top_tech_keywords=top_keywords
+    )
+
+
+
+

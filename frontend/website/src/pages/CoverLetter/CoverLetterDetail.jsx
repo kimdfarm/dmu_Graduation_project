@@ -4,7 +4,7 @@ import {
   ArrowLeft, Edit3, Loader2, Download, Briefcase, 
   CheckCircle2, ChevronDown, ChevronUp, Sparkles,
   FileText, Cpu, Search, Building2, ExternalLink,
-  CheckCircle, AlertTriangle, Lightbulb, BarChart3, Tag, Check, Info, RefreshCw
+  CheckCircle, AlertTriangle, Lightbulb, BarChart3, Tag, Check, Info, RefreshCw , 
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -74,6 +74,8 @@ const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'O
   return { columns: dynamicColumns, rows: extractedRows };
 };
 
+
+
 const CoverLetterDetail = () => {
   const { coverLetterId } = useParams();
   const navigate = useNavigate();
@@ -105,6 +107,74 @@ const CoverLetterDetail = () => {
   const [feedbackReport, setFeedbackReport] = useState(null);
   const [analyzedJobRank, setAnalyzedJobRank] = useState(null); // 💡 피드백이 완료된 공고의 Rank 추적
   const [analysisError, setAnalysisError] = useState('');
+
+  // 💡 추천 개수 및 추천 방식(LSI / EMBEDDING) 상태 추가
+  const [recommendEngine, setRecommendEngine] = useState('lsi'); // 'lsi' 또는 'embedding'
+  const [isEmbeddingLocked, setIsEmbeddingLocked] = useState(false);
+  // LSI 추천 실행 함수
+const handleFetchRecommendationsLsi = async () => {
+  await executeRecommendation(`${API_URL}/api/recommend`);
+};
+
+// 임베딩 추천 실행 함수 (프리미엄 체크 가능)
+const handleFetchRecommendationsEmbedding = async () => {
+  if (isEmbeddingLocked) {
+    alert("프리미엄 회원 전용 기능입니다.");
+    return;
+  }
+  await executeRecommendation(`${API_URL}/api/recommend/embedding`);
+};
+
+// 공통 실행 로직 함수
+const executeRecommendation = async (endpoint) => {
+  try {
+    setIsRecommending(true);
+    setAnalysisError('');
+    setFeedbackReport(null);
+    setAnalyzedJobRank(null);
+    setSelectedJob(null);
+
+    let currentResumeText = "";
+    formattedSections.forEach((sec) => {
+      currentResumeText += `[${sec.section_title}]\n`;
+      sec.rows.forEach((row) => {
+        Object.entries(row.values).forEach(([colName, val]) => {
+          if (val) currentResumeText += `${colName}: ${val}\n`;
+        });
+      });
+    });
+
+    if (!currentResumeText.trim()) {
+      currentResumeText = coverLetter?.title || "백엔드 소프트웨어 개발자";
+    }
+
+    const recRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_resume: currentResumeText,
+        top_n: parseInt(topN, 10)
+      })
+    });
+
+    if (!recRes.ok) throw new Error('공고 추천을 불러오는 중 오류가 발생했습니다.');
+    const recData = await recRes.json();
+    
+    setRecommendations(recData.recommendations || []);
+    setTopKeywords(recData.top_tech_keywords || []);
+
+    if (recData.recommendations && recData.recommendations.length > 0) {
+      setSelectedJob(recData.recommendations[0]);
+    }
+  } catch (err) {
+    console.error('공고 추천 실패:', err);
+    setAnalysisError(err.message);
+  } finally {
+    setIsRecommending(false);
+  }
+};
+  
+
 
   const toggleCellExpand = (cellKey) => {
     setExpandedCells((prev) => ({
@@ -256,7 +326,12 @@ const CoverLetterDetail = () => {
         currentResumeText = coverLetter?.title || "백엔드 소프트웨어 개발자";
       }
 
-      const recRes = await fetch(`${API_URL}/api/recommend`, {
+      // ✅ 올바르게 async 함수 내부에 위치한 API 호출부
+      const endpoint = recommendEngine === 'embedding' 
+        ? `${API_URL}/api/recommend/embedding` 
+        : `${API_URL}/api/recommend`;
+
+      const recRes = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -265,7 +340,7 @@ const CoverLetterDetail = () => {
         })
       });
 
-      if (!recRes.ok) throw new Error('공고 추천을 불러오는 중 오류가 발생했습니다.');
+      if (!recRes.ok) throw new Error('공고 추천을 불러오는 데 실패했습니다.');
       const recData = await recRes.json();
       
       setRecommendations(recData.recommendations || []);
@@ -636,50 +711,46 @@ const CoverLetterDetail = () => {
         {activeMainTab === 'analysis' && (
           <div className="space-y-6">
             
-            {/* 1단계 배너 */}
-            <div className="bg-[#0E0B2D] border border-indigo-950 rounded-2xl p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-indigo-400" />
-                  1단계: 맞춤 IT 채용 공고 매칭
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  작성된 자소서 본문 텍스트를 기반으로 채용 DB에서 적합한 공고를 검색합니다.
-                </p>
-              </div>
+            {/* 1단계 배너 내부 오른쪽 버튼 그룹 영역 */}
+            <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+              
+              {/* 추천 개수 선택 드롭다운 */}
+  <div className="flex items-center gap-2 bg-[#07051E] px-3 py-2 rounded-xl border border-indigo-900/80">
+    <span className="text-xs font-semibold text-indigo-300">개수:</span>
+    <select
+      value={topN}
+      onChange={(e) => setTopN(e.target.value)}
+      className="bg-[#0B0826] text-white text-xs font-bold outline-none cursor-pointer rounded-lg px-2 py-1 border border-indigo-800"
+    >
+      <option value={3}>Top 3</option>
+      <option value={5}>Top 5</option>
+      <option value={10}>Top 10</option>
+    </select>
+  </div>
 
-              <div className="flex items-center gap-3 self-end sm:self-auto">
-                <div className="flex items-center gap-2 bg-[#07051E] px-3 py-2 rounded-xl border border-indigo-900/80">
-                  <span className="text-xs font-semibold text-indigo-300">추천 개수:</span>
-                  <select
-                    value={topN}
-                    onChange={(e) => setTopN(e.target.value)}
-                    className="bg-[#0B0826] text-white text-xs font-bold outline-none cursor-pointer rounded-lg px-2 py-1 border border-indigo-800"
-                  >
-                    <option value={3}>Top 3</option>
-                    <option value={5}>Top 5</option>
-                    <option value={10}>Top 10</option>
-                  </select>
-                </div>
+  {/* LSI형 추천 실행 버튼 */}
+  <button
+    onClick={handleFetchRecommendationsLsi}
+    disabled={isRecommending}
+    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 shrink-0 disabled:opacity-50"
+  >
+    <Search className="w-4 h-4" />
+    LSI형 맞춤 공고 추천
+  </button>
 
-                <button
-                  onClick={handleFetchRecommendations}
-                  disabled={isRecommending}
-                  className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 shrink-0 disabled:opacity-50"
-                >
-                  {isRecommending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      공고 검색 중...
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      맞춤 공고 추천 실행
-                    </>
-                  )}
-                </button>
-              </div>
+  {/* 임베딩형 맞춤 공고 추천 실행 버튼 (프리미엄 전용) */}
+  <button
+    onClick={handleFetchRecommendationsEmbedding}
+    disabled={isRecommending}
+    className={`px-4 py-3 font-bold text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 shrink-0 disabled:opacity-50 ${
+      isEmbeddingLocked 
+        ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed' 
+        : 'bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white'
+    }`}
+  >
+    <Sparkles className="w-4 h-4 text-amber-300" />
+    임베딩형 추천 {isEmbeddingLocked && "🔒 (프리미엄)"}
+  </button>
             </div>
 
             {analysisError && (
