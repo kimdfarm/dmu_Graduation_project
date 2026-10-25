@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/recommend", tags=["Job Recommendation"])
 class RecommendRequest(BaseModel):
     user_resume: str = Field(..., description="사용자 자소서 또는 보유 기술 스택 텍스트")
     top_n: Optional[int] = Field(default=3, ge=1, le=10, description="추천받을 공고 수")
-    sample_size: Optional[int] = Field(default=3000, description="학습용 공고 샘플 수")
+    sample_size: Optional[int] = Field(default=500, description="학습용 공고 샘플 수")
 
 class RecommendedJobItem(BaseModel):
     rank: int
@@ -42,7 +42,7 @@ class RecommendResponse(BaseModel):
 # 2. 추천 엔진 싱글톤 관리 컨테이너
 # ------------------------------------------------------------------
 class PipelineServiceContainer:
-    def __init__(self, sample_size: int = 3000):
+    def __init__(self, sample_size: int = 500):
         print("⚡ [Pipeline Init] 채용 DB 데이터 로드 및 하이브리드 추천 엔진 학습 중...")
         self.loader = RecruitDataLoader()
         self.df = self.loader.preprocess_for_analysis(sample_size=sample_size)
@@ -61,7 +61,7 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        _container = PipelineServiceContainer(sample_size=3000)
+        _container = PipelineServiceContainer(sample_size=500)
     return _container
 
 TECH_KEYWORDS = [
@@ -82,7 +82,7 @@ def extract_matched_keywords(user_text: str, jd_text: str):
 def reload_pipeline_container():
     global _container
     print("🔄 [Pipeline Reload] 채용 DB 최신 데이터로 추천 엔진 재학습 중...")
-    _container = PipelineServiceContainer(sample_size=3000)
+    _container = PipelineServiceContainer(sample_size=500)
     return _container
 
 # 관리자용 또는 크롤링 연동용 엔드포인트
