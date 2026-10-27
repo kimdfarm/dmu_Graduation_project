@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FilePlus, ArrowLeft, Loader2, Sparkles, Plus, Trash2, Upload, FileText, X, Globe, 
-  Columns, Table, GitBranch, CheckCircle2, BarChart2, Star, Lock, Search, Check, 
-  RotateCcw, Calendar, Clock, GitCommit
+  Columns, Table, CheckCircle2, Star, Lock, Search, Check, 
+  Calendar, Clock, GitCommit
 } from 'lucide-react';
 
 import { FRAME_TEMPLATES } from '../../templates/resumeTemplates';
@@ -34,7 +34,7 @@ const ResumeNew = () => {
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
-  const [fileTypeBadge, setFileTypeBadge] = useState({ label: '문서', color: 'bg-indigo-950 text-indigo-300' });
+  const [fileTypeBadge, setFileTypeBadge] = useState({ label: '문서', color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/40' });
   const [isDragging, setIsDragging] = useState(false);
 
   const [sections, setSections] = useState(FRAME_TEMPLATES.KR_DEV_BACKEND?.sections || []);
@@ -49,11 +49,8 @@ const ResumeNew = () => {
   const [repoSearchKeyword, setRepoSearchKeyword] = useState('');
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [extractionTime, setExtractionTime] = useState('');
-  const [inputYears, setInputYears] = useState(0);
-  const [inputMonths, setInputMonths] = useState(6);
 
   const [selectedRepos, setSelectedRepos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -64,19 +61,19 @@ const ResumeNew = () => {
   const [years, setYears] = useState(0);
   const [months, setMonths] = useState(6);
 
-const getInitialDates = () => {
-  const today = new Date();
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(today.getMonth() - 6);
-  return {
-    start: sixMonthsAgo.toISOString().split('T')[0],
-    end: today.toISOString().split('T')[0]
+  const getInitialDates = () => {
+    const today = new Date();
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(today.getMonth() - 6);
+    return {
+      start: sixMonthsAgo.toISOString().split('T')[0],
+      end: today.toISOString().split('T')[0]
+    };
   };
-};
 
-const initialDates = getInitialDates();
-const [startDate, setStartDate] = useState(initialDates.start);
-const [endDate, setEndDate] = useState(initialDates.end);
+  const initialDates = getInitialDates();
+  const [startDate, setStartDate] = useState(initialDates.start);
+  const [endDate, setEndDate] = useState(initialDates.end);
 
   const [activeFilterText, setActiveFilterText] = useState('최근 6개월 기준 탐색 결과');
 
@@ -269,7 +266,6 @@ const [endDate, setEndDate] = useState(initialDates.end);
     }
   };
 
-
   const toggleRepoSelection = (repoName) => {
     setSelectedRepos((prev) =>
       prev.includes(repoName)
@@ -347,12 +343,12 @@ const [endDate, setEndDate] = useState(initialDates.end);
     }
     setSelectedFile(file);
     if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif'].includes(fileExt) || file.type.startsWith('image/')) {
-      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-emerald-950 text-emerald-300 border-emerald-800/40' });
+      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/40' });
       const reader = new FileReader();
       reader.onloadend = () => setFilePreview(reader.result);
       reader.readAsDataURL(file);
     } else {
-      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-indigo-950 text-indigo-300 border-indigo-800/40' });
+      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-teal-950/80 text-teal-300 border-teal-800/40' });
       setFilePreview(null);
     }
   };
@@ -469,38 +465,44 @@ const [endDate, setEndDate] = useState(initialDates.end);
   };
 
   return (
-    <div className="min-h-screen bg-[#07051E] text-slate-100 flex items-start justify-center p-6 pt-12 font-sans">
-      <div className="w-full max-w-4xl bg-[#0E0B2D] border border-indigo-950 rounded-3xl p-8 shadow-2xl space-y-6 my-8">
+    <div className="min-h-screen bg-[#070b19] text-slate-100 flex items-start justify-center p-6 md:p-10 font-sans overflow-y-auto">
+      <div className="w-full max-w-4xl bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 md:p-10 shadow-2xl space-y-8 my-6 relative">
         
-        {/* 상단 헤더 */}
-        <div className="flex items-center justify-between border-b border-indigo-950 pb-4">
+        {/* 상단 헤더 & 돌아가기 */}
+        <div className="flex items-center justify-between border-b border-emerald-950/60 pb-5">
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-white transition-all"
+            className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-emerald-300 transition-colors px-3 py-1.5 rounded-xl bg-[#0a1024] border border-emerald-950/80"
           >
             <ArrowLeft className="w-4 h-4" />
-            돌아가기
+            <span>돌아가기</span>
           </button>
+          
+          <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
+            Resume Builder
+          </span>
         </div>
 
-        {/* 타이틀 */}
+        {/* 타이틀 영역 */}
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <FilePlus className="w-6 h-6 text-indigo-400" />
+          <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2.5 tracking-tight">
+            <FilePlus className="w-7 h-7 text-emerald-400" />
             새 이력서 만들기
           </h1>
-          <p className="text-sm text-slate-400">
-            원하는 방식으로 이력서를 손쉽게 자동 생성하세요.
+          <p className="text-xs md:text-sm text-slate-400">
+            원하는 생성 방식을 선택해 손쉽게 완성도 높은 AI 이력서를 자동 생성해 보세요.
           </p>
         </div>
 
-        {/* 모드 전환 탭 */}
-        <div className="grid grid-cols-3 gap-2 p-1.5 bg-[#07051E] border border-indigo-950 rounded-2xl text-xs font-semibold">
+        {/* 모드 전환 탭 (에메랄드/민트 브랜드 톤앤매너 적용) */}
+        <div className="grid grid-cols-3 gap-2 p-1.5 bg-[#0a1024] border border-emerald-950/80 rounded-2xl text-xs font-semibold shadow-inner">
           <button
             type="button"
             onClick={() => setCreateMode('MANUAL')}
-            className={`py-2.5 rounded-xl transition-all ${
-              createMode === 'MANUAL' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            className={`py-3 rounded-xl transition-all duration-200 ${
+              createMode === 'MANUAL'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 font-bold'
+                : 'text-slate-400 hover:text-emerald-200 hover:bg-emerald-950/30'
             }`}
           >
             프레임 & 컬럼 구성
@@ -508,69 +510,76 @@ const [endDate, setEndDate] = useState(initialDates.end);
           <button
             type="button"
             onClick={() => setCreateMode('UPLOAD')}
-            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-              createMode === 'UPLOAD' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            className={`py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+              createMode === 'UPLOAD'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 font-bold'
+                : 'text-slate-400 hover:text-emerald-200 hover:bg-emerald-950/30'
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            파일/이미지 업로드
+            <span>파일/이미지 업로드</span>
           </button>
           <button
             type="button"
             onClick={handleSelectGithubMode}
-            className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-              createMode === 'GITHUB' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            className={`py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 ${
+              createMode === 'GITHUB'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 font-bold'
+                : 'text-slate-400 hover:text-emerald-200 hover:bg-emerald-950/30'
             }`}
           >
             <GithubIcon className="w-3.5 h-3.5" />
-            GitHub 활동으로 만들기
+            <span>GitHub 활동 기반</span>
           </button>
         </div>
 
         {errorMessage && (
-          <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-xl text-xs text-rose-300">
-            ⚠️ {errorMessage}
+          <div className="p-4 bg-rose-950/40 border border-rose-900/60 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-8">
+          
+          {/* 기본 정보 입력 (제목 & 카테고리) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="block text-xs font-semibold text-indigo-300">
-                이력서 제목 <span className="text-rose-400">*</span>
+              <label className="block text-xs font-bold text-slate-200">
+                이력서 제목 <span className="text-emerald-400">*</span>
               </label>
               <input
                 type="text"
-                placeholder="예: 2026 글로벌 백엔드 지원서"
+                placeholder="예: 2026 백엔드 신입 지원서"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 disabled={isLoading}
-                className="w-full p-3.5 text-sm text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-500 shadow-md"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-semibold text-indigo-300">지원 직군 / 카테고리</label>
+              <label className="block text-xs font-bold text-slate-200">지원 직군 / 카테고리</label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 disabled={isLoading}
-                className="w-full p-3.5 text-sm text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 transition-all"
+                className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all shadow-md"
               >
                 {categoryOptions.map((opt) => (
-                  <option key={opt} value={opt} className="bg-[#0E0B2D] text-white">{opt}</option>
+                  <option key={opt} value={opt} className="bg-[#0f152d] text-white">{opt}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* TAB 1: MANUAL */}
+          {/* TAB 1: MANUAL (수동 프레임 및 컬럼 설정) */}
           {createMode === 'MANUAL' && (
             <div className="space-y-6 pt-2">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-emerald-400" />
                   이력서 프레임 템플릿 선택
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -579,18 +588,18 @@ const [endDate, setEndDate] = useState(initialDates.end);
                       key={key}
                       type="button"
                       onClick={() => setSelectedFrame(key)}
-                      className={`p-3.5 text-left rounded-xl border transition-all text-xs flex flex-col justify-between gap-2 ${
+                      className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
                         selectedFrame === key
-                          ? 'bg-indigo-600/20 border-indigo-500 text-white ring-1 ring-indigo-500'
-                          : 'bg-[#07051E] border-indigo-950/80 text-slate-400 hover:border-indigo-800'
+                          ? 'bg-emerald-950/30 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                          : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
                       }`}
                     >
                       <div className="space-y-1.5">
-                        <p className="font-bold text-slate-200 text-xs leading-snug break-words flex-1">{tpl.name}</p>
+                        <p className="font-bold text-slate-100 text-xs leading-snug break-words flex-1">{tpl.name}</p>
                         <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">{tpl.desc}</p>
                       </div>
                       <div>
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded-md bg-indigo-950 border border-indigo-800/40 text-indigo-300 font-medium">
+                        <span className="inline-block text-[10px] px-2.5 py-0.5 rounded-md bg-[#070b19] border border-emerald-950 text-emerald-300 font-semibold">
                           {tpl.category}
                         </span>
                       </div>
@@ -599,9 +608,10 @@ const [endDate, setEndDate] = useState(initialDates.end);
                 </div>
               </div>
 
-              <div className="space-y-3 p-5 bg-[#07051E]/60 border border-indigo-950 rounded-2xl">
-                <label className="block text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                  <Columns className="w-3.5 h-3.5 text-indigo-400" />
+              {/* 컬럼 추가 영역 */}
+              <div className="space-y-4 p-5 bg-[#0a1024] border border-emerald-950/80 rounded-2xl shadow-md">
+                <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Columns className="w-4 h-4 text-emerald-400" />
                   새 섹션 및 컬럼(Column) 추가
                 </label>
                 <div className="space-y-3">
@@ -610,7 +620,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
                     placeholder="섹션 이름 (예: 자격증 및 언어, 수상 내역, 프로젝트)"
                     value={customSectionTitle}
                     onChange={(e) => setCustomSectionTitle(e.target.value)}
-                    className="w-full p-3 text-xs text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
                   />
                   <div className="flex flex-col sm:flex-row gap-2 w-full">
                     <input
@@ -619,19 +629,19 @@ const [endDate, setEndDate] = useState(initialDates.end);
                       value={columnInput}
                       onChange={(e) => setColumnInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddColumnTag(); } }}
-                      className="w-full sm:flex-1 p-3 text-xs text-white bg-[#07051E] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 min-w-0"
+                      className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 min-w-0 transition"
                     />
                     <button
                       type="button"
                       onClick={handleAddColumnTag}
-                      className="w-full sm:w-auto px-4 py-3 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 text-xs font-medium rounded-xl border border-indigo-700/50 flex items-center justify-center gap-1 shrink-0 whitespace-nowrap"
+                      className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0 whitespace-nowrap transition"
                     >
                       <Plus className="w-3.5 h-3.5" /> 컬럼 항목 추가
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {customColumnsList.map((col, cIdx) => (
-                      <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-950 border border-indigo-800/60 text-indigo-200 text-xs rounded-lg">
+                      <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#070b19] border border-emerald-900/60 text-emerald-300 text-xs rounded-lg font-medium">
                         📌 {col}
                         <button type="button" onClick={() => handleRemoveColumnTag(cIdx)} className="hover:text-rose-400 transition-colors">
                           <X className="w-3.5 h-3.5" />
@@ -642,22 +652,23 @@ const [endDate, setEndDate] = useState(initialDates.end);
                   <button
                     type="button"
                     onClick={handleAddSection}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 mt-2"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 mt-2"
                   >
                     <Plus className="w-4 h-4" /> 전체 섹션 목록에 추가하기
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-3 pt-2 border-t border-indigo-950">
-                <p className="text-xs font-semibold text-slate-300">현재 이력서에 반영될 최종 섹션 ({sections.length}개)</p>
+              {/* 반영된 전체 섹션 */}
+              <div className="space-y-3 pt-3 border-t border-emerald-950/60">
+                <p className="text-xs font-bold text-slate-300">현재 이력서에 반영될 최종 섹션 ({sections.length}개)</p>
                 <div className="space-y-2.5">
                   {sections.map((sec, idx) => (
-                    <div key={idx} className="p-4 rounded-xl border bg-[#07051E]/90 border-indigo-900/50 text-xs space-y-2.5">
+                    <div key={idx} className="p-4 rounded-2xl border bg-[#0a1024] border-emerald-950/80 text-xs space-y-2.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <Table className="w-4 h-4 text-indigo-400 shrink-0" />
-                          <span className="font-bold text-slate-200 text-sm">{sec.title}</span>
+                          <Table className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span className="font-bold text-slate-100 text-sm">{sec.title}</span>
                         </div>
                         <button type="button" onClick={() => handleDeleteSection(idx)} className="text-slate-500 hover:text-rose-400 p-1 transition-all">
                           <Trash2 className="w-4 h-4" />
@@ -665,7 +676,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {sec.columns?.map((col, cIdx) => (
-                          <span key={cIdx} className="px-2.5 py-1 bg-indigo-950/80 border border-indigo-800/40 text-indigo-300 text-[11px] rounded-lg font-medium">
+                          <span key={cIdx} className="px-2.5 py-1 bg-[#070b19] border border-emerald-950 text-emerald-300 text-[11px] rounded-lg font-medium">
                             📌 {col}
                           </span>
                         ))}
@@ -677,17 +688,17 @@ const [endDate, setEndDate] = useState(initialDates.end);
             </div>
           )}
 
-          {/* TAB 2: UPLOAD */}
+          {/* TAB 2: UPLOAD (파일 / 이미지 파싱) */}
           {createMode === 'UPLOAD' && (
             <div className="space-y-3 pt-2">
-              <label className="block text-xs font-semibold text-indigo-300">기존 이력서 파일/이미지 등록</label>
+              <label className="block text-xs font-bold text-slate-200">기존 이력서 파일/이미지 등록</label>
               {!selectedFile ? (
                 <div
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer ${
-                    isDragging ? 'border-indigo-400 bg-indigo-950/40' : 'border-indigo-900/60 bg-[#07051E]/60 hover:border-indigo-600'
+                  className={`border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer ${
+                    isDragging ? 'border-emerald-400 bg-emerald-950/20' : 'border-emerald-950/80 bg-[#0a1024] hover:border-emerald-600'
                   }`}
                 >
                   <input
@@ -698,116 +709,115 @@ const [endDate, setEndDate] = useState(initialDates.end);
                     className="hidden"
                   />
                   <label htmlFor="resume-file-input" className="cursor-pointer space-y-3 block">
-                    <div className="w-12 h-12 mx-auto rounded-full bg-indigo-950/80 border border-indigo-800/40 flex items-center justify-center text-indigo-400">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-[#070b19] border border-emerald-950 flex items-center justify-center text-emerald-400 shadow-md">
                       <Upload className="w-6 h-6" />
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm font-medium text-slate-200">클릭하여 파일 선택 또는 드래그 & 드롭</p>
-                      <p className="text-xs text-indigo-300 font-medium">PDF · Word · 한글(HWP/HWPX) · 이미지 지원</p>
+                      <p className="text-sm font-bold text-slate-100">클릭하여 파일 선택 또는 드래그 & 드롭</p>
+                      <p className="text-xs text-emerald-400 font-medium">PDF · Word · 한글(HWP/HWPX) · 이미지 파싱 지원</p>
                     </div>
                   </label>
                 </div>
               ) : (
-                <div className="p-4 bg-[#07051E] border border-indigo-800/50 rounded-2xl flex items-center justify-between gap-3">
+                <div className="p-4 bg-[#0a1024] border border-emerald-950/80 rounded-2xl flex items-center justify-between gap-3 shadow-md">
                   <div className="flex items-center gap-3 overflow-hidden">
                     {filePreview ? (
-                      <img src={filePreview} alt="미리보기" className="w-12 h-12 object-cover rounded-lg shrink-0" />
+                      <img src={filePreview} alt="미리보기" className="w-12 h-12 object-cover rounded-xl shrink-0" />
                     ) : (
-                      <div className="w-12 h-12 rounded-lg bg-indigo-950 flex items-center justify-center text-indigo-400 shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-[#070b19] border border-emerald-950 flex items-center justify-center text-emerald-400 shrink-0">
                         <FileText className="w-6 h-6" />
                       </div>
                     )}
                     <div className="truncate">
                       <div className="flex items-center gap-2">
-                        <p className="text-xs font-semibold text-slate-200 truncate">{selectedFile.name}</p>
+                        <p className="text-xs font-bold text-slate-100 truncate">{selectedFile.name}</p>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${fileTypeBadge.color}`}>
                           {fileTypeBadge.label}
                         </span>
                       </div>
-                      <p className="text-[11px] text-indigo-400 mt-1">
+                      <p className="text-[11px] text-emerald-400 mt-1">
                         {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · 파싱 준비 완료
                       </p>
                     </div>
                   </div>
-                  <button type="button" onClick={() => { setSelectedFile(null); setFilePreview(null); }} className="p-1.5 text-slate-500 hover:text-rose-400 transition-all">
-                    <X className="w-4 h-4" />
+                  <button type="button" onClick={() => { setSelectedFile(null); setFilePreview(null); }} className="p-2 text-slate-400 hover:text-rose-400 transition-all">
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* TAB 3: GITHUB 저장소 영역 */}
+          {/* TAB 3: GITHUB 활동 분석 및 저장소 선택 */}
           {createMode === 'GITHUB' && (
-            <div className="space-y-5 pt-6 border-t border-indigo-950/60">
+            <div className="space-y-6 pt-4 border-t border-emerald-950/60">
               
               {/* 계정 유저 뱃지 */}
-              <div className="p-4 bg-[#090723] border border-indigo-900/50 rounded-2xl flex items-center justify-between shadow-sm">
+              <div className="p-4 bg-[#0a1024] border border-emerald-950/80 rounded-2xl flex items-center justify-between shadow-md">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-950/80 rounded-xl border border-indigo-800/40 text-indigo-400">
+                  <div className="p-2.5 bg-[#070b19] rounded-xl border border-emerald-950 text-emerald-400">
                     <GithubIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium text-indigo-300/80">연동된 GitHub 계정</p>
+                    <p className="text-[11px] font-medium text-emerald-300">연동된 GitHub 계정</p>
                     <p className="text-sm font-bold text-white">{githubUser || '계정 정보 없음'}</p>
                   </div>
                 </div>
-                <span className="text-[11px] px-3 py-1 bg-indigo-900/40 text-indigo-300 border border-indigo-700/50 rounded-full font-medium">
+                <span className="text-[11px] px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full font-semibold">
                   인증 완료
                 </span>
               </div>
 
               {/* 활동 분석 기간 설정 카드 */}
-              <div className="w-full bg-[#090723] border border-indigo-900/50 rounded-2xl p-5 space-y-4 text-white shadow-md">
-                {/* 헤더 & 현재 탐색 기준 표시 뱃지 (선명한 text-indigo-400 아이콘 적용) */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-950 pb-3.5">
+              <div className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-5 md:p-6 space-y-4 text-white shadow-md">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-950/60 pb-4">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-indigo-400" />
-                    <h3 className="text-xs font-bold text-slate-200">활동 분석 기간 설정</h3>
+                    <Calendar className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-xs font-bold text-slate-100">활동 분석 기간 설정</h3>
                   </div>
 
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-950/80 border border-indigo-800/50 rounded-full text-[11px] text-indigo-300 font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>현재 적용: <strong className="text-white font-semibold">{activeFilterText}</strong></span>
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-[#070b19] border border-emerald-950 rounded-full text-[11px] text-emerald-300 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>현재 적용: <strong className="text-white font-bold">{activeFilterText}</strong></span>
                   </div>
                 </div>
 
-                {/* 모드 선택 탭 (선명한 text-indigo-400 / 선명한 대비 적용) */}
-                <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#050314] rounded-xl border border-indigo-950/80">
+                {/* 모드 선택 스위치 */}
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#070b19] rounded-xl border border-emerald-950">
                   <button
                     type="button"
                     onClick={() => setSearchMode('relative')}
-                    className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                       searchMode === 'relative'
-                        ? 'bg-indigo-600 text-white shadow-md'
+                        ? 'bg-emerald-600 text-white shadow-md'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <Clock className="w-3.5 h-3.5 text-indigo-300" />
-                    최근 기간으로 설정
+                    <Clock className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>최근 기간으로 설정</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSearchMode('custom')}
-                    className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                       searchMode === 'custom'
-                        ? 'bg-indigo-600 text-white shadow-md'
+                        ? 'bg-emerald-600 text-white shadow-md'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <Calendar className="w-3.5 h-3.5 text-indigo-300" />
-                    상세 날짜 직접 지정
+                    <Calendar className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>상세 날짜 직접 지정</span>
                   </button>
                 </div>
 
-                {/* 모드별 입력 폼 영역 */}
-                <div className="pt-2 pb-1">
+                {/* 모드별 입력 폼 */}
+                <div className="pt-2">
                   {searchMode === 'relative' ? (
-                    <div className="bg-[#050314] border border-indigo-900/60 rounded-2xl p-4 md:p-5 space-y-4">
+                    <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 md:p-5 space-y-4">
                       
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-950/80 pb-3.5">
-                        <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-indigo-400" />
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/80 pb-3.5">
+                        <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-emerald-400" />
                           탐색 기간 설정
                         </span>
                         
@@ -829,8 +839,8 @@ const [endDate, setEndDate] = useState(initialDates.end);
                                 }}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                                   isActive
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400'
-                                    : 'bg-[#090723] text-indigo-300 hover:bg-indigo-900/40 border border-indigo-800/40'
+                                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                                    : 'bg-[#0a1024] text-emerald-300 hover:bg-emerald-950/40 border border-emerald-900/40'
                                 }`}
                               >
                                 {preset.label}
@@ -840,19 +850,19 @@ const [endDate, setEndDate] = useState(initialDates.end);
                         </div>
                       </div>
 
-                      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#090723] border border-indigo-900/50 rounded-xl p-3.5 w-full">
-                        <p className="text-xs font-medium text-slate-400 text-center md:text-left break-keep leading-relaxed flex-1">
-                          기준 시점으로부터 <strong className="text-indigo-400 font-bold">과거 기간</strong>을 직접 설정합니다.
+                      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0a1024] border border-emerald-950 rounded-xl p-3.5 w-full">
+                        <p className="text-xs font-medium text-slate-400 text-center md:text-left leading-relaxed flex-1">
+                          기준 시점으로부터 <strong className="text-emerald-400 font-bold">과거 기간</strong>을 직접 조정하세요.
                         </p>
 
                         <div className="flex flex-wrap items-center justify-center gap-2.5 w-full md:w-auto shrink-0">
                           <span className="text-xs text-slate-400 font-medium hidden sm:inline">최근</span>
                           
-                          <div className="flex items-center gap-1 bg-[#050314] border border-indigo-800/80 rounded-xl p-1">
+                          <div className="flex items-center gap-1 bg-[#070b19] border border-emerald-950 rounded-xl p-1">
                             <button
                               type="button"
                               onClick={() => setYears(Math.max(0, years - 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 flex items-center justify-center text-sm font-bold active:scale-95 transition-all"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
                             >
                               -
                             </button>
@@ -861,23 +871,23 @@ const [endDate, setEndDate] = useState(initialDates.end);
                               min="0"
                               value={years}
                               onChange={(e) => setYears(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-extrabold text-white focus:outline-none"
+                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none"
                             />
                             <button
                               type="button"
                               onClick={() => setYears(years + 1)}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 flex items-center justify-center text-sm font-bold active:scale-95 transition-all"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
                             >
                               +
                             </button>
-                            <span className="pr-1.5 text-xs font-bold text-indigo-300">년</span>
+                            <span className="pr-1.5 text-xs font-bold text-emerald-300">년</span>
                           </div>
 
-                          <div className="flex items-center gap-1 bg-[#050314] border border-indigo-800/80 rounded-xl p-1">
+                          <div className="flex items-center gap-1 bg-[#070b19] border border-emerald-950 rounded-xl p-1">
                             <button
                               type="button"
                               onClick={() => setMonths(Math.max(0, months - 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 flex items-center justify-center text-sm font-bold active:scale-95 transition-all"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
                             >
                               -
                             </button>
@@ -887,16 +897,16 @@ const [endDate, setEndDate] = useState(initialDates.end);
                               max="12"
                               value={months}
                               onChange={(e) => setMonths(Math.max(0, Math.min(12, parseInt(e.target.value) || 0)))}
-                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-extrabold text-white focus:outline-none"
+                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none"
                             />
                             <button
                               type="button"
                               onClick={() => setMonths(Math.min(12, months + 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 flex items-center justify-center text-sm font-bold active:scale-95 transition-all"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
                             >
                               +
                             </button>
-                            <span className="pr-1.5 text-xs font-bold text-indigo-300">개월</span>
+                            <span className="pr-1.5 text-xs font-bold text-emerald-300">개월</span>
                           </div>
                         </div>
                       </div>
@@ -904,95 +914,87 @@ const [endDate, setEndDate] = useState(initialDates.end);
                     </div>
                   ) : (
                     /* 상세 날짜 지정 모드 */
-                    <div className="bg-[#050314] border border-indigo-900/60 rounded-2xl p-4 md:p-5 grid grid-cols-2 gap-4">
+                    <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 md:p-5 grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                        <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
                           탐색 시작일
                         </label>
-                          <input
-                            type="date"
-                            value={startDate}
-                            max={endDate || undefined}
-                            onClick={(e) => e.target.showPicker?.()}
-                            onChange={(e) => {
-                              const newStart = e.target.value;
-                              setStartDate(newStart);
-                              // 시작일이 종료일보다 뒤로 설정되면 종료일을 시작일과 같게 변경
-                              if (endDate && newStart > endDate) {
-                                setEndDate(newStart);
-                              }
-                            }}
-                          className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+                        <input
+                          type="date"
+                          value={startDate}
+                          max={endDate || undefined}
+                          onClick={(e) => e.target.showPicker?.()}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            setStartDate(newStart);
+                            if (endDate && newStart > endDate) setEndDate(newStart);
+                          }}
+                          className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 [color-scheme:dark]"
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                        <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
                           탐색 종료일
                         </label>
-                          <input
-                            type="date"
-                            value={endDate}
-                            min={startDate || undefined}
-                            onClick={(e) => e.target.showPicker?.()}
-                            onChange={(e) => {
-                              const newEnd = e.target.value;
-                              if (startDate && newEnd < startDate) {
-                                // 종료일이 시작일보다 앞으로 설정되면 종료일을 시작일과 같게 변경
-                                setEndDate(startDate);
-                              } else {
-                                setEndDate(newEnd);
-                              }
-                            }}
-                          className="w-full bg-[#120e36] border border-indigo-900/60 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 [color-scheme:dark]"
+                        <input
+                          type="date"
+                          value={endDate}
+                          min={startDate || undefined}
+                          onClick={(e) => e.target.showPicker?.()}
+                          onChange={(e) => {
+                            const newEnd = e.target.value;
+                            if (startDate && newEnd < startDate) setEndDate(startDate);
+                            else setEndDate(newEnd);
+                          }}
+                          className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 [color-scheme:dark]"
                         />
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* 탐색 실행 버튼 */}
                 <button
                   type="button"
                   onClick={handleSearch}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-[0.99]"
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 active:scale-[0.99]"
                 >
                   <Search className="w-3.5 h-3.5" />
                   <span>{searchMode === 'relative' ? '최근 기간으로 저장소 탐색' : '상세 지정 기간으로 저장소 탐색'}</span>
                 </button>
               </div>
 
-              {/* 검색 및 전체선택 컨트롤 바 */}
+              {/* 검색 및 전체 선택 */}
               <div className="flex items-center justify-between gap-2.5 pt-2">
                 <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-indigo-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-emerald-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="저장소 이름 또는 설명 검색..."
+                    placeholder="저장소 이름 또는 설명으로 검색..."
                     value={repoSearchKeyword}
                     onChange={(e) => setRepoSearchKeyword(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs text-white bg-[#050314] border border-indigo-900/60 rounded-xl focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+                    className="w-full pl-10 pr-4 py-3 text-xs text-white bg-[#0a1024] border border-emerald-950 rounded-xl focus:outline-none focus:border-emerald-500 placeholder:text-slate-500 shadow-md"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={handleSelectAllRepos}
-                  className="px-4 py-2.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-800/60 text-indigo-300 text-xs font-semibold rounded-xl transition-all shrink-0"
+                  className="px-4 py-3 bg-[#0a1024] hover:bg-emerald-950/40 border border-emerald-950 text-emerald-300 text-xs font-bold rounded-xl transition shrink-0"
                 >
                   {selectedRepos.length === filteredRepositories.length && filteredRepositories.length > 0 ? '전체 해제' : '전체 선택'}
                 </button>
               </div>
 
-              {/* 저장소 카드 리스트 영역 */}
+              {/* 저장소 리스트 카드 */}
               {isFetchingRepos ? (
-                <div className="p-10 text-center bg-[#050314] border border-indigo-900/40 rounded-2xl">
-                  <Loader2 className="w-6 h-6 animate-spin text-indigo-400 mx-auto mb-2" />
+                <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl">
+                  <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto mb-2" />
                   <p className="text-xs text-slate-400">GitHub 저장소 목록을 불러오는 중...</p>
                 </div>
               ) : filteredRepositories.length === 0 ? (
-                <div className="p-10 text-center bg-[#050314] border border-indigo-900/40 rounded-2xl">
+                <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl">
                   <p className="text-xs text-slate-400">조회된 GitHub 저장소가 없습니다.</p>
                 </div>
               ) : (
@@ -1005,10 +1007,10 @@ const [endDate, setEndDate] = useState(initialDates.end);
                       <div
                         key={repo.id || repo.full_name || index}
                         onClick={() => toggleRepoSelection(repoName)}
-                        className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-3 ${
+                        className={`p-4 rounded-2xl border cursor-pointer transition flex flex-col justify-between gap-3 ${
                           isSelected
-                            ? 'bg-indigo-950/70 border-indigo-500/80 ring-1 ring-indigo-500/80 shadow-lg shadow-indigo-500/10'
-                            : 'bg-[#050314] border-indigo-900/40 hover:border-indigo-800/80'
+                            ? 'bg-emerald-950/40 border-emerald-500/80 ring-1 ring-emerald-500/80 shadow-md shadow-emerald-500/10'
+                            : 'bg-[#0a1024] border-emerald-950 hover:border-emerald-800/60'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -1027,28 +1029,28 @@ const [endDate, setEndDate] = useState(initialDates.end);
                           </div>
 
                           <div
-                            className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
+                            className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition ${
                               isSelected
-                                ? 'bg-indigo-600 border-indigo-500 text-white'
-                                : 'border-slate-700 bg-[#090723]'
+                                ? 'bg-emerald-600 border-emerald-500 text-white'
+                                : 'border-slate-700 bg-[#070b19]'
                             }`}
                           >
                             {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                           </div>
                         </div>
 
-                        {/* 카드 내부 날짜 표시 영역 (text-indigo-400 적용으로 선명한 가독성 확보) */}
-                        <div className="space-y-2 pt-3 border-t border-indigo-950">
+                        {/* 카드 하단 정보 */}
+                        <div className="space-y-2 pt-3 border-t border-emerald-950/80">
                           <div className="flex items-center justify-between text-[11px]">
                             <div className="flex items-center gap-1.5 text-slate-400 font-medium">
-                              <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               <span>
                                 {formatDate(repo.created_at)} ~ {formatDate(repo.pushed_at || repo.updated_at)}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-950/50 border border-emerald-800/40 px-2 py-0.5 rounded-md text-[10px]">
-                              <GitCommit className="w-3 h-3" />
+                            <div className="flex items-center gap-1 text-emerald-300 font-semibold bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded-md text-[10px]">
+                              <GitCommit className="w-3 h-3 text-emerald-400" />
                               <span>활동 {repo.activity_count ?? repo.commit_count ?? 0}회</span>
                             </div>
                           </div>
@@ -1056,7 +1058,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
                           <div className="flex items-center justify-between pt-0.5">
                             <div>
                               {repo.language && (
-                                <span className="px-2 py-0.5 bg-indigo-950 border border-indigo-800/40 text-indigo-300 rounded-md text-[10px] font-medium">
+                                <span className="px-2.5 py-0.5 bg-[#070b19] border border-emerald-950 text-emerald-300 rounded-md text-[10px] font-medium">
                                   {repo.language}
                                 </span>
                               )}
@@ -1076,7 +1078,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
             </div>
           )}
 
-          {/* 하단 제출 버튼 */}
+          {/* 하단 최종 제출 버튼 */}
           <button
             type={createMode === 'GITHUB' ? "button" : "submit"}
             onClick={createMode === 'GITHUB' ? handleDirectGenerateResume : undefined}
@@ -1086,18 +1088,18 @@ const [endDate, setEndDate] = useState(initialDates.end);
               (createMode === 'UPLOAD' && !selectedFile)
             }
             className={`
-              w-full py-4 px-6 rounded-2xl font-extrabold text-base transition-all duration-200 
-              flex items-center justify-center gap-2 mt-6 cursor-pointer
+              w-full py-4 px-6 rounded-2xl font-black text-sm md:text-base transition-all duration-200 
+              flex items-center justify-center gap-2 mt-8 cursor-pointer
               ${
                 isLoading || loading || (createMode === 'GITHUB' && selectedRepos.length === 0) || (createMode === 'UPLOAD' && !selectedFile)
-                  ? 'bg-[#151233] text-slate-500 border border-indigo-900/40 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-400 hover:via-purple-400 hover:to-pink-400 text-white shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(168,85,247,0.6)] border border-indigo-300/30 hover:-translate-y-0.5 active:translate-y-0'
+                  ? 'bg-[#0a1024] text-slate-500 border border-emerald-950/60 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30 transform hover:-translate-y-0.5 active:translate-y-0'
               }
             `}
           >
             {isLoading || loading ? (
               <span className="flex items-center gap-2 text-white">
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin text-emerald-300" />
                 <span>{loadingText || '이력서 생성 중...'}</span>
               </span>
             ) : createMode === 'GITHUB' ? (
@@ -1108,7 +1110,7 @@ const [endDate, setEndDate] = useState(initialDates.end);
                     <span>선택한 {selectedRepos.length}개 저장소로 이력서 자동 생성하기</span>
                   </>
                 ) : (
-                  <span className="text-slate-400 font-medium text-sm">
+                  <span className="text-slate-400 font-medium text-xs md:text-sm">
                     ⚠️ 하단 저장소 목록에서 1개 이상 선택해 주세요
                   </span>
                 )}

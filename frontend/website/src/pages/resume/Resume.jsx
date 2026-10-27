@@ -2,16 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Menu, Home, FileText, UserCheck, Sparkles, Plus, 
-  Search, Trash2, Calendar, CheckCircle2, ArrowRight, RefreshCw 
+  Search, Trash2, Calendar, CheckCircle2, ArrowRight, RefreshCw, Settings 
 } from 'lucide-react';
 
 export default function Resume() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState('resume');
   const [searchQuery, setSearchQuery] = useState('');
-  const userid = localStorage.getItem('userId'); // 로그인된 사용자 ID
+  
+  // 사이드바 접기/펼치기 상태
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  // 💡 DB 연동 상태 관리
+  const userid = localStorage.getItem('userId');
+
+  // DB 연동 상태 관리
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,7 +27,6 @@ export default function Resume() {
     { id: 'ai_cover', label: '채용', icon: Sparkles, path: '/jobBoard' },
   ];
 
-  // 1. DB에서 이력서 목록 조회
   useEffect(() => {
     fetchResumes();
   }, []);
@@ -31,8 +34,7 @@ export default function Resume() {
   const fetchResumes = async () => {
     try {
       setLoading(true);
-      // 테스트용 member_id쿼리 (로그인 적용 시 유저 ID로 변경)
-      const memberId = userid
+      const memberId = userid;
       const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
       const response = await fetch(`${API_URL}/api/resumes?member_id=${memberId}`);
       if (!response.ok) throw new Error('목록을 불러오지 못했습니다.');
@@ -46,9 +48,8 @@ export default function Resume() {
     }
   };
 
-  // 2. 이력서 삭제
   const handleDelete = async (e, id) => {
-    e.stopPropagation(); // 카드 클릭 이동 방지
+    e.stopPropagation();
     if (!window.confirm('이 이력서를 정말 삭제하시겠습니까?')) return;
 
     try {
@@ -65,16 +66,13 @@ export default function Resume() {
     }
   };
 
-  // 💡 3. completeness(완성도) 동적 계산 함수
-  // DB 테이블에 completeness 컬럼이 없으므로, 생성된 섹션 중 텍스트가 작성된 비율로 계산합니다.
-const calculateCompleteness = (sections = []) => {
+  const calculateCompleteness = (sections = []) => {
     if (!sections || sections.length === 0) return 0;
 
     let totalDetailsCount = 0;
     let filledDetailsCount = 0;
 
     sections.forEach(sec => {
-      // details가 JSONB 배열 형태인지 확인
       const details = Array.isArray(sec.details) ? sec.details : [];
       totalDetailsCount += details.length;
 
@@ -92,28 +90,44 @@ const calculateCompleteness = (sections = []) => {
       });
     });
 
-    // 만약 작성된 세부 항목(detail)이 하나도 없으면 0%
     if (totalDetailsCount === 0) return 0;
-
     return Math.round((filledDetailsCount / totalDetailsCount) * 100);
   };
 
-  // 검색 필터링
   const filteredResumes = resumes.filter(item => 
     item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <div className="min-h-screen bg-[#07051a] text-slate-100 flex font-sans">
+    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
       
-      {/* 👈 사이드바 */}
-      <aside className="w-20 bg-[#090724] border-r border-indigo-950/60 flex flex-col items-center py-6 shrink-0 min-h-screen sticky top-0 h-screen z-20">
-        <button className="p-3 text-slate-400 hover:text-white rounded-xl hover:bg-indigo-950/50 transition mb-6">
-          <Menu size={22} />
-        </button>
+      {/* 사이드바 */}
+      <aside 
+        className={`${
+          isSidebarCollapsed ? 'w-20' : 'w-64'
+        } bg-[#0a1024] border-r border-emerald-950/40 flex flex-col items-center py-6 shrink-0 h-screen z-25 transition-all duration-300 relative shadow-2xl`}
+      >
+        <div className="w-full px-4 mb-6 flex items-center justify-between">
+          {!isSidebarCollapsed && (
+            <div className="flex items-center gap-2">
+              <span className="font-black text-base tracking-wider text-slate-100">
+                CAREER <span className="text-emerald-400">IT</span>
+              </span>
+            </div>
+          )}
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className={`p-2.5 text-slate-400 hover:text-emerald-300 rounded-xl bg-slate-900/80 hover:bg-emerald-950/40 border border-emerald-900/30 transition ${
+              isSidebarCollapsed ? 'mx-auto' : ''
+            }`}
+            title={isSidebarCollapsed ? "메뉴 펼치기" : "메뉴 접기"}
+          >
+            <Menu size={20} />
+          </button>
+        </div>
 
-        <nav className="flex flex-col gap-3 mt-4 w-full px-2">
+        <nav className="flex flex-col gap-2 mt-2 w-full px-3">
           {sidebarItems.map((item) => {
             const Icon = item.icon;
             const isSelected = activeNav === item.id;
@@ -124,64 +138,70 @@ const calculateCompleteness = (sections = []) => {
                   setActiveNav(item.id);
                   navigate(item.path);
                 }}
-                className={`flex flex-col items-center justify-center py-3.5 rounded-2xl transition-all duration-200 ${
+                className={`flex items-center gap-3.5 px-3.5 py-3.5 rounded-xl transition-all duration-200 w-full ${
                   isSelected
-                    ? 'bg-gradient-to-b from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-indigo-950/50'
-                }`}
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 font-semibold'
+                    : 'text-slate-400 hover:text-emerald-100 hover:bg-emerald-950/30'
+                } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                title={isSidebarCollapsed ? item.label : undefined}
               >
-                <Icon size={20} />
-                <span className="text-[11px] mt-1.5 font-medium">{item.label}</span>
+                <Icon size={20} className="shrink-0" />
+                {!isSidebarCollapsed && (
+                  <span className="text-xs font-medium">{item.label}</span>
+                )}
               </button>
             );
           })}
         </nav>
       </aside>
 
-      {/* 👉 메인 이력서 목록 영역 */}
-      <main className="flex-1 p-8 md:p-10 max-w-6xl mx-auto space-y-8">
+      {/* 메인 콘텐츠 영역 (독립적인 간격 및 웹사이트형 레이아웃 구조) */}
+      <main className="flex-1 flex flex-col p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full h-screen">
         
-        {/* 상단 헤더 및 작성 버튼 */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-900/40 pb-6">
+        {/* 상단 타이틀 섹션 */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-950/60 pb-6 mb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              이력서 관리
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+              이력서 관리 
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-medium">
+                Career Portfolio
+              </span>
             </h1>
-            <p className="text-xs md:text-sm text-slate-400 mt-1">
-              작성 중인 이력서 목록을 확인하고 관리할 수 있습니다.
+            <p className="text-xs md:text-sm text-slate-400 mt-1.5">
+              작성 중인 이력서 목록을 확인하고 완성도를 높여보세요.
             </p>
           </div>
 
           <button
             onClick={() => navigate('/resume/new')}
-            className="flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 transition transform hover:-translate-y-0.5 text-sm shrink-0"
+            className="flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition transform hover:-translate-y-0.5 text-xs md:text-sm shrink-0"
           >
             <Plus size={18} />
             <span>새 이력서 만들기</span>
           </button>
         </div>
 
-        {/* 검색바 */}
-        <div className="relative">
+        {/* 독립된 검색바 영역 (마진을 충분히 주어 이력서 카드들과 시각적으로 분리) */}
+        <div className="relative mb-8 max-w-2xl">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
             placeholder="이력서 제목 또는 직무 카테고리로 검색..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-11 pr-4 py-3.5 bg-[#100c36] border border-indigo-900/40 rounded-2xl text-white text-sm focus:outline-none focus:border-indigo-500 transition placeholder:text-slate-600 shadow-xl"
+            className="w-full pl-11 pr-4 py-3.5 bg-[#0f152d] border border-emerald-950/60 rounded-2xl text-white text-sm focus:outline-none focus:border-emerald-500 transition placeholder:text-slate-500 shadow-xl"
           />
         </div>
 
         {/* 로딩 / 목록 / 빈 상태 처리 */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-            <RefreshCw className="animate-spin text-indigo-500" size={32} />
+            <RefreshCw className="animate-spin text-emerald-400" size={32} />
             <p className="text-sm">DB에서 이력서 목록을 불러오는 중...</p>
           </div>
         ) : filteredResumes.length === 0 ? (
-          <div className="bg-[#100c36] border border-indigo-900/40 rounded-3xl p-12 text-center space-y-4 shadow-xl">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-950 border border-indigo-800/50 flex items-center justify-center mx-auto text-indigo-400">
+          <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-12 text-center space-y-4 shadow-xl max-w-xl mx-auto w-full mt-6">
+            <div className="w-16 h-16 rounded-2xl bg-[#0a1024] border border-emerald-950/80 flex items-center justify-center mx-auto text-emerald-400">
               <FileText size={32} />
             </div>
             <h3 className="text-lg font-bold text-white">등록된 이력서가 없습니다</h3>
@@ -190,54 +210,73 @@ const calculateCompleteness = (sections = []) => {
             </p>
             <button
               onClick={() => navigate('/resume/new')}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs transition inline-flex items-center gap-1.5"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl text-xs transition inline-flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
             >
               <Plus size={14} />
               <span>새 이력서 작성</span>
             </button>
           </div>
         ) : (
-          /* 이력서 카드 그리드 */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          /* 반응형 카드 그리드 (화면 크기에 따라 1열 ~ 최대 3열로 유연하게 배치) */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
             {filteredResumes.map((doc) => {
-              // 동적 completeness 계산
-              const completeness = calculateCompleteness(doc.document_sections);
+              
               const formattedDate = new Date(doc.updated_at || doc.created_at).toLocaleDateString();
 
               return (
                 <div
                   key={doc.id}
                   onClick={() => navigate(`/resume/${doc.id}`)}
-                  className="group bg-[#100c36] border border-indigo-900/40 hover:border-indigo-500/80 rounded-3xl p-6 shadow-xl hover:shadow-indigo-500/10 transition-all duration-300 cursor-pointer flex flex-col justify-between space-y-6 relative overflow-hidden"
+                  className="group bg-[#0f152d] border border-emerald-950/60 hover:border-emerald-500/60 rounded-2xl p-6 shadow-xl hover:shadow-emerald-950/30 transition-all duration-300 cursor-pointer flex flex-col justify-between space-y-6 relative overflow-hidden"
                 >
                   <div className="space-y-4">
-                    {/* 상단 뱃지 및 삭제 버튼 */}
+                    {/* 상단 뱃지 및 설정/삭제 버튼 */}
                     <div className="flex items-center justify-between">
-                      <span className="px-3 py-1 bg-indigo-950 border border-indigo-800/60 rounded-full text-[11px] text-indigo-300 font-semibold">
+                      <span className="px-3 py-1 bg-[#0a1024] border border-emerald-950/80 rounded-md text-[11px] text-emerald-300 font-semibold">
                         {doc.category || '일반'}
                       </span>
-                      <button
-                        onClick={(e) => handleDelete(e, doc.id)}
-                        className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-950/30 transition opacity-0 group-hover:opacity-100"
-                        title="이력서 삭제"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/resume/${doc.id}/edit`);
+                          }}
+                          className="p-2 text-slate-400 hover:text-emerald-300 rounded-xl hover:bg-emerald-950/40 transition"
+                          title="수정하기"
+                        >
+                          <Settings size={16} />
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(e, doc.id)}
+                          className="p-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-rose-950/40 transition"
+                          title="이력서 삭제"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
 
-                    {/* 제목 */}
+                    {/* 제목 및 수정일 */}
                     <div>
-                      <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition line-clamp-1">
+                      <h3 className="text-base md:text-lg font-bold text-white group-hover:text-emerald-300 transition line-clamp-1">
                         {doc.title}
                       </h3>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1.5">
                         <Calendar size={13} />
                         <span>{formattedDate} 수정</span>
                       </div>
                     </div>
                   </div>
 
-                  
+                  {/* 하단 완성도 및 상세보기 안내 */}
+                  <div className="pt-4 border-t border-emerald-950/60 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                    </div>
+                    <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                      상세보기 <ArrowRight size={13} />
+                    </span>
+                  </div>
+
                 </div>
               );
             })}
