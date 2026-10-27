@@ -2,13 +2,6 @@ import os
 import json
 import re
 from openai import OpenAI
-from dotenv import load_dotenv
-
-load_dotenv()
-import os
-import json
-import re
-from openai import OpenAI
 from groq import Groq
 from google import genai
 from google.genai import types
@@ -17,10 +10,11 @@ from app.core.config import get_supabase  # 유저 DB 연결용
 
 load_dotenv()
 
-def fetch_and_parse_cover_letter(document_id: str) -> str:
+def fetch_and_parse_document(document_id: str) -> tuple[str, str]:
     """
-    Supabase의 documents와 document_sections 테이블에서 
-    해당 자소서의 문항별 질문과 답변(선택된 버전 반영)을 가져와 완벽한 자소서 텍스트로 조합합니다.
+    Supabase의 documents 테이블에서 doc_type(COVER_LETTER 또는 RESUME)을 확인하고,
+    해당 문서의 구조와 내용을 완벽하게 파싱하여 텍스트로 조합합니다.
+    반환값: (doc_type, parsed_text)
     """
     try:
         supabase = get_supabase()
@@ -28,11 +22,21 @@ def fetch_and_parse_cover_letter(document_id: str) -> str:
         # 1. 문서 메타데이터 조회
         doc_res = supabase.table("documents").select("*").eq("id", document_id).execute()
         if not doc_res.data:
-            return ""
+            return "COVER_LETTER", ""
         
-        doc_title = doc_res.data[0].get("title", "자기소개서")
+        doc_meta = doc_res.data[0]
+        doc_title = doc_meta.get("title", "문서")
+        
+        # doc_type 컬럼 값 확인 (RESUME 또는 COVER_LETTER)
+        raw_doc_type = doc_meta.get("doc_type") or doc_meta.get("type") or doc_meta.get("category") or "COVER_LETTER"
+        doc_type = str(raw_doc_type).upper().strip()
+        
+        if "RESUME" in doc_type or "이력서" in doc_type:
+            doc_type = "RESUME"
+        else:
+            doc_type = "COVER_LETTER"
 
-        # 2. 하위 문항(document_sections) 조회 (display_order 정렬)
+        # 2. 하위 문항/섹션(document_sections) 조회 (display_order 정렬)
         sec_res = supabase.table("document_sections") \
             .select("*") \
             .eq("document_id", document_id) \
@@ -41,13 +45,14 @@ def fetch_and_parse_cover_letter(document_id: str) -> str:
         
         sections = sec_res.data or []
         if not sections:
-            return ""
+            return doc_type, ""
 
-        parsed_lines = [f"[자기소개서 제목: {doc_title}]\n"]
+        header_label = "이력서" if doc_type == "RESUME" else "자기소개서"
+        parsed_lines = [f"[{header_label} 제목: {doc_title}]\n"]
 
-        # 3. 문항별, 카드별 텍스트 정교하게 추출
+        # 3. 항목별, 카드별 텍스트 정교하게 추출
         for sec in sections:
-            sec_title = sec.get("section_title", "문항")
+            sec_title = sec.get("section_title", "항목")
             sec_version = sec.get("selected_version") or "ORIGINAL"
             details = sec.get("details") or []
             
@@ -77,15 +82,15 @@ def fetch_and_parse_cover_letter(document_id: str) -> str:
                 if card_title:
                     parsed_lines.append(f"• 항목명: {card_title}")
                 if target_text:
-                    # 개조식 기호 및 이스케이프 문자 정제
                     cleaned = target_text.replace("\\n", "\n").strip()
                     parsed_lines.append(cleaned)
 
-        return "\n".join(parsed_lines)
+        return doc_type, "\n".join(parsed_lines)
 
     except Exception as e:
-        print(f"❌ 자기소개서 파싱 중 오류 발생: {str(e)}")
-        return ""
+        print(f"❌ 문서 파싱 중 오류 발생: {str(e)}")
+        return "COVER_LETTER", ""
+
 class ResumeFeedbackEngine:
     def __init__(self, api_key: str = None):
         raw_openai_key = api_key or os.getenv("OPENAI_API_KEY", "")
@@ -118,20 +123,23 @@ class ResumeFeedbackEngine:
 
     def generate_feedback_from_document_id(self, document_id: str, top_jd_text: str) -> dict:
         """
-        document_id를 받아 Supabase에서 문항별 구조와 버전을 파싱한 후 피드백을 생성합니다.
+        document_id를 받아 Supabase에서 doc_type을 판별한 후 피드백을 생성합니다.
         """
-        user_resume_text = fetch_and_parse_cover_letter(document_id)
-        if not user_resume_text:
-            return {"error": "해당 자기소개서 문항 데이터를 찾을 수 없거나 내용이 비어 있습니다."}
+        doc_type, user_doc_text = fetch_and_parse_document(document_id)
+        if not user_doc_text:
+            return {"error": "해당 문서 데이터를 찾을 수 없거나 내용이 비어 있습니다."}
         
-        return self.generate_feedback(user_resume_text, top_jd_text)
+        return self.generate_feedback(user_doc_text, top_jd_text, doc_type=doc_type)
 
-    def generate_feedback(self, user_resume: str, top_jd_text: str) -> dict:
+    def generate_feedback(self, user_resume: str, top_jd_text: str, doc_type: str = "COVER_LETTER") -> dict:
+        # doc_type에 따라 이력서인지 자기소개서인지 명칭 분기
+        doc_label = "이력서/경력기술서" if doc_type == "RESUME" else "자기소개서"
+        
         prompt = f"""
 당신은 IT 분야 전문 커리어 코치입니다.
-사용자의 자기소개서/기술스택과 채용 공고(JD)를 비교 분석하여 JSON 형식으로 피드백을 제공해 주세요.
+사용자의 {doc_label} 및 기술스택과 채용 공고(JD)를 비교 분석하여 JSON 형식으로 피드백을 제공해 주세요.
 
-[사용자 자소서 및 기술스택]
+[사용자 {doc_label} 및 기술스택]
 {user_resume}
 
 [채용 공고 (JD)]
@@ -139,10 +147,10 @@ class ResumeFeedbackEngine:
 
 [출력 요구사항]
 반드시 아래 키(Key)를 가진 단일 JSON 객체로 응답하세요:
-- "match_summary": 자소서와 채용 공고 간의 종합 일치도 및 총평 (2~3문장)
-- "strengths": 자소서에서 채용 공고와 잘 부합하는 강점 (문항 2~3개 리스트)
+- "match_summary": {doc_label}와 채용 공고 간의 종합 일치도 및 총평 (2~3문장)
+- "strengths": {doc_label}에서 채용 공고와 잘 부합하는 강점 (항목 2~3개 리스트)
 - "missing_skills": 채용 공고 요구사항 대비 보완이 필요한 역량 및 키워드 (2~3개 리스트)
-- "improvement_suggestions": 공고 합격률을 높이기 위한 자소서 수정/보완 제안 (2~3개 리스트)
+- "improvement_suggestions": 공고 합격률을 높이기 위한 {doc_label} 수정/보완 제안 (2~3개 리스트)
 """
 
         # 1차 시도 (OpenAI 또는 Groq)
@@ -197,11 +205,3 @@ class ResumeFeedbackEngine:
                 return {"error": f"모든 AI 모델 호출 실패: {str(gemini_err)}"}
 
         return {"error": "사용 가능한 AI API 키가 설정되지 않았습니다."}
-
-
-if __name__ == "__main__":
-    engine = ResumeFeedbackEngine()
-    sample_resume = "Python, PyTorch, FastAPI 백엔드 엔지니어"
-    sample_jd = "Python, FastAPI 기반 REST API 개발자 채용 (Docker 우대)"
-    res = engine.generate_feedback(sample_resume, sample_jd)
-    print(json.dumps(res, ensure_ascii=False, indent=2))
