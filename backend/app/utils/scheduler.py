@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 
 # 수정된 크롤러 엔진 및 토큰 상태 변수 임포트
-from app.crawlers.wanted import run_selenium_crawler, IS_TOKEN_EXHAUSTED as W_EXHAUSTED
+from app.crawlers.wanted import crawl_wanted, IS_TOKEN_EXHAUSTED as W_EXHAUSTED
 from app.crawlers.jumpit import crawl_jumpit, IS_TOKEN_EXHAUSTED as J_EXHAUSTED
 from app.crawlers.rallit import crawl_rallit, IS_TOKEN_EXHAUSTED as R_EXHAUSTED
 
@@ -74,7 +74,7 @@ def run_realtime_pipeline():
 
         # 1. 원티드 수집
         print("1️⃣ 원티드 수집 시작...")
-        run_selenium_crawler(limit_count=25)
+        crawl_wanted(limit_count=25)
         
         # 2. 점핏 수집
         if not check_token_exhausted():

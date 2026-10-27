@@ -8,16 +8,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 from groq import Groq, APIError, RateLimitError
+from app.core.config import GROQ_BY_CROWER
 
 load_dotenv()
 
 CRAWL_URL = os.getenv("CRAWL_URL")
 CRAWL_KEY = os.getenv("CRAWL_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 options = ClientOptions(postgrest_client_timeout=10)
 supabase: Client = create_client(CRAWL_URL, CRAWL_KEY, options=options)
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client = Groq(api_key=GROQ_BY_CROWER)
 
 IS_TOKEN_EXHAUSTED = False
 
@@ -25,11 +25,11 @@ def analyze_job_with_groq(body_text: str) -> dict:
     global IS_TOKEN_EXHAUSTED
     
     if IS_TOKEN_EXHAUSTED:
-        print("🛑 [토큰 소진 상태] 추가 AI 요청을 차단합니다.")
+        print("🛑 [토큰 소진] 더 이상 Groq API를 호출하지 않습니다.")
         return None
 
     prompt = f"""
-    다음 원티드 채용 공고 텍스트를 분석하여 반드시 아래 지정된 JSON 구조로만 답변하세요. 다른 설명이나 마크다운 문법은 제외하세요.
+    다음 채용 공고 텍스트를 분석하여 반드시 아래 지정된 JSON 구조로만 답변하세요. 다른 설명은 제외하세요.
     
     [JSON 구조]
     {{
@@ -37,7 +37,7 @@ def analyze_job_with_groq(body_text: str) -> dict:
       "job_title": "채용 직무/포지션 제목",
       "job_category": "직무 카테고리 (예: 백엔드, 프론트엔드, AI/ML 등)",
       "skills": ["주요 기술 스택 문자열 배열"],
-      "requirements": "자격요건 및 주요업무 내용 요약",
+      "requirements": "자격요건 내용 요약",
       "preferred": "우대사항 내용 요약 (없으면 '없음')",
       "benefits": "복리후생 및 혜택 요약 (없으면 '없음')",
       "another_data": "기타 참고 정보 (근무지, 채용 절차 등)",
@@ -59,7 +59,6 @@ def analyze_job_with_groq(body_text: str) -> dict:
         )
         
         content = response.choices[0].message.content.strip()
-        
         if content.startswith("```json"):
             content = content.replace("```json", "").replace("```", "").strip()
         elif content.startswith("```"):
@@ -68,7 +67,7 @@ def analyze_job_with_groq(body_text: str) -> dict:
         return json.loads(content)
 
     except RateLimitError as e:
-        print(f"🛑 [GROQ API 토큰/한도 소진] RateLimitError 감지: {e}")
+        print(f"🛑 [GROQ API 토큰/한도 소진] RateLimitError 발생: {e}")
         IS_TOKEN_EXHAUSTED = True
         return None
 
@@ -81,12 +80,12 @@ def analyze_job_with_groq(body_text: str) -> dict:
         return {}
 
     except Exception as e:
-        print(f"⚠️ 파싱 중 일반 에러 발생: {e}")
+        print(f"⚠️ 분석 중 일반 오류 발생: {e}")
         return {}
 
-def run_selenium_crawler(limit_count: int = 10):
+def crawl_wanted(limit_count: int = 10):
     global supabase, IS_TOKEN_EXHAUSTED
-    print("🚀 [원티드] Groq AI(gpt-oss-120b) 파싱 및 토큰 절약 크롤링을 시작합니다...")
+    print("🚀 [원티드] openai/gpt-oss-120b AI 모델을 사용한 수집을 시작합니다...")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
@@ -97,56 +96,53 @@ def run_selenium_crawler(limit_count: int = 10):
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
     try:
-        # 💡 URL 정제 및 안전 이동
-        target_main_url = "[https://www.wanted.co.kr/wdlist/518](https://www.wanted.co.kr/wdlist/518)"
-        driver.get(target_main_url)
+        # 💡 원티드 채용 리스트 페이지 접속
+        driver.get("https://www.wanted.co.kr/wdlist")
         time.sleep(4)
         
-        print("📜 공고 목록을 로딩합니다...")
-        for _ in range(2):
+        # 무한 스크롤 처리 (공고 목록 더 불러오기)
+        for _ in range(3):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1.5)
+            time.sleep(2)
             
+        # 원티드 상세 공고 링크 패턴('/wd/') 탐색
         links = driver.find_elements(By.XPATH, "//a[contains(@href, '/wd/')]")
         job_urls = []
         for link in links:
             href = link.get_attribute("href")
             if href and "/wd/" in href:
-                # Markdown 혹은 깨진 URL 문자를 방지하기 위한 정제 처리
-                clean_href = href.strip().split("]")[0].split(")")[0]
-                if clean_href.startswith("http") and clean_href not in job_urls:
-                    job_urls.append(clean_href)
+                clean_url = href.strip().split("?")[0] # 불필요한 쿼리 파라미터 제거
+                if clean_url.startswith("http") and clean_url not in job_urls:
+                    job_urls.append(clean_url)
                 
         target_urls = job_urls[:limit_count]
-        print(f"📦 총 {len(target_urls)}개의 원티드 공고 URL을 확인합니다.")
+        print(f"📦 총 {len(target_urls)}개의 원티드 공고 URL을 체크합니다.")
         
         for url in target_urls:
             if IS_TOKEN_EXHAUSTED:
-                print("🚨 Groq API 토큰이 고갈되어 작업 프로세스를 중단합니다.")
+                print("🚨 Groq API 토큰이 모두 소진되어 크롤러 가동을 중단합니다.")
                 break
 
             try:
-                # DB 중복 검증
                 existing_data = supabase.table("companies").select("id").eq("job_url", url).execute()
                 if existing_data.data and len(existing_data.data) > 0:
-                    print(f"⏭️ [토큰 절약] 이미 수집된 원티드 공고입니다. AI 호출 Skip: {url}")
+                    print(f"⏭️ [토큰 절약] 이미 존재함. AI 호출 Skip: {url}")
                     continue
 
-                # 💡 개별 공고 페이지 이동 예외 처리
                 try:
                     driver.get(url)
                     time.sleep(3)
                 except Exception as nav_e:
-                    print(f"⚠️ [URL 이동 실패 패스] 잘못된 URL 형식 ({url}): {nav_e}")
+                    print(f"⚠️ [URL 이동 실패 패스] 잘못된 URL ({url}): {nav_e}")
                     continue
 
                 full_body = driver.find_element(By.TAG_NAME, "body").text
                 
-                print(f"🤖 [gpt-oss-120b 분석 중] {url}")
+                print(f"🤖 [gpt-oss-120b 분석 시작] {url}")
                 ai_res = analyze_job_with_groq(full_body)
                 
                 if ai_res is None and IS_TOKEN_EXHAUSTED:
-                    print("🚨 토큰 소진으로 크롤러 동작을 즉시 중단합니다.")
+                    print("🚨 토큰 소진으로 인해 추가 작업을 즉시 멈춥니다.")
                     break
 
                 if not ai_res:
@@ -171,12 +167,12 @@ def run_selenium_crawler(limit_count: int = 10):
                 print(f"✅ [저장 성공] [{refined_job['company_name']}] - {refined_job['job_title']}")
                 
             except Exception as e:
-                print(f"⚠️ 공고({url}) 처리 실패: {e}")
+                print(f"⚠️ 처리 실패 ({url}): {e}")
                 continue
-
-    except Exception as e:
-        print(f"⚠️ 원티드 수집 메인 프로세스 실패: {e}")
 
     finally:
         driver.quit()
-        print("🎉 원티드 크롤러 작업이 정리 및 종료되었습니다.")
+        print("🎉 원티드 크롤러 작업이 종료되었습니다.")
+
+if __name__ == "__main__":
+    crawl_wanted(5)
