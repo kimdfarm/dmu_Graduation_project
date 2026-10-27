@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Home, FileText, UserCheck, Sparkles, Settings, 
-  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, Edit3, AlertCircle 
+  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, AlertCircle 
 } from 'lucide-react';
+// import CustomIcon from '../assets/icons.svg'; // 👈 만약 src/assets에 넣으셨다면 임포트해서 사용 가능합니다.
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -174,6 +175,11 @@ export default function Dashboard() {
         <div className="w-full px-4 mb-6 flex items-center justify-between">
           {!isSidebarCollapsed && (
             <div className="flex items-center gap-2">
+              <img 
+            src="/icons.svg" 
+            alt="CAREER IT Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg shadow-cyan-900/40 ring-1 ring-white/10 object-cover" 
+          />
               <span className="font-black text-base tracking-wider text-slate-100">
                 CAREER <span className="text-purple-400">IT</span>
               </span>
@@ -221,21 +227,23 @@ export default function Dashboard() {
       {/* 2. 메인 콘텐츠 영역 */}
       <div className="flex-1 flex flex-col p-6 md:p-8 overflow-y-auto max-w-6xl mx-auto w-full">
         
-        {/* 상단 로고 (보라/인디고 시그니처 톤) */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-700 via-indigo-600 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-purple-900/40 ring-1 ring-white/10">
-            <Edit3 className="w-5 h-5 text-white" />
-          </div>
-
-          <div className="flex flex-col">
-            <h1 className="text-xl md:text-2xl font-black tracking-wider text-slate-100">
-              CAREER <span className="text-purple-400">IT</span>
-            </h1>
-            <span className="text-[10px] font-semibold tracking-widest text-purple-300/80 uppercase -mt-0.5">
-              Resume & Portfolio Service
-            </span>
-          </div>
-        </div>
+        {/* 상단 로고 영역 (만드신 icons.svg 적용) */}
+        <div className="flex flex-col mb-6">
+  <div className="flex items-center gap-3">
+    <h1 className="text-xl md:text-2xl font-black tracking-wider text-slate-100">
+      CAREER <span className="text-purple-400">IT</span>
+    </h1>
+    
+    {/* 뱃지와 타이틀이 답답하게 붙지 않도록 간격과 패딩을 세련되게 조정 */}
+    <span className="text-xs px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-semibold tracking-wide shadow-sm shadow-cyan-950/50">
+      HOME
+    </span>
+  </div>
+  
+  <span className="text-[10px] font-semibold tracking-widest text-purple-300/80 uppercase mt-1">
+    Resume & CoverLetter Service
+  </span>
+</div>
         
         {/* 상단 프로필 헤더 (보라 & 딥 네이비 배경) */}
         <div className="bg-[#0f152d] border border-indigo-900/40 rounded-2xl p-5 md:p-6 shadow-lg mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">

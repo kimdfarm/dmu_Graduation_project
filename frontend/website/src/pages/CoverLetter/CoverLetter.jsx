@@ -115,6 +115,11 @@ export default function CoverLetter() {
         <div className="w-full px-4 mb-6 flex items-center justify-between">
           {!isSidebarCollapsed && (
             <div className="flex items-center gap-2">
+              <img 
+            src="/icons.svg" 
+            alt="CAREER IT Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg shadow-cyan-900/40 ring-1 ring-white/10 object-cover" 
+          />
               <span className="font-black text-base tracking-wider text-slate-100">
                 CAREER <span className="text-indigo-400">IT</span>
               </span>

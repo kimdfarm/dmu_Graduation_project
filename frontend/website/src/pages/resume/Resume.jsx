@@ -111,6 +111,11 @@ export default function Resume() {
         <div className="w-full px-4 mb-6 flex items-center justify-between">
           {!isSidebarCollapsed && (
             <div className="flex items-center gap-2">
+              <img 
+            src="/icons.svg" 
+            alt="CAREER IT Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg shadow-cyan-900/40 ring-1 ring-white/10 object-cover" 
+          />
               <span className="font-black text-base tracking-wider text-slate-100">
                 CAREER <span className="text-emerald-400">IT</span>
               </span>
@@ -164,7 +169,7 @@ export default function Resume() {
             <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-2">
               이력서 관리 
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-medium">
-                Career Portfolio
+                Resume Management
               </span>
             </h1>
             <p className="text-xs md:text-sm text-slate-400 mt-1.5">

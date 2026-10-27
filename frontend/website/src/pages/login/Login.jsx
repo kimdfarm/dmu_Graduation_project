@@ -71,9 +71,11 @@ export default function Login() {
         {/* 로고 */}
         <div className="flex items-center gap-3 mb-6">
   {/* 로고 아이콘 박스 */}
-  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 group hover:scale-105 transition-transform duration-200">
-    <Edit3 className="w-5 h-5 text-white" />
-  </div>
+  <img 
+            src="/icons.svg" 
+            alt="CAREER IT Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg shadow-purple-900/40 ring-1 ring-white/10 object-cover" 
+          />
 
   {/* 브랜드 텍스트 */}
   <div className="flex flex-col">
