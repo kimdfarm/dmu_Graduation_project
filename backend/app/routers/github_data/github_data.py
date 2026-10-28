@@ -745,39 +745,45 @@ def get_github_repositories(
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        # 1. 기존 소유 저장소 조회
+        raw_repos = []
+
+        # 1. 기존 유저 소유 저장소 조회
         gh_url = f"https://api.github.com/users/{github_id}/repos?sort=updated&per_page=100"
         response = requests.get(gh_url, headers=headers, timeout=10)
-        
-        raw_repos = []
         if response.status_code == 200:
-            raw_repos = response.json()
+            raw_repos.extend(response.json())
 
-        # 💡 2. [추가 확장] 타인이 기여한(Events 기반) 외부 저장소 함께 수집하기
-        # 유저의 public 이벤트(PushEvent, PullRequestEvent 등)를 조회하면 내가 기여한 다른 사람의 저장소를 알 수 있습니다.
-        events_url = f"https://api.github.com/users/{github_id}/events/public?per_page=100"
-        events_res = requests.get(events_url, headers=headers, timeout=10)
-        
-        if events_res.status_code == 200:
-            events_data = events_res.json()
-            contributed_repo_names = set()
+        # 💡 2. [추가] GitHub Commit Search API를 이용해 타인이 기여한 외부 저장소 역추적
+        # (주의: GitHub Search API는 인증 토큰이 필수적이며, author 필터로 기여한 커밋이 속한 저장소를 찾습니다)
+        search_headers = {
+            "Accept": "application/vnd.github.v3+json"
+        }
+        if token:
+            search_headers["Authorization"] = f"Bearer {token}"
             
-            for event in events_data:
-                # Push나 PR 등의 이벤트에서 타인 소유의 repository full_name 추출
-                repo_info = event.get("repo")
-                if repo_info and isinstance(repo_info, dict):
-                    repo_full_name = repo_info.get("name") # 형식: "owner/repo"
-                    if repo_full_name:
-                        contributed_repo_names.add(repo_full_name)
+        search_url = f"https://api.github.com/search/commits?q=author:{github_id}&sort=author-date&order=desc&per_page=30"
+        search_res = requests.get(search_url, headers=search_headers, timeout=10)
 
-            # 수집된 외부 기여 저장소들의 상세 메타데이터를 개별 조회하여 목록에 병합
-            for full_name in contributed_repo_names:
+        if search_res.status_code == 200:
+            search_data = search_res.json()
+            items = search_data.get("items", [])
+            contributed_repo_full_names = set()
+
+            for item in items:
+                repo_info = item.get("repository")
+                if repo_info and isinstance(repo_info, dict):
+                    full_name = repo_info.get("full_name") # 예: "sindresorhus/some-pkg"
+                    if full_name:
+                        contributed_repo_full_names.add(full_name)
+
+            # 수집된 외부 기여 저장소들의 상세 메타데이터를 개별 조회하여 병합
+            for full_name in contributed_repo_full_names:
                 repo_detail_url = f"https://api.github.com/repos/{full_name}"
                 detail_res = requests.get(repo_detail_url, headers=headers, timeout=5)
                 if detail_res.status_code == 200:
                     raw_repos.append(detail_res.json())
 
-        # 이후 날짜 파싱 및 필터링 로직은 기존과 동일하게 유지
+        # 3. 날짜 파싱 및 필터링
         start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
 
@@ -785,6 +791,7 @@ def get_github_repositories(
         for repo in raw_repos:
             if not repo or not isinstance(repo, dict):
                 continue
+                
             repo_item = {
                 "id": repo.get("id"),
                 "name": repo.get("name"),
@@ -813,7 +820,8 @@ def get_github_repositories(
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")   
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
+
 # 💡 2. 에너지 사전 견적(계산) API 추가
 class EstimateCostRequest(BaseModel):
     analysis_data: Dict[str, Any]
