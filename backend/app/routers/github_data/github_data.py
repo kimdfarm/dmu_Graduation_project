@@ -713,10 +713,8 @@ def get_github_repositories(
 def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
     total_chars = 0
     for repo in projects_data:
-        # 💡 저장소 데이터에 포함된 target_author(작성자) 정보를 함께 넘겨 필터링된 텍스트 크기만 측정
-        target_author = repo.get("target_author", "")
-        cleaned = preprocess_github_data(repo, target_author=target_author)
-        
+        # 전처리기를 통과한 정제 데이터 크기 측정
+        cleaned = preprocess_github_data(repo)
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
