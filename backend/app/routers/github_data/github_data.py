@@ -627,7 +627,7 @@ def get_github_repositories(
         if not authorization:
             raise HTTPException(status_code=401, detail="Authorization 토큰이 필요합니다.")
 
-        # 💡 [핵심 추가] 시작일이나 종료일이 전달되지 않았으면 아무것도 안 나오게 (빈 배열) 처리
+        # 시작일이나 종료일이 전달되지 않았으면 빈 배열 처리
         if not start_date or not end_date:
             return {"repositories": []}
 
@@ -642,6 +642,7 @@ def get_github_repositories(
             gh_url = "https://api.github.com/user/repos?sort=updated&per_page=100&type=all"
         else:
             gh_url = f"https://api.github.com/users/{github_id}/repos?sort=updated&per_page=100"
+        
         response = requests.get(gh_url, headers=headers, timeout=10)
 
         if response.status_code != 200:
@@ -676,8 +677,7 @@ def get_github_repositories(
         if not start_datetime or not end_datetime:
             return {"repositories": []}
 
-        # 4. 저장소 포맷팅 및 날짜 필터링
-        all_repos_formatted = []
+        # 4. 저장소 포맷팅 및 날짜 필터링 (최종 pushed_at 또는 updated_at 기준)
         filtered_repos = []
 
         for repo in raw_repos:
@@ -693,7 +693,6 @@ def get_github_repositories(
                 "pushed_at": repo.get("pushed_at"),
                 "updated_at": repo.get("updated_at"),
             }
-            all_repos_formatted.append(repo_item)
 
             pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
             if pushed_at_str:
@@ -704,76 +703,9 @@ def get_github_repositories(
                 except Exception:
                     pass
 
-        # 💡 [핵심 수정] 필터 조건에 부합하는 저장소만 반환 (부합하는 게 없으면 빈 배열)
-        result_repos = filtered_repos
-
-        # 5. 각 저장소별 커밋/활동 수 계산
-        # 5. 각 저장소별 커밋, PR, 이슈 활동 수 병렬/연산 계산
-        def fetch_repo_activity(repo):
-                # 💡 저장소 고유 식별자(full_name: owner/repo_name) 사용
-                full_name = repo["full_name"]
-                
-                # 파라미터 공통 설정 (작성자: github_id, 지정 기간: since ~ until)
-                base_params = {
-                    "author": github_id,
-                    "per_page": 100
-                }
-                if start_datetime:
-                    base_params["since"] = start_datetime.isoformat()
-                if end_datetime:
-                    base_params["until"] = end_datetime.isoformat()
-
-                total_activity = 0
-
-                # 1) 커밋 수 조회 (해당 full_name 저장소 전용)
-                try:
-                    commit_res = requests.get(
-                        f"https://api.github.com/repos/{full_name}/commits",
-                        headers=headers,
-                        params=base_params,
-                        timeout=2.5
-                    )
-                    if commit_res.status_code == 200:
-                        commits = commit_res.json()
-                        if isinstance(commits, list):
-                            total_activity += len(commits)
-                except Exception:
-                    pass
-
-                # 2) 이슈(Issue) 및 PR 작성 내역 조회
-                try:
-                    issue_params = {
-                        "creator": github_id,
-                        "state": "all",
-                        "per_page": 100
-                    }
-                    if start_datetime:
-                        issue_params["since"] = start_datetime.isoformat()
-                    
-                    issue_res = requests.get(
-                        f"https://api.github.com/repos/{full_name}/issues",
-                        headers=headers,
-                        params=issue_params,
-                        timeout=2.5
-                    )
-                    if issue_res.status_code == 200:
-                        issues = issue_res.json()
-                        if isinstance(issues, list):
-                            total_activity += len(issues)
-                except Exception:
-                    pass
-
-                # 개별 저장소 활동 수 저장
-                repo["activity_count"] = total_activity
-                return repo
-        # ThreadPoolExecutor로 저장소별 활동 수 병렬 조회
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            result_repos = list(executor.map(fetch_repo_activity, result_repos))
-        unique_repos_dict = {repo["full_name"]: repo for repo in result_repos}
+        # 중복 제거 후 저장소 목록 반환
+        unique_repos_dict = {repo["full_name"]: repo for repo in filtered_repos}
         final_repos = list(unique_repos_dict.values())
-
-        # 2. (선택) 활동 내역(activity_count > 0)이 존재하는 저장소만 남기기
-        final_repos = [r for r in final_repos if r.get("activity_count", 0) > 0]
 
         return {"repositories": final_repos}
 
