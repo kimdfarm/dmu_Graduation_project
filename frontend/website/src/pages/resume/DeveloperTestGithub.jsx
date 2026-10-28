@@ -116,7 +116,7 @@ const DeveloperTestGithub = () => {
       if (activeStartDate) params.append('start_date', activeStartDate);
       if (activeEndDate) params.append('end_date', activeEndDate);
 
-      const res = await fetch(`${BASE_URL}/api/github/repositories?${params.toString()}`, {
+      const res = await fetch(`${BASE_URL}/api/develop/github/repositories?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

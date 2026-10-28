@@ -730,6 +730,107 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
     
     return estimated_tokens, energy_cost
 
+@router.get("develop/github/repositories")
+def get_github_repositories(
+    github_id: str,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    months: Optional[int] = Query(None),
+    authorization: str = Header(None)
+):
+    try:
+        # 1. 필수 토큰 검증
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization 토큰이 필요합니다.")
+
+        # 시작일이나 종료일이 전달되지 않았으면 빈 배열 처리
+        if not start_date or not end_date:
+            return {"repositories": []}
+
+        token = authorization.replace("Bearer ", "").strip()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+
+        # 2. 💡 [핵심 수정] token 유무와 상관없이 입력받은 github_id 사용자의 저장소 목록 조회
+        # (토큰을 헤더에 넣어서 요청하면 GitHub Rate Limit 제한을 회피하면서 타인의 Public 저장소를 조회할 수 있습니다)
+        gh_url = f"https://api.github.com/users/{github_id}/repos?sort=updated&per_page=100"
+        
+        response = requests.get(gh_url, headers=headers, timeout=10)
+
+        # 만약 인증 실패 시 헤더 없이 재시도
+        if response.status_code != 200:
+            response = requests.get(gh_url, headers={"Accept": "application/vnd.github.v3+json"}, timeout=10)
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"[{github_id}] 사용자의 GitHub 저장소를 불러오지 못했습니다."
+            )
+
+        raw_repos = response.json()
+
+        # 3. 날짜 파싱 (isoformat)
+        start_datetime = None
+        end_datetime = None
+
+        if start_date:
+            try:
+                start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+        if end_date:
+            try:
+                # 종료일의 23:59:59까지 포함
+                end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                    hour=23, minute=59, second=59, tzinfo=timezone.utc
+                )
+            except ValueError:
+                pass
+
+        # 날짜 파싱 실패 시에도 빈 결과 반환
+        if not start_datetime or not end_datetime:
+            return {"repositories": []}
+
+        # 4. 저장소 포맷팅 및 날짜 필터링 (최종 pushed_at 또는 updated_at 기준)
+        filtered_repos = []
+
+        for repo in raw_repos:
+            repo_item = {
+                "id": repo.get("id"),
+                "name": repo.get("name"),
+                "full_name": repo.get("full_name"),
+                "description": repo.get("description"),
+                "is_private": repo.get("private", False),
+                "stargazers_count": repo.get("stargazers_count", 0),
+                "language": repo.get("language"),
+                "created_at": repo.get("created_at"),
+                "pushed_at": repo.get("pushed_at"),
+                "updated_at": repo.get("updated_at"),
+            }
+
+            pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
+            if pushed_at_str:
+                try:
+                    pushed_dt = datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    if start_datetime <= pushed_dt <= end_datetime:
+                        filtered_repos.append(repo_item)
+                except Exception:
+                    pass
+
+        # 중복 제거 후 저장소 목록 반환
+        unique_repos_dict = {repo["full_name"]: repo for repo in filtered_repos}
+        final_repos = list(unique_repos_dict.values())
+
+        return {"repositories": final_repos}
+
+    except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
+
 # 💡 2. 에너지 사전 견적(계산) API 추가
 class EstimateCostRequest(BaseModel):
     analysis_data: Dict[str, Any]
