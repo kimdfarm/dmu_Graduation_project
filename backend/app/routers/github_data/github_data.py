@@ -107,10 +107,9 @@ def github_callback(payload: GithubAuthRequest, response: Response): # 💡 Resp
 
 import json
 
-def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") -> dict:
-    """NOISE_PATTERNS 제거 버전: 오직 중복 병합 및 반복 횟수(가중치) 산출로 토큰 절감"""
-    
-    # 1. 저장소명(프로젝트명) 추출
+def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "") -> dict:
+    """특정 작성자(target_author)의 기여 내역만 필터링하여 토큰 절감 및 정확도 향상"""
+    effective_author = target_author or raw_graphql_data.get("target_author", "")
     repo_name = (
         raw_graphql_data.get("name") 
         or raw_graphql_data.get("repo_name") 
@@ -119,21 +118,16 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
         or "프로젝트"
     )
 
-    # 2. 기술 스택 추출
+    # 기술 스택 추출 (동일)
     languages_data = raw_graphql_data.get("languages", {})
     tech_stacks = []
-    
     if isinstance(languages_data, dict):
         if "nodes" in languages_data:
             tech_stacks = [n.get("name") for n in languages_data.get("nodes", []) if n and n.get("name")]
         elif "edges" in languages_data:
             tech_stacks = [e.get("node", {}).get("name") for e in languages_data.get("edges", []) if e and e.get("node")]
-        else:
-            tech_stacks = [k for k in languages_data.keys() if k not in ["nodes", "edges"]]
-    elif isinstance(languages_data, list):
-        tech_stacks = languages_data
 
-    # 3. 커밋 내역 안전 추출
+    # 커밋 내역 안전 추출
     commits_raw = []
     default_branch = raw_graphql_data.get("defaultBranchRef") or {}
     if isinstance(default_branch, dict):
@@ -143,21 +137,23 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
             if isinstance(history, dict):
                 commits_raw = history.get("nodes") or []
 
-    if not commits_raw:
-        object_data = raw_graphql_data.get("object") or {}
-        if isinstance(object_data, dict):
-            history = object_data.get("history") or {}
-            commits_raw = history.get("nodes") or []
-
-    if not commits_raw and isinstance(raw_graphql_data.get("commits"), list):
-        commits_raw = raw_graphql_data["commits"]
-
-    # 💡 4. 중복 병합 및 반복 횟수(기능 집중도) 집계 (삭제/필터링 로직 제거)
+    # 💡 [핵심] 특정 개발자(target_author)가 작성한 커밋만 필터링
     merged_commits = {}
     for c in commits_raw:
         if not isinstance(c, dict):
             continue
             
+        # 커밋 작성자 확인
+        author_info = c.get("author") or {}
+        user_info = author_info.get("user") or {}
+        author_login = user_info.get("login", "")
+
+        if effective_author and author_login.lower() != effective_author.lower():
+            continue
+        # 만약 target_author가 지정되어 있다면, 작성자가 일치하는지 체크 (대소문자 무시 비교)
+        if target_author and author_login.lower() != target_author.lower():
+            continue  
+
         msg = (c.get("messageHeadline") or c.get("message") or "").strip()
         if not msg:
             continue
@@ -165,11 +161,9 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
         additions = c.get("additions", 0)
         deletions = c.get("deletions", 0)
 
-        # 의존성 패키지 폭증으로 인한 이상치만 최소한으로 보정
         if additions > 5000: additions = 100
         if deletions > 5000: deletions = 100
 
-        # 중복 키로 묶어 누적
         if msg in merged_commits:
             merged_commits[msg]["additions"] += additions
             merged_commits[msg]["deletions"] += deletions
@@ -181,14 +175,12 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
                 "count": 1
             }
 
-    # 병합된 커밋 목록 생성 (반복 횟수 명시)
-    clean_commits = []
-    for msg, stat in merged_commits.items():
-        clean_commits.append(
-            f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
-        )
+    clean_commits = [
+        f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
+        for msg, stat in merged_commits.items()
+    ]
 
-    # 5. PR/Issue 내역 중복 병합
+    # PR / Issue 내역도 동일하게 필터링 적용 가능
     prs_raw = []
     prs_data = raw_graphql_data.get("pullRequests") or {}
     if isinstance(prs_data, dict):
@@ -197,6 +189,10 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
     merged_prs = {}
     for pr in prs_raw:
         if isinstance(pr, dict):
+            pr_author = (pr.get("author") or {}).get("login", "")
+            if target_author and pr_author.lower() != target_author.lower():
+                continue
+
             title = (pr.get("title") or "").strip()
             state = pr.get("state", "")
             if title:
@@ -211,7 +207,6 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "") 
         "key_commits": clean_commits,
         "key_prs_and_issues": clean_prs
     }
-
 
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -508,6 +503,7 @@ async def analyze_repository_graphql(
 
         # 💡 preprocess_github_data가 읽을 수 있도록 repo_name 키를 확실히 지정
         repo_analytics["repo_name"] = repo_analytics.get("name") or target_repo_name
+        repo_analytics["target_author"] = target_owner
 
         return repo_analytics
 # ------------------------------------------------------------------
