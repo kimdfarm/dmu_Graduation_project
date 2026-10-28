@@ -502,11 +502,16 @@ const DeveloperTestGithub = () => {
               </div>
 
               {isFetchingRepos ? (
-                <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl">
-                  <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">[{testGithubId}]의 저장소 불러오는 중...</p>
-                </div>
-              ) : (
+  <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl space-y-3">
+    <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto" />
+    <p className="text-xs text-slate-300 font-bold">
+      [{testGithubId}]의 저장소 목록을 탐색하는 중입니다...
+    </p>
+    <p className="text-[11px] text-emerald-400">
+      * 소유 및 연동된 저장소를 불러오고 기간별 필터링을 적용하고 있습니다.
+    </p>
+  </div>
+) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
                   {filteredRepositories.map((repo) => {
                     const repoName = repo.full_name || repo.name;
