@@ -29,7 +29,7 @@ import JobCard from './pages/Job/JobCard';
 
 // Github 관련
 import GithubCallback from './pages/github/GithubCallback';
-
+import DeveloperTestGithub from './pages/resume/DeveloperTestGithub';
 export default function App() {
   return (
     <BrowserRouter>
@@ -62,6 +62,9 @@ export default function App() {
         {/* 채용 정보 */}
         <Route path="/jobBoard" element={<JobBoard />} />
         <Route path="/jobCard" element={<JobCard />} />
+
+        {/* 개발자 테스트용 Github 연동 */}
+        <Route path="/developer-test/github" element={<DeveloperTestGithub />} />
       </Routes>
     </BrowserRouter>
   );
