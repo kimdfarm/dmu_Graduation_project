@@ -801,82 +801,27 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
 # 💡 2. 에너지 사전 견적(계산) API 추가
 class EstimateCostRequest(BaseModel):
     analysis_data: Dict[str, Any]
+
 @router.post("/github/estimate-cost")
-async def estimate_github_cost(
-    payload: RepoAnalyzeRequest,
-    authorization: Optional[str] = Header(None)
-):
+def estimate_github_cost(payload: EstimateCostRequest):
     """
-    실제 /github/analyze와 똑같이 GitHub에서 해당 기간의 데이터를 가져와서
-    preprocess_github_data를 거친 후, 진짜 AI에 들어갈 전체 토큰 크기를 정밀 계산합니다.
+    이미 분석된 여러 저장소 데이터를 받아 한 번에 총 토큰과 에너지를 계산합니다.
     """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="GitHub Access Token이 필요합니다.")
+    analysis_data = payload.analysis_data or {}
+    projects_data = analysis_data.get("projects_data", [])
     
-    token = authorization.split(" ")[1]
-
-    start_datetime = None
-    end_datetime = None
-    if payload.start_date:
-        try:
-            s_dt = datetime.strptime(payload.start_date, "%Y-%m-%d")
-            start_datetime = datetime.combine(s_dt.date(), time.min, tzinfo=timezone.utc)
-        except ValueError:
-            pass
-
-    if payload.end_date:
-        try:
-            e_dt = datetime.strptime(payload.end_date, "%Y-%m-%d")
-            end_datetime = datetime.combine(e_dt.date(), time.max, tzinfo=timezone.utc)
-        except ValueError:
-            pass
-
-    target_owner = payload.github_id
-    target_repo_name = payload.repo_name
-    if "/" in payload.repo_name:
-        parts = payload.repo_name.split("/")
-        target_owner = parts[0]
-        target_repo_name = parts[1]
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://api.github.com/graphql",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "query": GRAPHQL_REPO_QUERY,
-                "variables": {
-                    "owner": target_owner,
-                    "name": target_repo_name
-                }
-            }
-        )
+    if not projects_data and analysis_data.get("repo_name"):
+        projects_data = [analysis_data]
         
-        res_data = response.json()
-        if "errors" in res_data:
-            raise HTTPException(status_code=400, detail="GitHub GraphQL 요청 실패")
+    if not projects_data:
+        return {"estimated_tokens": 0, "energy_cost": 1}
         
-        raw_data = res_data.get("data", {})
-        repo_analytics = raw_data.get("repository") or {}
-        if not repo_analytics:
-            return {"estimated_tokens": 0, "energy_cost": 1}
+    total_tokens, energy = estimate_tokens_and_cost_v2(projects_data)
+    
+    return {
+        "estimated_tokens": total_tokens,
+        "energy_cost": energy,
+        "message": f"입력 토큰: {total_tokens:,}개 (에너지: {energy}회)"
+    }
 
-        repo_analytics["repo_name"] = target_repo_name
 
-        # 💡 핵심: 커밋, PR, 이슈가 모두 포함된 정제 데이터를 만듭니다.
-        cleaned_data = preprocess_github_data(repo_analytics)
-        
-        # 실제 AI 프롬프트에 들어갈 전체 문자열 조합
-        text_blob = json.dumps(cleaned_data, ensure_ascii=False)
-        estimated_tokens = len(text_blob) // 3  # 대략적인 토큰 환산
-        
-        # 5,000 토큰당 1 에너지 (최소 1에너지)
-        energy_cost = max(1, estimated_tokens // 5000)
-
-        return {
-            "estimated_tokens": estimated_tokens,
-            "energy_cost": energy_cost,
-            "message": f"입력 토큰: {estimated_tokens:,}개 (에너지: {energy_cost}회)"
-        }
