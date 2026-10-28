@@ -290,7 +290,7 @@ const DeveloperTestGithub = () => {
 
       const result = await generateRes.json();
       if (result && result.id) {
-        alert(`성공! 생성된 토큰 정보: ${estimationResult.tokens.toLocaleString()} 토큰, 소모 에너지: ${estimationResult.energy}회`);
+        alert(`성공! 생성된 토큰 정보: ${(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()} 토큰`);
         navigate(`/resume/${result.id}`);
       }
 
@@ -630,15 +630,15 @@ const DeveloperTestGithub = () => {
                 <span>{loadingText || '처리 중...'}</span>
               </span>
             ) : estimationResult ? (
-              <span className="flex items-center gap-2">
+  <span className="flex items-center gap-2">
     <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
-    <span>[{testGithubId}] 총 토큰 수({(estimationResult.total_tokens ?? 0).toLocaleString()}) 검증 후 이력서 생성 테스트</span>
+    <span>[{testGithubId}] 총 토큰 수({(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()}) 검증 후 이력서 생성 테스트</span>
   </span>
-            ) : (
-              <span className="text-slate-400 font-medium text-xs md:text-sm">
-                ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
-              </span>
-            )}
+) : (
+  <span className="text-slate-400 font-medium text-xs md:text-sm">
+    ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
+  </span>
+)}
           </button>
         </div>
 
