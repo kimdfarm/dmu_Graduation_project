@@ -27,7 +27,6 @@ const DeveloperTestGithub = () => {
   const [category, setCategory] = useState('신입 개발자');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 💡 테스트용 GitHub ID (입력 시 localStorage 및 쿠키 값도 함께 갱신됨)
   const [testGithubId, setTestGithubId] = useState(
     getCookie('github_id') || localStorage.getItem('github_id') || 'kimdfarm'
   );
@@ -39,6 +38,7 @@ const DeveloperTestGithub = () => {
   
   // 토큰 분석량 및 에너지 견적 관련 상태
   const [isEstimating, setIsEstimating] = useState(false);
+  const [estimationProgress, setEstimationProgress] = useState({ current: 0, total: 0, currentRepo: '' }); // 💡 분석 진행 상태용 state 추가
   const [estimationResult, setEstimationResult] = useState(null); 
   const [creditBalance, setCreditBalance] = useState(null);
 
@@ -85,12 +85,10 @@ const DeveloperTestGithub = () => {
     }
   }, []);
 
-  // 저장소 선택이 바뀌거나 ID가 바뀌면 견적 초기화
   useEffect(() => {
     setEstimationResult(null);
   }, [selectedRepos, startDate, endDate, testGithubId]);
 
-  // 💡 GitHub ID 변경 시 localStorage 및 쿠키 동기화 핸들러
   const handleGithubIdChange = (newId) => {
     setTestGithubId(newId);
     if (newId.trim()) {
@@ -170,7 +168,7 @@ const DeveloperTestGithub = () => {
     });
   };
 
-  // 분석량 및 에너지 사전 계산 함수
+  // 💡 [개선] 분석량 및 에너지 사전 계산 함수 (순회하며 실시간 진행 상황 UI 반영)
   const handleEstimateCost = async () => {
     if (selectedRepos.length === 0) {
       alert("분석할 저장소를 1개 이상 선택해 주세요.");
@@ -182,10 +180,20 @@ const DeveloperTestGithub = () => {
     try {
       setIsEstimating(true);
       setErrorMessage('');
+      setEstimationProgress({ current: 0, total: selectedRepos.length, currentRepo: '' });
 
-      // 선택된 저장소들의 분석 데이터를 모두 가져옴
-      const analyzePromises = selectedRepos.map(repoName => 
-        fetch(`${BASE_URL}/api/github/analyze`, {
+      const projectsData = [];
+
+      // Promise.all 대신 순회문을 사용하여 하나씩 분석하며 상태 업데이트
+      for (let i = 0; i < selectedRepos.length; i++) {
+        const repoName = selectedRepos[i];
+        setEstimationProgress({ 
+          current: i + 1, 
+          total: selectedRepos.length, 
+          currentRepo: repoName 
+        });
+
+        const res = await fetch(`${BASE_URL}/api/github/analyze`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -197,16 +205,16 @@ const DeveloperTestGithub = () => {
             start_date: startDate || "",
             end_date: endDate || ""
           })
-        }).then(async res => {
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.detail || `[${repoName}] 분석 실패`);
-          }
-          return res.json();
-        })
-      );
+        });
 
-      const projectsData = await Promise.all(analyzePromises);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `[${repoName}] 분석 실패`);
+        }
+
+        const data = await res.json();
+        projectsData.push(data);
+      }
 
       // 한 번에 견적 API 호출
       const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
@@ -233,10 +241,10 @@ const DeveloperTestGithub = () => {
       alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
     } finally {
       setIsEstimating(false);
+      setEstimationProgress({ current: 0, total: 0, currentRepo: '' });
     }
   };
 
-  // 최종 이력서 생성 (계산된 projects_data 재사용)
   const handleDirectGenerateResume = async () => {
     if (!estimationResult || !estimationResult.projects_data) {
       alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
@@ -540,9 +548,33 @@ const DeveloperTestGithub = () => {
                       className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-teal-600/30"
                     >
                       {isEstimating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      <span>분석량 및 에너지 계산하기 (5,000토큰당 1에너지)</span>
+                      <span>
+                        {isEstimating 
+                          ? `분석 중... (${estimationProgress.current}/${estimationProgress.total})` 
+                          : '분석량 및 에너지 계산하기 (5,000토큰당 1에너지)'}
+                      </span>
                     </button>
                   </div>
+
+                  {/* 💡 [추가] 실시간 분석 진행 상황 UI 바 및 텍스트 */}
+                  {isEstimating && (
+                    <div className="p-4 bg-[#070b19] border border-teal-500/40 rounded-xl text-xs space-y-2 text-teal-300 animate-pulse">
+                      <div className="flex items-center justify-between font-semibold">
+                        <span>🔍 저장소 분석 진행 중...</span>
+                        <span>{estimationProgress.current} / {estimationProgress.total} 완료</span>
+                      </div>
+                      <p className="text-slate-300 text-[11px] truncate">
+                        현재 분석 중인 저장소: <strong className="text-white font-mono">{estimationProgress.currentRepo}</strong>
+                      </p>
+                      {/* 프로그레스 바 */}
+                      <div className="w-full bg-[#0a1024] h-2 rounded-full overflow-hidden border border-teal-900">
+                        <div 
+                          className="bg-teal-500 h-full transition-all duration-300"
+                          style={{ width: `${(estimationProgress.current / estimationProgress.total) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
 
                   {estimationResult && (
                     <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300">
