@@ -206,76 +206,87 @@ const ResumeNew = () => {
 
   // 💡 [핵심] 분석량 및 에너지 사전 계산 함수
   const handleEstimateCost = async () => {
-    if (selectedRepos.length === 0) {
-      alert("분석할 저장소를 1개 이상 선택해 주세요.");
-      return;
-    }
+  if (selectedRepos.length === 0) {
+    alert("분석할 저장소를 1개 이상 선택해 주세요.");
+    return;
+  }
 
-    const userId = localStorage.getItem('userId');
-    const githubId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
-    const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
+  const githubId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
+  const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
 
-    if (!userId || !githubId) {
-      alert('GitHub 계정 연동 정보가 올바르지 않습니다.');
-      return;
-    }
+  if (!githubId) {
+    alert('GitHub 계정 연동 정보가 올바르지 않습니다.');
+    return;
+  }
 
-    try {
-      setIsEstimating(true);
-      setErrorMessage('');
+  try {
+    setIsEstimating(true);
+    setErrorMessage('');
 
-      // 1. 선택된 저장소들의 원본 데이터 병렬 분석 fetch
-      const analyzePromises = selectedRepos.map(repoName => 
-        fetch(`${BASE_URL}/api/github/analyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            github_id: String(githubId),
-            repo_name: String(repoName),
-            start_date: startDate || "",
-            end_date: endDate || ""
-          })
-        }).then(async res => {
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.detail || `[${repoName}] 분석 실패`);
-          }
-          return res.json();
-        })
-      );
+    let totalTokens = 0;
+    let totalEnergy = 0;
+    const allProjectsData = [];
 
-      const projectsData = await Promise.all(analyzePromises);
-
-      // 2. 백엔드 견적 엔드포인트 호출
-      const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
+    // 선택된 저장소들을 하나씩 순회하며 백엔드 견적 API 호출
+    for (const repoName of selectedRepos) {
+      const res = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis_data: { projects_data: projectsData } })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          github_id: String(githubId),
+          repo_name: String(repoName),
+          start_date: startDate || "",
+          end_date: endDate || ""
+        })
       });
 
-      if (!estimateRes.ok) {
-        const errData = await estimateRes.json();
-        throw new Error(errData.detail || '토큰 견적 계산에 실패했습니다.');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `[${repoName}] 견적 계산 실패`);
       }
 
-      const estimateData = await estimateRes.json();
-
-      setEstimationResult({
-        tokens: estimateData.estimated_tokens,
-        energy: estimateData.energy_cost,
-        projects_data: projectsData
+      const data = await res.json();
+      totalTokens += (data.estimated_tokens || 0);
+      
+      // 실제 분석 데이터를 가져오기 위해 analyze 도 함께 호출해서 모아둡니다
+      const analyzeRes = await fetch(`${BASE_URL}/api/github/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          github_id: String(githubId),
+          repo_name: String(repoName),
+          start_date: startDate || "",
+          end_date: endDate || ""
+        })
       });
-
-    } catch (err) {
-      console.error("분석량 계산 실패:", err);
-      alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
-    } finally {
-      setIsEstimating(false);
+      if (analyzeRes.ok) {
+        const analyzeData = await analyzeRes.json();
+        allProjectsData.push(analyzeData);
+      }
     }
-  };
+
+    // 5,000 토큰당 1 에너지 (최소 1에너지)
+    totalEnergy = Math.max(1, Math.floor(totalTokens / 5000));
+
+    setEstimationResult({
+      tokens: totalTokens,
+      energy: totalEnergy,
+      projects_data: allProjectsData
+    });
+
+  } catch (err) {
+    console.error("분석량 계산 실패:", err);
+    alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
+  } finally {
+    setIsEstimating(false);
+  }
+};
 
   // 💡 최종 이력서 생성 (계산된 projects_data 재사용)
   const handleDirectGenerateResume = async () => {
