@@ -829,7 +829,8 @@ class EstimateCostRequest(BaseModel):
 @router.post("/github/estimate-cost")
 def estimate_github_cost(payload: EstimateCostRequest):
     """
-    이미 분석된 여러 저장소 데이터를 받아 한 번에 총 토큰과 에너지를 계산합니다.
+    선택된 저장소들의 정제된 텍스트 크기를 기반으로 입력 토큰을 계산하고,
+    AI 이력서 생성 시 소모될 예상 출력 토큰과 총 토큰 및 에너지를 산출합니다.
     """
     analysis_data = payload.analysis_data or {}
     projects_data = analysis_data.get("projects_data", [])
@@ -838,14 +839,29 @@ def estimate_github_cost(payload: EstimateCostRequest):
         projects_data = [analysis_data]
         
     if not projects_data:
-        return {"estimated_tokens": 0, "energy_cost": 1}
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "energy_cost": 1}
         
-    total_tokens, energy = estimate_tokens_and_cost_v2(projects_data)
+    # 1. 입력 토큰 계산 (정제된 데이터 글자 수 기준 / 약 3글자당 1토큰)
+    total_chars = 0
+    for repo in projects_data:
+        target_author = repo.get("target_author", "")
+        cleaned = preprocess_github_data(repo, target_author=target_author)
+        text_blob = json.dumps(cleaned, ensure_ascii=False)
+        total_chars += len(text_blob)
+    
+    input_tokens = total_chars // 3
+    
+    # 2. 출력 토큰 예측 (이력서 불렛포인트 및 요약문 생성 시 평균적으로 나오는 토큰 분량, 예: 입력의 약 35% 또는 고정 평균치)
+    output_tokens = int(input_tokens * 0.35) if input_tokens > 0 else 500
+    
+    # 3. 총 토큰 및 에너지 계산
+    total_tokens = input_tokens + output_tokens
+    energy_cost = max(1, total_tokens // 5000)
     
     return {
-        "estimated_tokens": total_tokens,
-        "energy_cost": energy,
-        "message": f"입력 토큰: {total_tokens:,}개 (에너지: {energy}회)"
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "energy_cost": energy_cost,
+        "message": f"입력: {input_tokens:,}개 / 출력: {output_tokens:,}개 / 총 토큰: {total_tokens:,}개"
     }
-
-
