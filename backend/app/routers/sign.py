@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.error
 from email.mime.text import MIMEText
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from app.core.config import get_supabase
 
@@ -232,6 +232,7 @@ def signup_final(user_data: FinalSignUpRequest):
             
         new_user_uuid = str(uuid.uuid4())
         
+        # 1. members 테이블에 유저 생성
         supabase.table("members").insert({
             "id": new_user_uuid,
             "email": user_data.email, 
@@ -241,11 +242,30 @@ def signup_final(user_data: FinalSignUpRequest):
             "status": "active"
         }).execute()
         
+        # 2. member_profiles 테이블에 프로필 생성
         supabase.table("member_profiles").insert({
             "member_id": new_user_uuid, 
             "name": user_data.name
         }).execute()
         
+        # 💡 3. [추가됨] 회원가입 시 기본 50 크레딧 자동 지급
+        supabase.table("user_credits").insert({
+            "member_id": new_user_uuid,
+            "balance": 50
+        }).execute()
+
+        # 💡 4. [추가됨] 회원가입 시 기본 FREE 플랜 구독 자동 생성 (만료일 100년 뒤)
+        from datetime import datetime, timedelta
+        expires_at = datetime.utcnow() + timedelta(days=36500)
+        
+        supabase.table("subscriptions").insert({
+            "member_id": new_user_uuid,
+            "status": "active",
+            "plan_type": "FREE",
+            "expires_at": expires_at.isoformat()
+        }).execute()
+        
+        # 5. 인증 OTP 삭제
         supabase.table("email_otps").delete().eq("email", user_data.email).execute()
         
         return {
@@ -259,3 +279,39 @@ def signup_final(user_data: FinalSignUpRequest):
         if "duplicate key" in str(e).lower():
             raise HTTPException(status_code=400, detail="이미 가입된 이메일 주소입니다.")
         raise HTTPException(status_code=400, detail=f"최종 회원가입 실패: {str(e)}")
+
+
+@router.get("/api/subscription/{member_id}")
+def get_user_subscription_info(member_id: str, supabase = Depends(get_supabase)):
+    # 1. 크레딧 조회 (없으면 즉시 50 생성)
+    credit_res = supabase.table("user_credits").select("balance").eq("member_id", member_id).execute()
+    if not credit_res.data:
+        supabase.table("user_credits").insert({"member_id": member_id, "balance": 50}).execute()
+        current_credit = 50
+    else:
+        current_credit = credit_res.data[0]["balance"]
+
+    # 2. 구독 정보 조회 (없으면 즉시 FREE 구독 생성)
+    sub_res = supabase.table("subscriptions").select("*").eq("member_id", member_id).order("created_at", desc=True).limit(1).execute()
+    
+    if not sub_res.data:
+        from datetime import datetime, timedelta
+        expires_at = (datetime.utcnow() + timedelta(days=36500)).isoformat()
+        
+        new_sub = {
+            "member_id": member_id,
+            "status": "active",
+            "plan_type": "FREE",
+            "expires_at": expires_at
+        }
+        supabase.table("subscriptions").insert(new_sub).execute()
+        active_subscription = new_sub
+    else:
+        active_subscription = sub_res.data[0]
+
+    return {
+        "member_id": member_id,
+        "credit_balance": current_credit,
+        "subscription": active_subscription
+    }
+

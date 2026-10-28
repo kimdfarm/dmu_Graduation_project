@@ -25,6 +25,7 @@ from app.routers.imageandfileupload import savepile_coverletters
 from app.routers.recommendation import router as recommendation_router
 from app.routers.feedback import router as feedback_router
 from app.routers.recommendation import warm_up_pipeline
+from app.routers.subscription import router as subscription_router
 
 load_dotenv()
 
@@ -93,6 +94,7 @@ app.include_router(coverletters.router)
 app.include_router(savepile_coverletters.router)
 app.include_router(recommendation_router)
 app.include_router(feedback_router)
+app.include_router(subscription_router)
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}

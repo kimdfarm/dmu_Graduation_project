@@ -11,6 +11,42 @@ from app.core.config import get_supabase, GROQ_API_KEY , YOUR_GITHUB_CLIENT_ID ,
 import requests
 import traceback
 
+def deduct_user_energy(db: Client, member_id: str, amount: int, description: str = "AI 기능 사용"):
+    """사용자의 에너지를 확인하고 차감하는 헬퍼 함수"""
+    credit_res = db.table("user_credits").select("balance").eq("member_id", member_id).execute()
+    
+    if not credit_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="유저 크레딧 정보를 찾을 수 없습니다."
+        )
+    
+    current_balance = credit_res.data[0]["balance"]
+    
+    if current_balance < amount:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED, 
+            detail=f"에너지가 부족합니다. (필요 에너지: {amount}회, 잔여 에너지: {current_balance}회)"
+        )
+    
+    new_balance = current_balance - amount
+    
+    # 잔액 업데이트
+    db.table("user_credits").update({
+        "balance": new_balance, 
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("member_id", member_id).execute()
+    
+    # 트랜잭션 로그 기록
+    db.table("credit_transactions").insert({
+        "member_id": member_id,
+        "amount": -amount,
+        "transaction_type": "AI_GENERATION",
+        "description": description
+    }).execute()
+    
+    return new_balance
+
 router = APIRouter(
     prefix="/api",
     tags=["github-resumes"]
@@ -497,23 +533,30 @@ async def generate_github_resume(
                 detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
             )
 
+        # 💡 5,000 토큰당 1 에너지 계산
+        estimated_tokens, required_energy = estimate_tokens_and_cost_v2(projects_data)
+
+        # 💡 에너지 잔여량 검증 및 차감 수행
+        deduct_user_energy(
+            db=db, 
+            member_id=payload.member_id, 
+            amount=required_energy, 
+            description=f"GitHub 분석 (입력 토큰: {estimated_tokens:,}개, 사용 에너지: {required_energy}회)"
+        )
+
         details_list = []
         for idx, repo_analytics in enumerate(projects_data, start=1):
-            # 💡 1. repo_analytics 데이터 자체가 dict 형태인지 확인
             if not repo_analytics or not isinstance(repo_analytics, dict):
                 continue
 
             try:
                 card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx)
-                
-                # 💡 2. 파싱 결과가 dict 타입이고 유효한지 안전 검사 후 추가
                 if card_detail and isinstance(card_detail, dict):
                     details_list.append(card_detail)
             except Exception as parse_err:
                 print(f"[{idx}번 저장소 카드 생성 실패]: {parse_err}")
                 continue
 
-        # 💡 3. 성공적으로 생성된 카드가 하나도 없는 경우 처리
         if not details_list:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -553,9 +596,13 @@ async def generate_github_resume(
             "id": created_document_id,
             "title": payload.title,
             "category": payload.category,
-            "total_projects": len(details_list)
+            "total_projects": len(details_list),
+            "estimated_tokens": estimated_tokens,
+            "deducted_energy": required_energy
         }
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
         if created_document_id:
             try:
@@ -563,12 +610,10 @@ async def generate_github_resume(
             except Exception as rollback_err:
                 print(f"Rollback failed: {rollback_err}")
 
-        print(f"[GitHub Resume Generation Error]: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
         )
-
 @router.get("/github/repositories")
 def get_github_repositories(
     github_id: str,
@@ -736,3 +781,40 @@ def get_github_repositories(
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
+
+def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
+    total_chars = 0
+    for repo in projects_data:
+        # 전처리기를 통과한 정제 데이터 크기 측정
+        cleaned = preprocess_github_data(repo)
+        text_blob = json.dumps(cleaned, ensure_ascii=False)
+        total_chars += len(text_blob)
+    
+    # 대략적인 토큰 환산 (코드/한글/영어 혼합 시 약 3글자당 1토큰)
+    estimated_tokens = total_chars // 3 
+    
+    # 💡 5,000 토큰당 1 에너지 차감 (최소 1에너지 보장)
+    energy_cost = max(1, estimated_tokens // 5000)
+    
+    return estimated_tokens, energy_cost
+
+# 💡 2. 에너지 사전 견적(계산) API 추가
+class EstimateCostRequest(BaseModel):
+    analysis_data: Dict[str, Any]
+
+@router.post("/github/estimate-cost")
+def estimate_github_cost(payload: EstimateCostRequest):
+    analysis_data = payload.analysis_data or {}
+    projects_data = analysis_data.get("projects_data", [])
+    if not projects_data and analysis_data.get("repo_name"):
+        projects_data = [analysis_data]
+        
+    if not projects_data:
+        return {"estimated_tokens": 0, "energy_cost": 0, "message": "분석할 데이터가 없습니다."}
+        
+    tokens, energy = estimate_tokens_and_cost_v2(projects_data)
+    return {
+        "estimated_tokens": tokens,
+        "energy_cost": energy,
+        "message": f"예상 입력 토큰: {tokens:,}개 (소모 에너지: {energy}회)"
+    }

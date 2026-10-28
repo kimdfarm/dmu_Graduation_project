@@ -4,7 +4,7 @@ import DaumPostcode from 'react-daum-postcode';
 import { 
   User, Mail, Phone, Calendar, Camera, ArrowLeft, Save, Shield, CheckCircle,
   GraduationCap, Award, Plus, Trash2, Building, AlertTriangle, UserX, Loader2, X, MapPin,
-  Search
+  Search, CreditCard, Zap, PlusCircle, MinusCircle, AlertCircle
 } from 'lucide-react';
 
 const Github = ({ className = "w-5 h-5" }) => (
@@ -22,7 +22,24 @@ export default function ProfileSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // 💡 탭 상태 관리 복원 ('basic' | 'education' | 'certificate')
+  // 💡 웹사이트 전용 토스트 알림 상태
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  const showWebAlert = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 3500);
+  };
+
+  // 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) 상태
+  const [confirmModal, setConfirmModal] = useState({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
   const [activeTab, setActiveTab] = useState('basic');
 
   const [isGithubConnected, setIsGithubConnected] = useState(false);
@@ -58,6 +75,12 @@ export default function ProfileSettings() {
     certificate_number: '',
     acquisition_date: '',
   });
+
+  const [subscriptionInfo, setSubscriptionInfo] = useState({
+    credit_balance: 50,
+    subscription: null
+  });
+  const [isSubLoading, setIsSubLoading] = useState(false);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -118,10 +141,26 @@ export default function ProfileSettings() {
     }
   };
 
+  const fetchSubscriptionInfo = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSubscriptionInfo({
+          credit_balance: data.credit_balance ?? 50,
+          subscription: data.subscription || null
+        });
+      }
+    } catch (error) {
+      console.error('구독 정보 조회 에러:', error);
+    }
+  };
+
   useEffect(() => {
     const userId = localStorage.getItem('userId');
     if (!userId) {
-      alert('로그인이 필요합니다.');
+      showWebAlert('로그인이 필요합니다.', 'error');
       navigate('/login');
       return;
     }
@@ -171,7 +210,86 @@ export default function ProfileSettings() {
     fetchProfile();
     fetchEducations();
     fetchCertificates();
+    fetchSubscriptionInfo();
   }, [navigate]);
+
+  const handleMockPlanChange = async (planType) => {
+    if (!userId) return;
+    try {
+      setIsSubLoading(true);
+      const res = await fetch(`${API_URL}/api/subscription/checkout-success`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: userId,
+          plan_type: planType
+        })
+      });
+
+      if (res.ok) {
+        await fetchSubscriptionInfo();
+        showWebAlert(`[${planType}] 플랜으로 변경되었습니다! 에너지가 갱신되었습니다.`);
+      } else {
+        showWebAlert('플랜 변경 중 오류가 발생했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error('플랜 변경 에러:', err);
+      showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
+    } finally {
+      setIsSubLoading(false);
+    }
+  };
+
+  const handleTestUseCredit = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/use-credit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: userId,
+          amount: 10
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSubscriptionInfo(prev => ({ ...prev, credit_balance: data.remaining_credit }));
+        showWebAlert(`에너지 10 차감 완료! 잔여 에너지: ${data.remaining_credit}`);
+      } else {
+        showWebAlert(data.detail || '사용 가능한 에너지가 모두 소진되었습니다!', 'error');
+      }
+    } catch (err) {
+      console.error('에너지 차감 에러:', err);
+    }
+  };
+
+  const handleTestAddCredit = async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/add-credit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: userId,
+          amount: 10
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSubscriptionInfo(prev => ({ ...prev, credit_balance: data.remaining_credit }));
+        showWebAlert(`에너지 10 충전 완료! 잔여 에너지: ${data.remaining_credit}`);
+      } else {
+        showWebAlert('에너지 충전 중 오류가 발생했습니다.', 'error');
+      }
+    } catch (err) {
+      console.error('에너지 충전 에러:', err);
+      showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
+    }
+  };
 
   const handleGithubOAuthLogin = () => {
     const CLIENT_ID = GITHUB_CLIENT_ID;
@@ -185,9 +303,9 @@ export default function ProfileSettings() {
   const handleAddEdu = async (e) => {
     e.preventDefault();
     if (!newEdu.school_name || !newEdu.major || !newEdu.admission_date) {
-      return alert('학교명, 전공, 입학일은 필수 입력 항목입니다.');
+      return showWebAlert('학교명, 전공, 입학일은 필수 입력 항목입니다.', 'error');
     }
-    if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
+    if (!userId) return showWebAlert('로그인 정보가 올바르지 않습니다.', 'error');
 
     try {
       const response = await fetch(`${API_URL}/api/profile-settings/educations/${userId}`, {
@@ -209,41 +327,49 @@ export default function ProfileSettings() {
         setNewEdu({
           school_name: '', major: '', education_level: '학사', status: '재학', admission_date: '', graduation_date: '',
         });
-        alert('학력 정보가 추가되었습니다.');
+        showWebAlert('학력 정보가 추가되었습니다.');
       } else {
         const errData = await response.json();
-        alert(`추가 실패: ${errData.detail || '오류 발생'}`);
+        showWebAlert(`추가 실패: ${errData.detail || '오류 발생'}`, 'error');
       }
     } catch (error) {
       console.error('학력 추가 실패:', error);
-      alert('서버 통신 오류가 발생했습니다.');
+      showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
     }
   };
 
-  const handleDeleteEdu = async (educationId) => {
-    if (!window.confirm('해당 학력 정보를 삭제하시겠습니까?')) return;
+  // 💡 학력 삭제 커스텀 모달 트리거
+  const confirmDeleteEdu = (educationId) => {
+    setConfirmModal({
+      show: true,
+      title: '학력 정보 삭제',
+      message: '해당 학력 정보를 정말로 삭제하시겠습니까?',
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`${API_URL}/api/profile-settings/educations/${educationId}`, {
+            method: 'DELETE',
+          });
 
-    try {
-      const response = await fetch(`${API_URL}/api/profile-settings/educations/${educationId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.status === 204 || response.ok) {
-        setEducations((prev) => prev.filter((edu) => edu.id !== educationId));
-      } else {
-        alert('삭제에 실패했습니다.');
+          if (response.status === 204 || response.ok) {
+            setEducations((prev) => prev.filter((edu) => edu.id !== educationId));
+            showWebAlert('학력 정보가 삭제되었습니다.');
+          } else {
+            showWebAlert('삭제에 실패했습니다.', 'error');
+          }
+        } catch (error) {
+          console.error('학력 삭제 실패:', error);
+          showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
+        }
       }
-    } catch (error) {
-      console.error('학력 삭제 실패:', error);
-    }
+    });
   };
 
   const handleAddCert = async (e) => {
     e.preventDefault();
     if (!newCert.certificate_name || !newCert.issuing_organization || !newCert.acquisition_date) {
-      return alert('자격증명, 발급기관, 취득일은 필수 입력 항목입니다.');
+      return showWebAlert('자격증명, 발급기관, 취득일은 필수 입력 항목입니다.', 'error');
     }
-    if (!userId) return alert('로그인 정보가 올바르지 않습니다.');
+    if (!userId) return showWebAlert('로그인 정보가 올바르지 않습니다.', 'error');
 
     try {
       const response = await fetch(`${API_URL}/api/profile-settings/certificates/${userId}`, {
@@ -261,33 +387,41 @@ export default function ProfileSettings() {
         const createdCert = await response.json();
         setCertificates((prev) => [createdCert, ...prev]);
         setNewCert({ certificate_name: '', issuing_organization: '', certificate_number: '', acquisition_date: '' });
-        alert('자격증 정보가 추가되었습니다.');
+        showWebAlert('자격증 정보가 추가되었습니다.');
       } else {
         const errData = await response.json();
-        alert(`추가 실패: ${errData.detail || '오류 발생'}`);
+        showWebAlert(`추가 실패: ${errData.detail || '오류 발생'}`, 'error');
       }
     } catch (error) {
       console.error('자격증 추가 실패:', error);
-      alert('서버 통신 오류가 발생했습니다.');
+      showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
     }
   };
 
-  const handleDeleteCert = async (certificateId) => {
-    if (!window.confirm('해당 자격증 정보를 삭제하시겠습니까?')) return;
+  // 💡 자격증 삭제 커스텀 모달 트리거
+  const confirmDeleteCert = (certificateId) => {
+    setConfirmModal({
+      show: true,
+      title: '자격증 정보 삭제',
+      message: '해당 자격증 정보를 정말로 삭제하시겠습니까?',
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`${API_URL}/api/profile-settings/certificates/${certificateId}`, {
+            method: 'DELETE',
+          });
 
-    try {
-      const response = await fetch(`${API_URL}/api/profile-settings/certificates/${certificateId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.status === 204 || response.ok) {
-        setCertificates((prev) => prev.filter((cert) => cert.id !== certificateId));
-      } else {
-        alert('삭제에 실패했습니다.');
+          if (response.status === 204 || response.ok) {
+            setCertificates((prev) => prev.filter((cert) => cert.id !== certificateId));
+            showWebAlert('자격증 정보가 삭제되었습니다.');
+          } else {
+            showWebAlert('삭제에 실패했습니다.', 'error');
+          }
+        } catch (error) {
+          console.error('자격증 삭제 실패:', error);
+          showWebAlert('서버 통신 오류가 발생했습니다.', 'error');
+        }
       }
-    } catch (error) {
-      console.error('자격증 삭제 실패:', error);
-    }
+    });
   };
 
   const handleChange = (e) => {
@@ -327,14 +461,13 @@ export default function ProfileSettings() {
         storedUser.email = formData.email;
         localStorage.setItem('user', JSON.stringify(storedUser));
 
-        setSuccessMessage('프로필이 성공적으로 업데이트되었습니다!');
-        setTimeout(() => setSuccessMessage(''), 3000);
+        showWebAlert('프로필이 성공적으로 업데이트되었습니다!');
       } else {
-        alert('프로필 업데이트 중 오류가 발생했습니다.');
+        showWebAlert('프로필 업데이트 중 오류가 발생했습니다.', 'error');
       }
     } catch (error) {
       console.error('프로필 저장 에러:', error);
-      alert('서버 통신에 실패했습니다.');
+      showWebAlert('서버 통신에 실패했습니다.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -348,45 +481,48 @@ export default function ProfileSettings() {
     );
   }
 
-  const handleDeleteAccount = async () => {
-    const confirmed = window.confirm(
-      "정말로 회원탈퇴를 진행하시겠습니까?\n모든 데이터가 영구적으로 삭제됩니다."
-    );
-    if (!confirmed) return;
+  // 💡 회원탈퇴 커스텀 모달 트리거
+  const confirmDeleteAccount = () => {
+    setConfirmModal({
+      show: true,
+      title: '회원 탈퇴',
+      message: '정말로 회원탈퇴를 진행하시겠습니까?\n작성한 모든 데이터가 영구적으로 삭제됩니다.',
+      onConfirm: async () => {
+        try {
+          setIsDeleting(true);
+          const userId = localStorage.getItem("userId");
 
-    try {
-      setIsDeleting(true);
-      const userId = localStorage.getItem("userId");
+          if (!userId) {
+            showWebAlert("로그인 정보를 찾을 수 없습니다.", 'error');
+            return;
+          }
 
-      if (!userId) {
-        alert("로그인 정보를 찾을 수 없습니다. 다시 로그인해 주세요.");
-        return;
+          const response = await fetch(`${API_URL}/login/delete`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId }),
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.detail || "탈퇴 처리 중 오류가 발생했습니다.");
+          }
+
+          localStorage.removeItem("userId");
+          localStorage.removeItem("token");
+          
+          showWebAlert("회원탈퇴가 완료되었습니다.");
+          navigate("/login");
+
+        } catch (err) {
+          console.error("회원탈퇴 실패:", err);
+          showWebAlert(err.message, 'error');
+        } finally {
+          setIsDeleting(false);
+        }
       }
-
-      const response = await fetch(`${API_URL}/login/delete`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.detail || "탈퇴 처리 중 오류가 발생했습니다.");
-      }
-
-      localStorage.removeItem("userId");
-      localStorage.removeItem("token");
-      
-      alert("회원탈퇴가 성공적으로 완료되었습니다.");
-      navigate("/login");
-
-    } catch (err) {
-      console.error("회원탈퇴 실패:", err);
-      alert(err.message);
-    } finally {
-      setIsDeleting(false);
-    }
+    });
   };
 
   const handleAvatarClick = () => {
@@ -398,7 +534,7 @@ export default function ProfileSettings() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("파일 크기는 5MB 이하만 가능합니다.");
+      showWebAlert("파일 크기는 5MB 이하만 가능합니다.", 'error');
       return;
     }
 
@@ -407,7 +543,7 @@ export default function ProfileSettings() {
       const userId = localStorage.getItem("userId");
 
       if (!userId) {
-        alert("사용자 정보를 찾을 수 없습니다.");
+        showWebAlert("사용자 정보를 찾을 수 없습니다.", 'error');
         return;
       }
 
@@ -427,11 +563,11 @@ export default function ProfileSettings() {
       }
 
       setFormData(prev => ({ ...prev, avatar_url: result.avatar_url }));
-      alert("프로필 이미지가 변경되었습니다.");
+      showWebAlert("프로필 이미지가 변경되었습니다.");
 
     } catch (err) {
       console.error("업로드 에러:", err);
-      alert(err.message);
+      showWebAlert(err.message, 'error');
     } finally {
       setIsUploading(false);
     }
@@ -444,7 +580,7 @@ export default function ProfileSettings() {
   };
   
   const handleSyncEmail = async () => {
-    if (!userId) return alert('로그인 정보가 없습니다.');
+    if (!userId) return showWebAlert('로그인 정보가 없습니다.', 'error');
 
     try {
       setIsSyncingEmail(true);
@@ -457,20 +593,69 @@ export default function ProfileSettings() {
 
       if (response.ok) {
         setFormData(prev => ({ ...prev, email: result.email }));
-        alert('이메일을 가져와 프로필 DB에 성공적으로 저장했습니다!');
+        showWebAlert('이메일을 성공적으로 연동했습니다!');
       } else {
-        alert(`이메일 조회 실패: ${result.detail || '오류 발생'}`);
+        showWebAlert(`이메일 조회 실패: ${result.detail || '오류 발생'}`, 'error');
       }
     } catch (error) {
       console.error('이메일 동기화 에러:', error);
-      alert('서버 통신 중 오류가 발생했습니다.');
+      showWebAlert('서버 통신 중 오류가 발생했습니다.', 'error');
     } finally {
       setIsSyncingEmail(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#060814] text-slate-100 p-8 md:p-10 font-sans">
+    <div className="min-h-screen bg-[#060814] text-slate-100 p-8 md:p-10 font-sans relative">
+      
+      {/* 💡 웹사이트 전용 커스텀 알림 토스트 */}
+      {toast.show && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-[#0f1423] border border-slate-700/80 rounded-2xl shadow-2xl animate-fade-in text-sm font-medium text-white">
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle className="w-5 h-5 text-cyan-400 shrink-0" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) */}
+      {confirmModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+                <AlertTriangle size={20} />
+              </div>
+              <h3 className="text-base font-bold text-slate-100">{confirmModal.title}</h3>
+            </div>
+            <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">
+              {confirmModal.message}
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, show: false }))}
+                className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold rounded-xl text-xs transition"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(prev => ({ ...prev, show: false }));
+                }}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-rose-600/30 transition"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto space-y-10">
         
         {/* 상단 로고 및 뒤로가기 헤더 */}
@@ -485,9 +670,11 @@ export default function ProfileSettings() {
           </button>
           
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-700 via-indigo-600 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-purple-900/40 ring-1 ring-white/10">
-              <User className="w-5 h-5 text-white" />
-            </div>
+            <img 
+            src="/icons.svg" 
+            alt="CAREER IT Logo" 
+            className="w-12 h-12 rounded-2xl shadow-lg shadow-cyan-900/40 ring-1 ring-white/10 object-cover" 
+          />
             <div className="flex flex-col">
               <h1 className="text-lg md:text-xl font-black tracking-wider text-slate-100">
                 CAREER <span className="text-purple-400">IT</span>
@@ -498,14 +685,6 @@ export default function ProfileSettings() {
             </div>
           </div>
         </div>
-
-        {/* 성공 토스트 알림 */}
-        {successMessage && (
-          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center gap-3 text-emerald-400 text-sm font-medium animate-fade-in">
-            <CheckCircle size={18} />
-            <span>{successMessage}</span>
-          </div>
-        )}
 
         {/* 상단 프로필 요약 카드 */}
         <div className="bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center gap-6 relative overflow-hidden">
@@ -541,18 +720,23 @@ export default function ProfileSettings() {
               </span>
             </div>
             <p className="text-slate-400 text-sm">{formData.email}</p>
-            <span className="inline-block px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20 mt-1">
-              계정 상태: {formData.status}
-            </span>
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-1">
+              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20">
+                계정 상태: {formData.status}
+              </span>
+              <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-cyan-500/10 text-cyan-400 rounded-md border border-cyan-500/20 flex items-center gap-1">
+                <Zap size={12} /> 잔여 에너지: <strong className="text-white">{subscriptionInfo.credit_balance}</strong>회
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* 💡 탭(Tab) 메뉴 바 복원 */}
-        <div className="flex items-center gap-2 p-1.5 bg-[#0b0f19] border border-slate-800 rounded-xl">
+        {/* 탭 메뉴 바 */}
+        <div className="flex items-center gap-2 p-1.5 bg-[#0b0f19] border border-slate-800 rounded-xl overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('basic')}
-            className={`flex-1 py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'basic' ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
@@ -561,7 +745,7 @@ export default function ProfileSettings() {
           <button
             type="button"
             onClick={() => setActiveTab('education')}
-            className={`flex-1 py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'education' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
@@ -570,11 +754,20 @@ export default function ProfileSettings() {
           <button
             type="button"
             onClick={() => setActiveTab('certificate')}
-            className={`flex-1 py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'certificate' ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
             <Award size={16} /> <span>자격증 및 면허</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('subscription')}
+            className={`flex-1 min-w-[120px] py-3 px-4 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'subscription' ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <CreditCard size={16} /> <span>구독 및 에너지</span>
           </button>
         </div>
 
@@ -715,7 +908,8 @@ export default function ProfileSettings() {
                       </p>
                     )}
                   </div>
-                  <button type="button" onClick={() => handleDeleteEdu(edu.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition" title="삭제"><Trash2 className="w-4 h-4" /></button>
+                  {/* 💡 window.confirm 대신 커스텀 모달 호출 */}
+                  <button type="button" onClick={() => confirmDeleteEdu(edu.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition" title="삭제"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
@@ -779,7 +973,8 @@ export default function ProfileSettings() {
                       {cert.acquisition_date && <span className="flex items-center gap-1 text-slate-400"><Calendar className="w-3 h-3" /> 취득: {cert.acquisition_date}</span>}
                     </div>
                   </div>
-                  <button type="button" onClick={() => handleDeleteCert(cert.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition" title="삭제"><Trash2 className="w-4 h-4" /></button>
+                  {/* 💡 window.confirm 대신 커스텀 모달 호출 */}
+                  <button type="button" onClick={() => confirmDeleteCert(cert.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition" title="삭제"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
@@ -800,6 +995,105 @@ export default function ProfileSettings() {
           </div>
         )}
 
+        {/* [탭 4] 구독 및 에너지 관리 */}
+        {activeTab === 'subscription' && (
+          <div className="bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-amber-400">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-100">구독 및 에너지 관리</h2>
+                <p className="text-xs text-slate-400">현재 이용 중인 플랜과 남은 에너지를 관리합니다.</p>
+              </div>
+            </div>
+
+            {/* 잔여 에너지 상태 카드 및 테스트 버튼 (+10 / -10) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-5 bg-[#0b0f19] border border-slate-800 rounded-xl flex flex-col justify-between space-y-4">
+                <div>
+                  <p className="text-xs text-slate-400">현재 잔여 에너지</p>
+                  <p className="text-2xl font-black text-cyan-400 mt-1">{subscriptionInfo.credit_balance} <span className="text-xs font-normal text-slate-400">Energy</span></p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    type="button" 
+                    onClick={handleTestAddCredit}
+                    className="flex-1 px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-xs font-medium rounded-lg text-emerald-300 transition flex items-center justify-center gap-1"
+                  >
+                    <PlusCircle size={14} /> 에너지 충전 (+10)
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleTestUseCredit}
+                    className="flex-1 px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-xs font-medium rounded-lg text-rose-300 transition flex items-center justify-center gap-1"
+                  >
+                    <MinusCircle size={14} /> 에너지 차감 (-10)
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 bg-[#0b0f19] border border-slate-800 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-400">현재 이용 중인 플랜</p>
+                  <p className="text-lg font-bold text-amber-400 mt-1">
+                    {subscriptionInfo.subscription ? `${subscriptionInfo.subscription.plan_type} 플랜 (활성)` : 'FREE 플랜 (무료)'}
+                  </p>
+                </div>
+                {subscriptionInfo.subscription && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                    만료: {new Date(subscriptionInfo.subscription.expires_at).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 요금제 선택 / 즉시 변경 버튼 영역 */}
+            <div className="space-y-3 pt-2">
+              <h3 className="text-xs font-semibold text-slate-300">플랜 즉시 변경 (테스트용 간편 전환)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Free 플랜 */}
+                <div className="p-5 bg-[#0b0f19] border border-slate-800 rounded-xl flex flex-col justify-between space-y-4">
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Starter</span>
+                    <h4 className="text-base font-bold text-white">Free 플랜</h4>
+                    <p className="text-xs text-slate-400">기본 기능 제공 및 매월 에너지 50개 지급</p>
+                  </div>
+                  <button 
+                    type="button"
+                    disabled={isSubLoading}
+                    onClick={() => handleMockPlanChange('FREE')}
+                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs transition disabled:opacity-50"
+                  >
+                    Free 플랜 적용하기 (에너지 50)
+                  </button>
+                </div>
+
+                {/* Pro 플랜 */}
+                <div className="p-5 bg-[#0b0f19] border border-amber-500/30 rounded-xl flex flex-col justify-between space-y-4 relative overflow-hidden shadow-lg shadow-amber-500/5">
+                  <div className="absolute top-0 right-0 bg-amber-500 text-slate-950 font-black text-[9px] px-3 py-0.5 rounded-bl-lg uppercase tracking-wider">Popular</div>
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Professional</span>
+                    <h4 className="text-base font-bold text-white">Pro 플랜 (9,900원 상당)</h4>
+                    <p className="text-xs text-slate-400">매월 에너지 500개 + 모든 AI 고급 기능 무제한 이용</p>
+                  </div>
+                  <button 
+                    type="button"
+                    disabled={isSubLoading}
+                    onClick={() => handleMockPlanChange('PRO')}
+                    className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs shadow-md shadow-amber-600/30 transition disabled:opacity-50"
+                  >
+                    {isSubLoading ? '처리 중...' : 'Pro 플랜 즉시 적용 (에너지 500)'}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        )}
+
         {/* 회원 탈퇴 */}
         <div className="pt-4 border-t border-rose-900/40">
           <div className="bg-rose-950/15 border border-rose-900/40 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -807,7 +1101,8 @@ export default function ProfileSettings() {
               <h3 className="text-sm font-bold text-rose-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> 회원 탈퇴</h3>
               <p className="text-xs text-rose-300/70">계정을 삭제하면 작성한 모든 문서 및 프로필 정보가 완전히 삭제됩니다.</p>
             </div>
-            <button type="button" onClick={handleDeleteAccount} disabled={isDeleting} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 text-white text-xs font-semibold shadow-lg transition-all shrink-0">
+            {/* 💡 window.confirm 대신 커스텀 모달 호출 */}
+            <button type="button" onClick={confirmDeleteAccount} disabled={isDeleting} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 text-white text-xs font-semibold shadow-lg transition-all shrink-0">
               <UserX className="w-4 h-4" /> <span>{isDeleting ? '탈퇴 처리 중...' : '회원 탈퇴'}</span>
             </button>
           </div>

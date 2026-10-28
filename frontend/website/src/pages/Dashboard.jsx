@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Home, FileText, UserCheck, Sparkles, Settings, 
-  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, AlertCircle 
+  Trash2, Plus, Menu, LogIn, LogOut, X, RefreshCw, AlertCircle, CheckCircle, AlertTriangle 
 } from 'lucide-react';
-// import CustomIcon from '../assets/icons.svg'; // 👈 만약 src/assets에 넣으셨다면 임포트해서 사용 가능합니다.
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -27,6 +26,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+
+  // 💡 웹사이트 전용 토스트 알림 상태
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  const showWebAlert = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 3500);
+  };
+
+  // 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) 상태
+  const [confirmModal, setConfirmModal] = useState({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   const sidebarItems = [
     { id: 'home', label: '홈', icon: Home, path: '/' },
@@ -111,49 +128,64 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  // 게스트 확인 및 작성 제한 안내
+  // 게스트 확인 및 작성 제한 안내 (커스텀 모달 적용)
   const handleCreateNewDocument = (type = 'resume') => {
     if (!isLoggedIn) {
-      if (window.confirm('게스트 상태에서는 새 문서를 생성하거나 저장할 수 없습니다.\n로그인 페이지로 이동하시겠습니까?')) {
-        navigate('/login');
-      }
+      setConfirmModal({
+        show: true,
+        title: '로그인 필요',
+        message: '게스트 상태에서는 새 문서를 생성하거나 저장할 수 없습니다.\n로그인 페이지로 이동하시겠습니까?',
+        onConfirm: () => navigate('/login')
+      });
       return;
     }
     navigate(type === 'resume' ? '/resume/new' : '/cover-letter/new');
   };
 
-  // 2. 문서 실제 삭제 함수
-  const handleDeleteDoc = async (e, doc) => {
+  // 2. 문서 실제 삭제 함수 (커스텀 모달 적용)
+  const handleDeleteDoc = (e, doc) => {
     e.stopPropagation(); // 카드 이동 클릭 방지
-    if (!window.confirm(`'${doc.title}' 문서를 삭제하시겠습니까?`)) return;
+    setConfirmModal({
+      show: true,
+      title: '문서 삭제',
+      message: `'${doc.title}' 문서를 삭제하시겠습니까?`,
+      onConfirm: async () => {
+        try {
+          const endpoint = doc.type === 'resume' 
+            ? `${API_URL}/api/resumes/${doc.id}` 
+            : `${API_URL}/api/cover-letters/${doc.id}`;
 
-    try {
-      const endpoint = doc.type === 'resume' 
-        ? `${API_URL}/api/resumes/${doc.id}` 
-        : `${API_URL}/api/cover-letters/${doc.id}`;
-
-      const res = await fetch(endpoint, { method: 'DELETE' });
-      if (res.ok) {
-        setDocuments((prev) => prev.filter((d) => !(d.id === doc.id && d.type === doc.type)));
-      } else {
-        alert('삭제 요청을 처리하지 못했습니다.');
+          const res = await fetch(endpoint, { method: 'DELETE' });
+          if (res.ok) {
+            setDocuments((prev) => prev.filter((d) => !(d.id === doc.id && d.type === doc.type)));
+            showWebAlert('문서가 성공적으로 삭제되었습니다.');
+          } else {
+            showWebAlert('삭제 요청을 처리하지 못했습니다.', 'error');
+          }
+        } catch (err) {
+          console.error('문서 삭제 오류:', err);
+          showWebAlert('삭제 중 오류가 발생했습니다.', 'error');
+        }
       }
-    } catch (err) {
-      console.error('문서 삭제 오류:', err);
-      alert('삭제 중 오류가 발생했습니다.');
-    }
+    });
   };
 
-  // 로그아웃 핸들러
+  // 로그아웃 핸들러 (커스텀 모달 적용)
   const handleLogout = () => {
-    if (window.confirm('로그아웃 하시겠습니까?')) {
-      localStorage.removeItem('userId');
-      localStorage.removeItem('user');
-      setIsLoggedIn(false);
-      setUserName('게스트');
-      setUserEmail('');
-      navigate('/login');
-    }
+    setConfirmModal({
+      show: true,
+      title: '로그아웃',
+      message: '정말로 로그아웃 하시겠습니까?',
+      onConfirm: () => {
+        localStorage.removeItem('userId');
+        localStorage.removeItem('user');
+        setIsLoggedIn(false);
+        setUserName('게스트');
+        setUserEmail('');
+        showWebAlert('성공적으로 로그아웃되었습니다.');
+        navigate('/login');
+      }
+    });
   };
 
   // 필터링 로직
@@ -164,8 +196,56 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden relative">
       
+      {/* 💡 웹사이트 전용 토스트 알림 */}
+      {toast.show && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-[#0f1423] border border-slate-700/80 rounded-2xl shadow-2xl animate-fade-in text-sm font-medium text-white">
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle className="w-5 h-5 text-cyan-400 shrink-0" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) */}
+      {confirmModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
+                <AlertTriangle size={20} />
+              </div>
+              <h3 className="text-base font-bold text-slate-100">{confirmModal.title}</h3>
+            </div>
+            <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">
+              {confirmModal.message}
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, show: false }))}
+                className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold rounded-xl text-xs transition"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(prev => ({ ...prev, show: false }));
+                }}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-red-600/30 transition"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. 사이드바 (차콜 딥 네이비 톤) */}
       <aside 
         className={`${
@@ -227,25 +307,22 @@ export default function Dashboard() {
       {/* 2. 메인 콘텐츠 영역 */}
       <div className="flex-1 flex flex-col p-6 md:p-8 overflow-y-auto max-w-6xl mx-auto w-full">
         
-        {/* 상단 로고 영역 (만드신 icons.svg 적용) */}
+        {/* 상단 로고 영역 */}
         <div className="flex flex-col mb-6">
-  <div className="flex items-center gap-3">
-    <h1 className="text-xl md:text-2xl font-black tracking-wider text-slate-100">
-      CAREER <span className="text-purple-400">IT</span>
-    </h1>
-    
-    {/* 뱃지와 타이틀이 답답하게 붙지 않도록 간격과 패딩을 세련되게 조정 */}
-    <span className="text-xs px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-semibold tracking-wide shadow-sm shadow-cyan-950/50">
-      HOME
-    </span>
-  </div>
-  
-  <span className="text-[10px] font-semibold tracking-widest text-purple-300/80 uppercase mt-1">
-    Resume & CoverLetter Service
-  </span>
-</div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl md:text-2xl font-black tracking-wider text-slate-100">
+              CAREER <span className="text-purple-400">IT</span>
+            </h1>
+            <span className="text-xs px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-semibold tracking-wide shadow-sm shadow-cyan-950/50">
+              HOME
+            </span>
+          </div>
+          <span className="text-[10px] font-semibold tracking-widest text-purple-300/80 uppercase mt-1">
+            Resume & CoverLetter Service
+          </span>
+        </div>
         
-        {/* 상단 프로필 헤더 (보라 & 딥 네이비 배경) */}
+        {/* 상단 프로필 헤더 */}
         <div className="bg-[#0f152d] border border-indigo-900/40 rounded-2xl p-5 md:p-6 shadow-lg mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="relative flex-shrink-0">
@@ -320,7 +397,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 탭 필터 및 생성 버튼 (시안 파랑 포인트) */}
+        {/* 탭 필터 및 생성 버튼 */}
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-1.5 p-1 bg-[#0a1024] border border-indigo-950/80 rounded-xl w-fit">
             {[
@@ -342,7 +419,6 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* 로그인 회원에게만 새 문서 생성 버튼 허용 */}
           {isLoggedIn && (
             <div className="flex items-center gap-2">
               <button
@@ -382,7 +458,7 @@ export default function Dashboard() {
               filteredDocs.map((doc) => (
                 <div
                   key={`${doc.type}-${doc.id}`}
-                  onClick={() => navigate(doc.path)} // 카드 클릭 시 상세(detail) 페이지 이동
+                  onClick={() => navigate(doc.path)}
                   className="group bg-[#0f152d]/80 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-5 transition-all duration-200 hover:shadow-xl hover:shadow-slate-950/60 flex items-center justify-between cursor-pointer"
                 >
                   <div className="flex items-center gap-4">
@@ -409,12 +485,11 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* 설정 아이콘 클릭 시 /edit 페이지로 직접 이동 */}
                   <div className="flex items-center gap-2 text-slate-400">
                     <button 
                       onClick={(e) => {
-                        e.stopPropagation(); // 카드 전체 클릭 이벤트 전파 방지
-                        navigate(doc.editPath); // /edit 경로로 이동
+                        e.stopPropagation();
+                        navigate(doc.editPath);
                       }}
                       className="p-2.5 hover:bg-slate-800 hover:text-cyan-300 rounded-xl transition"
                       title="수정 화면으로 이동 (Edit)"

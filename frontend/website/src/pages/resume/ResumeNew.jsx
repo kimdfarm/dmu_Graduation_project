@@ -42,22 +42,22 @@ const ResumeNew = () => {
   const [columnInput, setColumnInput] = useState('');
   const [customColumnsList, setCustomColumnsList] = useState(['제목/역할', '참여 기간', '상세 업무 및 성과']);
 
-  // GitHub 연동 및 다중 선택 전용 상태
+  // GitHub 연동 및 상태
   const [githubUser, setGithubUser] = useState(null);
   const [repositories, setRepositories] = useState([]);
-
   const [repoSearchKeyword, setRepoSearchKeyword] = useState('');
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
-
-  const [extractionTime, setExtractionTime] = useState('');
-
   const [selectedRepos, setSelectedRepos] = useState([]);
+  
+  // 💡 토큰 분석량 및 에너지 견적 관련 상태
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [estimationResult, setEstimationResult] = useState(null); // { tokens, energy, projects_data }
+  const [creditBalance, setCreditBalance] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
   
   const [searchMode, setSearchMode] = useState('relative');
-  
   const [years, setYears] = useState(0);
   const [months, setMonths] = useState(6);
 
@@ -74,117 +74,7 @@ const ResumeNew = () => {
   const initialDates = getInitialDates();
   const [startDate, setStartDate] = useState(initialDates.start);
   const [endDate, setEndDate] = useState(initialDates.end);
-
   const [activeFilterText, setActiveFilterText] = useState('최근 6개월 기준 탐색 결과');
-
-  const handleSearch = () => {
-    let activeStart = startDate;
-    let activeEnd = endDate;
-
-    if (searchMode === 'relative') {
-      const totalMonths = (parseInt(years, 10) || 0) * 12 + (parseInt(months, 10) || 0);
-      const validMonths = totalMonths > 0 ? totalMonths : 1;
-
-      const today = new Date();
-      const pastDate = new Date();
-      pastDate.setMonth(today.getMonth() - validMonths);
-
-      activeEnd = today.toISOString().split('T')[0];
-      activeStart = pastDate.toISOString().split('T')[0];
-
-      setStartDate(activeStart);
-      setEndDate(activeEnd);
-
-      const label = years > 0 ? `최근 ${years}년 ${months}개월` : `최근 ${months}개월`;
-      setActiveFilterText(`${label} 기준 탐색 결과`);
-    } else {
-      setActiveFilterText(`${startDate} ~ ${endDate} 상세 기간 탐색 결과`);
-    }
-
-    fetchUserRepositories(githubUser, null, { 
-      startDate: activeStart, 
-      endDate: activeEnd 
-    });
-  };
-
-  const handleDirectGenerateResume = async () => {
-    if (selectedRepos.length === 0) {
-      alert("분석할 저장소를 1개 이상 선택해 주세요.");
-      return;
-    }
-
-    const userId = localStorage.getItem('userId');
-    const githubId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
-
-    if (!userId || !githubId) {
-      alert('GitHub 계정 연동 정보가 올바르지 않습니다. 다시 로그인해 주세요.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setErrorMessage('');
-
-      const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
-
-      setLoadingText(`${selectedRepos.length}개 저장소 데이터 분석 중...`);
-      const analyzePromises = selectedRepos.map(repoName => 
-        fetch(`${BASE_URL}/api/github/analyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            github_id: String(githubId),
-            repo_name: String(repoName),
-            start_date: startDate || "",
-            end_date: endDate || "",
-            extraction_time: extractionTime || ""
-          })
-        }).then(async res => {
-          if (!res.ok) {
-            const errorData = await res.json().catch(() => ({}));
-            const detailMsg = errorData.detail || `분석 실패 (${res.status})`;
-            throw new Error(`[${repoName}] ${detailMsg}`);
-          }
-          return res.json();
-        })
-      );
-      const results = await Promise.all(analyzePromises);
-
-      setLoadingText("AI 이력서 카드 생성 중...");
-      const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          member_id: userId,
-          title: title.trim() || `github 저장소 기반 기술 이력서`,
-          category: category,
-          repo_name: selectedRepos.join(', '),
-          analysis_data: { projects_data: results }
-        })
-      });
-
-      if (!generateRes.ok) {
-        const errorData = await generateRes.json();
-        throw new Error(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
-      }
-
-      const result = await generateRes.json();
-
-      if (result && result.id) {
-        navigate(`/resume/${result.id}`);
-      }
-
-    } catch (error) {
-      console.error("원클릭 이력서 생성 실패:", error);
-      alert(error.message || "이력서 생성 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-      setLoadingText('');
-    }
-  };
 
   useEffect(() => {
     if (createMode === 'GITHUB' && githubUser) {
@@ -208,7 +98,24 @@ const ResumeNew = () => {
     if (FRAME_TEMPLATES[selectedFrame]) {
       setSections([...FRAME_TEMPLATES[selectedFrame].sections]);
     }
+
+    const userId = localStorage.getItem('userId');
+    if (userId) {
+      fetch(`${BASE_URL}/api/subscription/${userId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data.credit_balance === 'number') {
+            setCreditBalance(data.credit_balance);
+          }
+        })
+        .catch(err => console.error("구독 정보 조회 실패:", err));
+    }
   }, [selectedFrame, createMode, githubUser]);
+
+  // 저장소 선택이 바뀌면 기존 계산된 견적 초기화 (재계산 필요 유도)
+  useEffect(() => {
+    setEstimationResult(null);
+  }, [selectedRepos, startDate, endDate]);
 
   const handleSelectGithubMode = () => {
     const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
@@ -258,11 +165,171 @@ const ResumeNew = () => {
 
       setRepositories(repoList);
       setSelectedRepos([]);
+      setEstimationResult(null);
     } catch (err) {
       console.error("저장소 조회 에러:", err);
       setErrorMessage(err.message);
     } finally {
       setIsFetchingRepos(false);
+    }
+  };
+
+  const handleSearch = () => {
+    let activeStart = startDate;
+    let activeEnd = endDate;
+
+    if (searchMode === 'relative') {
+      const totalMonths = (parseInt(years, 10) || 0) * 12 + (parseInt(months, 10) || 0);
+      const validMonths = totalMonths > 0 ? totalMonths : 1;
+
+      const today = new Date();
+      const pastDate = new Date();
+      pastDate.setMonth(today.getMonth() - validMonths);
+
+      activeEnd = today.toISOString().split('T')[0];
+      activeStart = pastDate.toISOString().split('T')[0];
+
+      setStartDate(activeStart);
+      setEndDate(activeEnd);
+
+      const label = years > 0 ? `최근 ${years}년 ${months}개월` : `최근 ${months}개월`;
+      setActiveFilterText(`${label} 기준 탐색 결과`);
+    } else {
+      setActiveFilterText(`${startDate} ~ ${endDate} 상세 기간 탐색 결과`);
+    }
+
+    fetchUserRepositories(githubUser, null, { 
+      startDate: activeStart, 
+      endDate: activeEnd 
+    });
+  };
+
+  // 💡 [핵심] 분석량 및 에너지 사전 계산 함수
+  const handleEstimateCost = async () => {
+    if (selectedRepos.length === 0) {
+      alert("분석할 저장소를 1개 이상 선택해 주세요.");
+      return;
+    }
+
+    const userId = localStorage.getItem('userId');
+    const githubId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
+    const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
+
+    if (!userId || !githubId) {
+      alert('GitHub 계정 연동 정보가 올바르지 않습니다.');
+      return;
+    }
+
+    try {
+      setIsEstimating(true);
+      setErrorMessage('');
+
+      // 1. 선택된 저장소들의 원본 데이터 병렬 분석 fetch
+      const analyzePromises = selectedRepos.map(repoName => 
+        fetch(`${BASE_URL}/api/github/analyze`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            github_id: String(githubId),
+            repo_name: String(repoName),
+            start_date: startDate || "",
+            end_date: endDate || ""
+          })
+        }).then(async res => {
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || `[${repoName}] 분석 실패`);
+          }
+          return res.json();
+        })
+      );
+
+      const projectsData = await Promise.all(analyzePromises);
+
+      // 2. 백엔드 견적 엔드포인트 호출
+      const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_data: { projects_data: projectsData } })
+      });
+
+      if (!estimateRes.ok) {
+        const errData = await estimateRes.json();
+        throw new Error(errData.detail || '토큰 견적 계산에 실패했습니다.');
+      }
+
+      const estimateData = await estimateRes.json();
+
+      setEstimationResult({
+        tokens: estimateData.estimated_tokens,
+        energy: estimateData.energy_cost,
+        projects_data: projectsData
+      });
+
+    } catch (err) {
+      console.error("분석량 계산 실패:", err);
+      alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
+    } finally {
+      setIsEstimating(false);
+    }
+  };
+
+  // 💡 최종 이력서 생성 (계산된 projects_data 재사용)
+  const handleDirectGenerateResume = async () => {
+    if (!estimationResult || !estimationResult.projects_data) {
+      alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
+      return;
+    }
+
+    // 에너지 잔여량 비교 검증 (5,000토큰당 1에너지)
+    const requiredEnergy = estimationResult.energy;
+    if (creditBalance !== null && creditBalance < requiredEnergy) {
+      alert(`에너지가 부족합니다. (필요: ${requiredEnergy}회, 잔여: ${creditBalance}회) 에너지를 충전해 주세요.`);
+      navigate('/ProfileSettings');
+      return;
+    }
+
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      alert('로그인 정보가 없습니다.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setLoadingText("AI 이력서 카드 생성 및 에너지 차감 중...");
+
+      const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          member_id: userId,
+          title: title.trim() || `GitHub 기반 기술 이력서`,
+          category: category,
+          repo_name: selectedRepos.join(', '),
+          analysis_data: { projects_data: estimationResult.projects_data }
+        })
+      });
+
+      if (!generateRes.ok) {
+        const errorData = await generateRes.json();
+        throw new Error(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
+      }
+
+      const result = await generateRes.json();
+      if (result && result.id) {
+        navigate(`/resume/${result.id}`);
+      }
+
+    } catch (error) {
+      console.error("원클릭 이력서 생성 실패:", error);
+      alert(error.message || "이력서 생성 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+      setLoadingText('');
     }
   };
 
@@ -371,37 +438,14 @@ const ResumeNew = () => {
       setIsLoading(true);
       setErrorMessage('');
 
-      if (createMode === 'GITHUB') {
-        if (selectedRepos.length === 0) {
-          alert('분석할 저장소를 1개 이상 선택해 주세요.');
+      if (createMode === 'UPLOAD') {
+        if (!selectedFile) { alert('분석할 이력서 파일이나 이미지를 등록해 주세요.'); setIsLoading(false); return; }
+        
+        if (creditBalance !== null && creditBalance < 15) {
+          alert('에너지가 부족합니다.');
           setIsLoading(false);
           return;
         }
-
-        const requestData = {
-          member_id: userId,
-          title: title.trim(),
-          category: category,
-          repo_name: selectedRepos.join(', '),
-          analysis_data: analysisResult
-        };
-        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${API_URL}/api/resumes/github-generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestData),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'GitHub 데이터 기반 이력서 생성에 실패했습니다.');
-        }
-
-        const result = await response.json();
-        if (result && result.id) navigate(`/resume/${result.id}`);
-
-      } else if (createMode === 'UPLOAD') {
-        if (!selectedFile) { alert('분석할 이력서 파일이나 이미지를 등록해 주세요.'); setIsLoading(false); return; }
 
         const formData = new FormData();
         formData.append('member_id', userId);
@@ -409,8 +453,7 @@ const ResumeNew = () => {
         formData.append('category', category);
         formData.append('file', selectedFile);
 
-        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${API_URL}/api/resumes/upload`, { method: 'POST', body: formData });
+        const response = await fetch(`${BASE_URL}/api/resumes/upload`, { method: 'POST', body: formData });
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.detail || '파일 기반 이력서 파싱에 실패했습니다.');
@@ -418,8 +461,14 @@ const ResumeNew = () => {
         const result = await response.json();
         if (result && result.id) navigate(`/resume/${result.id}`);
 
-      } else {
+      } else if (createMode === 'MANUAL') {
         if (sections.length === 0) { alert('최소 1개 이상의 섹션이 필요합니다.'); setIsLoading(false); return; }
+        
+        if (creditBalance !== null && creditBalance < 20) {
+          alert('에너지가 부족합니다.');
+          setIsLoading(false);
+          return;
+        }
 
         const formattedSections = sections.map((sec, idx) => ({
           section_type: sec.type || 'CUSTOM',
@@ -428,8 +477,7 @@ const ResumeNew = () => {
           display_order: idx + 1
         }));
 
-        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${API_URL}/api/resumes`, {
+        const response = await fetch(`${BASE_URL}/api/resumes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ member_id: userId, title: title.trim(), category, custom_sections: formattedSections }),
@@ -478,9 +526,16 @@ const ResumeNew = () => {
             <span>돌아가기</span>
           </button>
           
-          <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
-            Resume Builder
-          </span>
+          <div className="flex items-center gap-3">
+            {creditBalance !== null && (
+              <span className="text-[11px] font-bold px-3 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-full">
+                ⚡ 잔여 에너지: {creditBalance}회
+              </span>
+            )}
+            <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
+              Resume Builder
+            </span>
+          </div>
         </div>
 
         {/* 타이틀 영역 */}
@@ -494,7 +549,7 @@ const ResumeNew = () => {
           </p>
         </div>
 
-        {/* 모드 전환 탭 (에메랄드/민트 브랜드 톤앤매너 적용) */}
+        {/* 모드 전환 탭 */}
         <div className="grid grid-cols-3 gap-2 p-1.5 bg-[#0a1024] border border-emerald-950/80 rounded-2xl text-xs font-semibold shadow-inner">
           <button
             type="button"
@@ -542,7 +597,7 @@ const ResumeNew = () => {
 
         <form onSubmit={handleSubmit} className="space-y-8">
           
-          {/* 기본 정보 입력 (제목 & 카테고리) */}
+          {/* 기본 정보 입력 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-200">
@@ -553,7 +608,7 @@ const ResumeNew = () => {
                 placeholder="예: 2026 백엔드 신입 지원서"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || loading}
                 className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-500 shadow-md"
                 required
               />
@@ -564,7 +619,7 @@ const ResumeNew = () => {
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || loading}
                 className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all shadow-md"
               >
                 {categoryOptions.map((opt) => (
@@ -574,7 +629,7 @@ const ResumeNew = () => {
             </div>
           </div>
 
-          {/* TAB 1: MANUAL (수동 프레임 및 컬럼 설정) */}
+          {/* TAB 1: MANUAL */}
           {createMode === 'MANUAL' && (
             <div className="space-y-6 pt-2">
               <div className="space-y-3">
@@ -617,7 +672,7 @@ const ResumeNew = () => {
                 <div className="space-y-3">
                   <input
                     type="text"
-                    placeholder="섹션 이름 (예: 자격증 및 언어, 수상 내역, 프로젝트)"
+                    placeholder="섹션 이름 (예: 프로젝트)"
                     value={customSectionTitle}
                     onChange={(e) => setCustomSectionTitle(e.target.value)}
                     className="w-full px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
@@ -625,25 +680,25 @@ const ResumeNew = () => {
                   <div className="flex flex-col sm:flex-row gap-2 w-full">
                     <input
                       type="text"
-                      placeholder="추가할 컬럼 항목명 (예: 자격증명, 취득일자)"
+                      placeholder="추가할 컬럼 항목명"
                       value={columnInput}
                       onChange={(e) => setColumnInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddColumnTag(); } }}
-                      className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 min-w-0 transition"
+                      className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
                     />
                     <button
                       type="button"
                       onClick={handleAddColumnTag}
-                      className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0 whitespace-nowrap transition"
+                      className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0"
                     >
-                      <Plus className="w-3.5 h-3.5" /> 컬럼 항목 추가
+                      <Plus className="w-3.5 h-3.5" /> 컬럼 추가
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {customColumnsList.map((col, cIdx) => (
                       <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#070b19] border border-emerald-900/60 text-emerald-300 text-xs rounded-lg font-medium">
                         📌 {col}
-                        <button type="button" onClick={() => handleRemoveColumnTag(cIdx)} className="hover:text-rose-400 transition-colors">
+                        <button type="button" onClick={() => handleRemoveColumnTag(cIdx)} className="hover:text-rose-400">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </span>
@@ -652,16 +707,15 @@ const ResumeNew = () => {
                   <button
                     type="button"
                     onClick={handleAddSection}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 mt-2"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 mt-2"
                   >
-                    <Plus className="w-4 h-4" /> 전체 섹션 목록에 추가하기
+                    <Plus className="w-4 h-4" /> 전체 섹션에 추가하기
                   </button>
                 </div>
               </div>
 
-              {/* 반영된 전체 섹션 */}
               <div className="space-y-3 pt-3 border-t border-emerald-950/60">
-                <p className="text-xs font-bold text-slate-300">현재 이력서에 반영될 최종 섹션 ({sections.length}개)</p>
+                <p className="text-xs font-bold text-slate-300">현재 반영될 섹션 ({sections.length}개)</p>
                 <div className="space-y-2.5">
                   {sections.map((sec, idx) => (
                     <div key={idx} className="p-4 rounded-2xl border bg-[#0a1024] border-emerald-950/80 text-xs space-y-2.5">
@@ -670,13 +724,13 @@ const ResumeNew = () => {
                           <Table className="w-4 h-4 text-emerald-400 shrink-0" />
                           <span className="font-bold text-slate-100 text-sm">{sec.title}</span>
                         </div>
-                        <button type="button" onClick={() => handleDeleteSection(idx)} className="text-slate-500 hover:text-rose-400 p-1 transition-all">
+                        <button type="button" onClick={() => handleDeleteSection(idx)} className="text-slate-500 hover:text-rose-400 p-1">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {sec.columns?.map((col, cIdx) => (
-                          <span key={cIdx} className="px-2.5 py-1 bg-[#070b19] border border-emerald-950 text-emerald-300 text-[11px] rounded-lg font-medium">
+                          <span key={cIdx} className="px-2.5 py-1 bg-[#070b19] border border-emerald-950 text-emerald-300 text-[11px] rounded-lg">
                             📌 {col}
                           </span>
                         ))}
@@ -688,7 +742,7 @@ const ResumeNew = () => {
             </div>
           )}
 
-          {/* TAB 2: UPLOAD (파일 / 이미지 파싱) */}
+          {/* TAB 2: UPLOAD */}
           {createMode === 'UPLOAD' && (
             <div className="space-y-3 pt-2">
               <label className="block text-xs font-bold text-slate-200">기존 이력서 파일/이미지 등록</label>
@@ -704,7 +758,7 @@ const ResumeNew = () => {
                   <input
                     type="file"
                     id="resume-file-input"
-                    accept=".pdf,.doc,.docx,.hwp,.hwpx,.txt,.rtf,.png,.jpg,.jpeg,.webp,.bmp,.heic,.heif,.tiff,image/*"
+                    accept=".pdf,.doc,.docx,.hwp,.hwpx,.txt,.rtf,.png,.jpg,.jpeg,.webp,.bmp,image/*"
                     onChange={(e) => handleFileSelect(e.target.files[0])}
                     className="hidden"
                   />
@@ -714,7 +768,7 @@ const ResumeNew = () => {
                     </div>
                     <div className="space-y-1">
                       <p className="text-sm font-bold text-slate-100">클릭하여 파일 선택 또는 드래그 & 드롭</p>
-                      <p className="text-xs text-emerald-400 font-medium">PDF · Word · 한글(HWP/HWPX) · 이미지 파싱 지원</p>
+                      <p className="text-xs text-emerald-400 font-medium">PDF · Word · 한글(HWP) · 이미지 파싱 지원</p>
                     </div>
                   </label>
                 </div>
@@ -729,18 +783,11 @@ const ResumeNew = () => {
                       </div>
                     )}
                     <div className="truncate">
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs font-bold text-slate-100 truncate">{selectedFile.name}</p>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${fileTypeBadge.color}`}>
-                          {fileTypeBadge.label}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-emerald-400 mt-1">
-                        {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · 파싱 준비 완료
-                      </p>
+                      <p className="text-xs font-bold text-slate-100 truncate">{selectedFile.name}</p>
+                      <p className="text-[11px] text-emerald-400 mt-1">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · 준비 완료</p>
                     </div>
                   </div>
-                  <button type="button" onClick={() => { setSelectedFile(null); setFilePreview(null); }} className="p-2 text-slate-400 hover:text-rose-400 transition-all">
+                  <button type="button" onClick={() => { setSelectedFile(null); setFilePreview(null); }} className="p-2 text-slate-400 hover:text-rose-400">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -748,11 +795,10 @@ const ResumeNew = () => {
             </div>
           )}
 
-          {/* TAB 3: GITHUB 활동 분석 및 저장소 선택 */}
+          {/* TAB 3: GITHUB 활동 분석 및 에너지 계산 연동 */}
           {createMode === 'GITHUB' && (
             <div className="space-y-6 pt-4 border-t border-emerald-950/60">
               
-              {/* 계정 유저 뱃지 */}
               <div className="p-4 bg-[#0a1024] border border-emerald-950/80 rounded-2xl flex items-center justify-between shadow-md">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-[#070b19] rounded-xl border border-emerald-950 text-emerald-400">
@@ -768,306 +814,108 @@ const ResumeNew = () => {
                 </span>
               </div>
 
-              {/* 활동 분석 기간 설정 카드 */}
+              {/* 기간 설정 컴포넌트 */}
               <div className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-5 md:p-6 space-y-4 text-white shadow-md">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-950/60 pb-4">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-emerald-400" />
                     <h3 className="text-xs font-bold text-slate-100">활동 분석 기간 설정</h3>
                   </div>
-
                   <div className="flex items-center gap-1.5 px-3 py-1 bg-[#070b19] border border-emerald-950 rounded-full text-[11px] text-emerald-300 font-medium">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>현재 적용: <strong className="text-white font-bold">{activeFilterText}</strong></span>
+                    <span>적용 기간: <strong className="text-white">{activeFilterText}</strong></span>
                   </div>
                 </div>
 
-                {/* 모드 선택 스위치 */}
                 <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#070b19] rounded-xl border border-emerald-950">
                   <button
                     type="button"
                     onClick={() => setSearchMode('relative')}
-                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                      searchMode === 'relative'
-                        ? 'bg-emerald-600 text-white shadow-md'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    className={`py-2 text-xs font-bold rounded-lg transition-all ${searchMode === 'relative' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400'}`}
                   >
-                    <Clock className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>최근 기간으로 설정</span>
+                    최근 기간 설정
                   </button>
                   <button
                     type="button"
                     onClick={() => setSearchMode('custom')}
-                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                      searchMode === 'custom'
-                        ? 'bg-emerald-600 text-white shadow-md'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    className={`py-2 text-xs font-bold rounded-lg transition-all ${searchMode === 'custom' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400'}`}
                   >
-                    <Calendar className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>상세 날짜 직접 지정</span>
+                    상세 날짜 직접 지정
                   </button>
                 </div>
 
-                {/* 모드별 입력 폼 */}
-                <div className="pt-2">
-                  {searchMode === 'relative' ? (
-                    <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 md:p-5 space-y-4">
-                      
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/80 pb-3.5">
-                        <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-emerald-400" />
-                          탐색 기간 설정
-                        </span>
-                        
-                        <div className="flex items-center gap-1.5">
-                          {[
-                            { label: '3개월', y: 0, m: 3 },
-                            { label: '6개월', y: 0, m: 6 },
-                            { label: '1년', y: 1, m: 0 },
-                            { label: '2년', y: 2, m: 0 },
-                          ].map((preset) => {
-                            const isActive = years === preset.y && months === preset.m;
-                            return (
-                              <button
-                                key={preset.label}
-                                type="button"
-                                onClick={() => {
-                                  setYears(preset.y);
-                                  setMonths(preset.m);
-                                }}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                  isActive
-                                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                                    : 'bg-[#0a1024] text-emerald-300 hover:bg-emerald-950/40 border border-emerald-900/40'
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0a1024] border border-emerald-950 rounded-xl p-3.5 w-full">
-                        <p className="text-xs font-medium text-slate-400 text-center md:text-left leading-relaxed flex-1">
-                          기준 시점으로부터 <strong className="text-emerald-400 font-bold">과거 기간</strong>을 직접 조정하세요.
-                        </p>
-
-                        <div className="flex flex-wrap items-center justify-center gap-2.5 w-full md:w-auto shrink-0">
-                          <span className="text-xs text-slate-400 font-medium hidden sm:inline">최근</span>
-                          
-                          <div className="flex items-center gap-1 bg-[#070b19] border border-emerald-950 rounded-xl p-1">
-                            <button
-                              type="button"
-                              onClick={() => setYears(Math.max(0, years - 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
-                            >
-                              -
-                            </button>
-                            <input
-                              type="number"
-                              min="0"
-                              value={years}
-                              onChange={(e) => setYears(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setYears(years + 1)}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
-                            >
-                              +
-                            </button>
-                            <span className="pr-1.5 text-xs font-bold text-emerald-300">년</span>
-                          </div>
-
-                          <div className="flex items-center gap-1 bg-[#070b19] border border-emerald-950 rounded-xl p-1">
-                            <button
-                              type="button"
-                              onClick={() => setMonths(Math.max(0, months - 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
-                            >
-                              -
-                            </button>
-                            <input
-                              type="number"
-                              min="0"
-                              max="12"
-                              value={months}
-                              onChange={(e) => setMonths(Math.max(0, Math.min(12, parseInt(e.target.value) || 0)))}
-                              className="w-10 sm:w-12 h-7 sm:h-8 text-center bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setMonths(Math.min(12, months + 1))}
-                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 flex items-center justify-center text-sm font-bold transition"
-                            >
-                              +
-                            </button>
-                            <span className="pr-1.5 text-xs font-bold text-emerald-300">개월</span>
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  ) : (
-                    /* 상세 날짜 지정 모드 */
-                    <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 md:p-5 grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                          탐색 시작일
-                        </label>
-                        <input
-                          type="date"
-                          value={startDate}
-                          max={endDate || undefined}
-                          onClick={(e) => e.target.showPicker?.()}
-                          onChange={(e) => {
-                            const newStart = e.target.value;
-                            setStartDate(newStart);
-                            if (endDate && newStart > endDate) setEndDate(newStart);
-                          }}
-                          className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 [color-scheme:dark]"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                          탐색 종료일
-                        </label>
-                        <input
-                          type="date"
-                          value={endDate}
-                          min={startDate || undefined}
-                          onClick={(e) => e.target.showPicker?.()}
-                          onChange={(e) => {
-                            const newEnd = e.target.value;
-                            if (startDate && newEnd < startDate) setEndDate(startDate);
-                            else setEndDate(newEnd);
-                          }}
-                          className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 [color-scheme:dark]"
-                        />
+                {searchMode === 'relative' ? (
+                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200">단축 선택</span>
+                      <div className="flex gap-1.5">
+                        {[{ label: '3개월', m: 3 }, { label: '6개월', m: 6 }, { label: '1년', y: 1, m: 0 }].map((p) => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={() => { setYears(p.y || 0); setMonths(p.m || 0); }}
+                            className="px-3 py-1 rounded-xl text-xs font-semibold bg-[#0a1024] text-emerald-300 border border-emerald-900/40 hover:bg-emerald-950/40"
+                          >
+                            {p.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 grid grid-cols-2 gap-4">
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
+                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
+                  </div>
+                )}
 
-                <button
-                  type="button"
-                  onClick={handleSearch}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 active:scale-[0.99]"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>{searchMode === 'relative' ? '최근 기간으로 저장소 탐색' : '상세 지정 기간으로 저장소 탐색'}</span>
+                <button type="button" onClick={handleSearch} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2">
+                  <Search className="w-3.5 h-3.5" /> 저장소 목록 탐색하기
                 </button>
               </div>
 
-              {/* 검색 및 전체 선택 */}
+              {/* 저장소 검색 & 선택 */}
               <div className="flex items-center justify-between gap-2.5 pt-2">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 text-emerald-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="저장소 이름 또는 설명으로 검색..."
+                    placeholder="저장소 검색..."
                     value={repoSearchKeyword}
                     onChange={(e) => setRepoSearchKeyword(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 text-xs text-white bg-[#0a1024] border border-emerald-950 rounded-xl focus:outline-none focus:border-emerald-500 placeholder:text-slate-500 shadow-md"
+                    className="w-full pl-10 pr-4 py-3 text-xs text-white bg-[#0a1024] border border-emerald-950 rounded-xl focus:outline-none focus:border-emerald-500 shadow-md"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSelectAllRepos}
-                  className="px-4 py-3 bg-[#0a1024] hover:bg-emerald-950/40 border border-emerald-950 text-emerald-300 text-xs font-bold rounded-xl transition shrink-0"
-                >
-                  {selectedRepos.length === filteredRepositories.length && filteredRepositories.length > 0 ? '전체 해제' : '전체 선택'}
+                <button type="button" onClick={handleSelectAllRepos} className="px-4 py-3 bg-[#0a1024] border border-emerald-950 text-emerald-300 text-xs font-bold rounded-xl">
+                  {selectedRepos.length === filteredRepositories.length ? '전체 해제' : '전체 선택'}
                 </button>
               </div>
 
-              {/* 저장소 리스트 카드 */}
               {isFetchingRepos ? (
                 <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl">
                   <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">GitHub 저장소 목록을 불러오는 중...</p>
-                </div>
-              ) : filteredRepositories.length === 0 ? (
-                <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl">
-                  <p className="text-xs text-slate-400">조회된 GitHub 저장소가 없습니다.</p>
+                  <p className="text-xs text-slate-400">저장소 불러오는 중...</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
-                  {filteredRepositories.map((repo, index) => {
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+                  {filteredRepositories.map((repo) => {
                     const repoName = repo.full_name || repo.name;
                     const isSelected = selectedRepos.includes(repoName);
-
                     return (
                       <div
-                        key={repo.id || repo.full_name || index}
+                        key={repo.id || repoName}
                         onClick={() => toggleRepoSelection(repoName)}
                         className={`p-4 rounded-2xl border cursor-pointer transition flex flex-col justify-between gap-3 ${
-                          isSelected
-                            ? 'bg-emerald-950/40 border-emerald-500/80 ring-1 ring-emerald-500/80 shadow-md shadow-emerald-500/10'
-                            : 'bg-[#0a1024] border-emerald-950 hover:border-emerald-800/60'
+                          isSelected ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500 shadow-md' : 'bg-[#0a1024] border-emerald-950'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1 overflow-hidden">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-xs font-bold text-slate-100 leading-snug truncate">
-                                {repo.full_name || repo.name}
-                              </p>
-                              {repo.is_private && (
-                                <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                              )}
-                            </div>
-                            <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
-                              {repo.description || '설명 없음'}
-                            </p>
+                          <div>
+                            <p className="text-xs font-bold text-slate-100 truncate">{repoName}</p>
+                            <p className="text-[11px] text-slate-400 line-clamp-2">{repo.description || '설명 없음'}</p>
                           </div>
-
-                          <div
-                            className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition ${
-                              isSelected
-                                ? 'bg-emerald-600 border-emerald-500 text-white'
-                                : 'border-slate-700 bg-[#070b19]'
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                          </div>
-                        </div>
-
-                        {/* 카드 하단 정보 */}
-                        <div className="space-y-2 pt-3 border-t border-emerald-950/80">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <div className="flex items-center gap-1.5 text-slate-400 font-medium">
-                              <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                              <span>
-                                {formatDate(repo.created_at)} ~ {formatDate(repo.pushed_at || repo.updated_at)}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-1 text-emerald-300 font-semibold bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded-md text-[10px]">
-                              <GitCommit className="w-3 h-3 text-emerald-400" />
-                              <span>활동 {repo.activity_count ?? repo.commit_count ?? 0}회</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between pt-0.5">
-                            <div>
-                              {repo.language && (
-                                <span className="px-2.5 py-0.5 bg-[#070b19] border border-emerald-950 text-emerald-300 rounded-md text-[10px] font-medium">
-                                  {repo.language}
-                                </span>
-                              )}
-                            </div>
-                            {repo.stargazers_count > 0 && (
-                              <span className="flex items-center gap-1 text-amber-400 text-[10px] font-semibold">
-                                <Star className="w-3 h-3 fill-amber-400" /> {repo.stargazers_count}
-                              </span>
-                            )}
+                          <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 ${isSelected ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-slate-700 bg-[#070b19]'}`}>
+                            {isSelected && <Check className="w-3.5 h-3.5" />}
                           </div>
                         </div>
                       </div>
@@ -1075,43 +923,79 @@ const ResumeNew = () => {
                   })}
                 </div>
               )}
+
+              {/* 💡 [핵심] 분석량 및 에너지 사전 계산 버튼 및 결과 영역 */}
+              {selectedRepos.length > 0 && (
+                <div className="p-5 bg-[#0a1024] border border-emerald-900 rounded-2xl space-y-4 shadow-lg">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-200">
+                      선택된 저장소: <strong className="text-emerald-400">{selectedRepos.length}개</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleEstimateCost}
+                      disabled={isEstimating}
+                      className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-teal-600/30"
+                    >
+                      {isEstimating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      <span>분석량 및 에너지 계산하기 (5,000토큰당 1에너지)</span>
+                    </button>
+                  </div>
+
+                  {estimationResult && (
+                    <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300">
+                      <p className="flex items-center justify-between">
+                        <span>📊 예상 입력 토큰 수:</span>
+                        <strong className="text-white font-bold">{estimationResult.tokens.toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between">
+                        <span>⚡ 소모될 에너지 비용:</span>
+                        <strong className="text-amber-400 font-bold">{estimationResult.energy} 에너지</strong>
+                      </p>
+                      <p className="text-[11px] text-slate-400 pt-1 border-t border-emerald-950">
+                        * 내 잔여 에너지: <strong className="text-slate-200">{creditBalance ?? 0}회</strong> {creditBalance !== null && creditBalance < estimationResult.energy && <span className="text-rose-400 font-bold ml-1">(에너지 부족)</span>}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* 하단 최종 제출 버튼 */}
+          {/* 최종 제출 / 생성 버튼 */}
           <button
             type={createMode === 'GITHUB' ? "button" : "submit"}
             onClick={createMode === 'GITHUB' ? handleDirectGenerateResume : undefined}
             disabled={
               isLoading || loading || 
-              (createMode === 'GITHUB' && selectedRepos.length === 0) ||
+              (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0)) ||
               (createMode === 'UPLOAD' && !selectedFile)
             }
             className={`
               w-full py-4 px-6 rounded-2xl font-black text-sm md:text-base transition-all duration-200 
               flex items-center justify-center gap-2 mt-8 cursor-pointer
               ${
-                isLoading || loading || (createMode === 'GITHUB' && selectedRepos.length === 0) || (createMode === 'UPLOAD' && !selectedFile)
+                isLoading || loading || (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0)) || (createMode === 'UPLOAD' && !selectedFile)
                   ? 'bg-[#0a1024] text-slate-500 border border-emerald-950/60 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30 transform hover:-translate-y-0.5 active:translate-y-0'
+                  : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30'
               }
             `}
           >
             {isLoading || loading ? (
               <span className="flex items-center gap-2 text-white">
                 <Loader2 className="w-5 h-5 animate-spin text-emerald-300" />
-                <span>{loadingText || '이력서 생성 중...'}</span>
+                <span>{loadingText || '처리 중...'}</span>
               </span>
             ) : createMode === 'GITHUB' ? (
               <span className="flex items-center gap-2">
-                {selectedRepos.length > 0 ? (
+                {estimationResult ? (
                   <>
                     <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
-                    <span>선택한 {selectedRepos.length}개 저장소로 이력서 자동 생성하기</span>
+                    <span>소모 에너지 {estimationResult.energy}회 차감하고 이력서 생성하기</span>
                   </>
                 ) : (
                   <span className="text-slate-400 font-medium text-xs md:text-sm">
-                    ⚠️ 하단 저장소 목록에서 1개 이상 선택해 주세요
+                    ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
                   </span>
                 )}
               </span>

@@ -10,7 +10,7 @@ class JobRecommender:
     """
     TF-IDF (키워드 매칭) + LSI (주제/맥락 매칭) 하이브리드 추천 엔진
     """
-    def __init__(self, n_components: int = 50, alpha: float = 0.7):
+    def __init__(self, n_components: int = 500, alpha: float = 0.7):
         """
         :param n_components: LSI 잠재 토픽 차원 수
         :param alpha: TF-IDF 유사도 가중치 (1-alpha는 LSI 유사도 가중치)

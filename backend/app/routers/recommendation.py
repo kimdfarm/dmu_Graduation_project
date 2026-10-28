@@ -65,8 +65,8 @@ _container = None
 def get_pipeline_container():
     global _container
     if _container is None:
-        # 혹시라도 미리 안 켜졌을 경우를 대비한 방어 코드 (샘플 30개로 가볍게)
-        _container = PipelineServiceContainer(sample_size=30)
+        # 혹시라도 미리 안 켜졌을 경우를 대비한 방어 코드 (샘플 3000개로 가볍게)
+        _container = PipelineServiceContainer(sample_size=3000)
     return _container
 
 # 💡 [핵심] 서버가 시작되는 시점에 미리 모델을 생성하도록 호출하는 함수
@@ -74,7 +74,7 @@ def warm_up_pipeline():
     global _container
     if _container is None:
         print("🔥 [Server Startup Warm-up] 서버 기동 중 사전 추천 모델 학습 시작...")
-        _container = PipelineServiceContainer(sample_size=30)
+        _container = PipelineServiceContainer(sample_size=3000)
         print("✨ [Server Startup Warm-up] 사전 학습 완료! 첫 요청 대기 시간 제거됨.")
         
 TECH_KEYWORDS = [
@@ -95,7 +95,8 @@ def extract_matched_keywords(user_text: str, jd_text: str):
 def reload_pipeline_container():
     global _container
     print("🔄 [Pipeline Reload] 채용 DB 최신 데이터로 추천 엔진 재학습 중...")
-    _container = PipelineServiceContainer(sample_size=50)
+    _container = PipelineServiceContainer(sample_size=len(TECH_KEYWORDS) * 100)  # 샘플 수를 기술 키워드 수에 맞춰 조정
+    print("✅ [Pipeline Reload] 추천 엔진 재학습 완료")
     return _container
 
 @router.post("/reload", summary="추천 엔진 데이터 강제 갱신")

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Menu, Home, FileText, UserCheck, Sparkles, Plus, 
-  Search, Trash2, Calendar, CheckCircle2, ArrowRight, RefreshCw, Settings 
+  Search, Trash2, Calendar, CheckCircle2, ArrowRight, RefreshCw, Settings, 
+  AlertCircle, CheckCircle, AlertTriangle 
 } from 'lucide-react';
 
 export default function Resume() {
@@ -18,6 +19,24 @@ export default function Resume() {
   // DB 연동 상태 관리
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // 💡 웹사이트 전용 토스트 알림 상태
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  const showWebAlert = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 3500);
+  };
+
+  // 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) 상태
+  const [confirmModal, setConfirmModal] = useState({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   // 사이드바 메뉴
   const sidebarItems = [
@@ -48,22 +67,29 @@ export default function Resume() {
     }
   };
 
-  const handleDelete = async (e, id) => {
+  // 💡 window.confirm 및 alert 대신 웹 커스텀 모달과 토스트 적용
+  const handleDelete = (e, id) => {
     e.stopPropagation();
-    if (!window.confirm('이 이력서를 정말 삭제하시겠습니까?')) return;
-
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-      const response = await fetch(`${API_URL}/api/resumes/${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        setResumes(prev => prev.filter(item => item.id !== id));
-      } else {
-        alert('삭제 실패했습니다.');
+    setConfirmModal({
+      show: true,
+      title: '이력서 삭제',
+      message: '이 이력서를 정말 삭제하시겠습니까?',
+      onConfirm: async () => {
+        try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+          const response = await fetch(`${API_URL}/api/resumes/${id}`, { method: 'DELETE' });
+          if (response.ok) {
+            setResumes(prev => prev.filter(item => item.id !== id));
+            showWebAlert('이력서가 성공적으로 삭제되었습니다.');
+          } else {
+            showWebAlert('삭제에 실패했습니다.', 'error');
+          }
+        } catch (err) {
+          console.error(err);
+          showWebAlert('삭제 중 오류가 발생했습니다.', 'error');
+        }
       }
-    } catch (err) {
-      console.error(err);
-      alert('삭제 중 오류가 발생했습니다.');
-    }
+    });
   };
 
   const calculateCompleteness = (sections = []) => {
@@ -100,8 +126,56 @@ export default function Resume() {
   );
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden relative">
       
+      {/* 💡 웹사이트 전용 토스트 알림 */}
+      {toast.show && (
+        <div className="fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-[#0f1423] border border-slate-700/80 rounded-2xl shadow-2xl animate-fade-in text-sm font-medium text-white">
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* 💡 웹사이트 전용 커스텀 확인 모달 (window.confirm 대체) */}
+      {confirmModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+                <AlertTriangle size={20} />
+              </div>
+              <h3 className="text-base font-bold text-slate-100">{confirmModal.title}</h3>
+            </div>
+            <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">
+              {confirmModal.message}
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, show: false }))}
+                className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-semibold rounded-xl text-xs transition"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(prev => ({ ...prev, show: false }));
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-emerald-600/30 transition"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 사이드바 */}
       <aside 
         className={`${
@@ -160,7 +234,7 @@ export default function Resume() {
         </nav>
       </aside>
 
-      {/* 메인 콘텐츠 영역 (독립적인 간격 및 웹사이트형 레이아웃 구조) */}
+      {/* 메인 콘텐츠 영역 */}
       <main className="flex-1 flex flex-col p-6 md:p-10 overflow-y-auto max-w-7xl mx-auto w-full h-screen">
         
         {/* 상단 타이틀 섹션 */}
@@ -186,7 +260,7 @@ export default function Resume() {
           </button>
         </div>
 
-        {/* 독립된 검색바 영역 (마진을 충분히 주어 이력서 카드들과 시각적으로 분리) */}
+        {/* 검색바 영역 */}
         <div className="relative mb-8 max-w-2xl">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -222,10 +296,8 @@ export default function Resume() {
             </button>
           </div>
         ) : (
-          /* 반응형 카드 그리드 (화면 크기에 따라 1열 ~ 최대 3열로 유연하게 배치) */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
             {filteredResumes.map((doc) => {
-              
               const formattedDate = new Date(doc.updated_at || doc.created_at).toLocaleDateString();
 
               return (
@@ -235,7 +307,6 @@ export default function Resume() {
                   className="group bg-[#0f152d] border border-emerald-950/60 hover:border-emerald-500/60 rounded-2xl p-6 shadow-xl hover:shadow-emerald-950/30 transition-all duration-300 cursor-pointer flex flex-col justify-between space-y-6 relative overflow-hidden"
                 >
                   <div className="space-y-4">
-                    {/* 상단 뱃지 및 설정/삭제 버튼 */}
                     <div className="flex items-center justify-between">
                       <span className="px-3 py-1 bg-[#0a1024] border border-emerald-950/80 rounded-md text-[11px] text-emerald-300 font-semibold">
                         {doc.category || '일반'}
@@ -261,7 +332,6 @@ export default function Resume() {
                       </div>
                     </div>
 
-                    {/* 제목 및 수정일 */}
                     <div>
                       <h3 className="text-base md:text-lg font-bold text-white group-hover:text-emerald-300 transition line-clamp-1">
                         {doc.title}
@@ -273,10 +343,8 @@ export default function Resume() {
                     </div>
                   </div>
 
-                  {/* 하단 완성도 및 상세보기 안내 */}
                   <div className="pt-4 border-t border-emerald-950/60 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                    </div>
+                    <div className="flex items-center gap-2"></div>
                     <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                       상세보기 <ArrowRight size={13} />
                     </span>
