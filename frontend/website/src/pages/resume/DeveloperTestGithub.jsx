@@ -107,6 +107,7 @@ const DeveloperTestGithub = () => {
       setIsFetchingRepos(true);
       setErrorMessage('');
 
+      // 💡 customFilters로 넘어온 날짜가 있으면 우선 사용하고, 없으면 현재 state 사용
       const activeStartDate = customFilters.startDate !== undefined ? customFilters.startDate : startDate;
       const activeEndDate = customFilters.endDate !== undefined ? customFilters.endDate : endDate;
 
@@ -162,6 +163,7 @@ const DeveloperTestGithub = () => {
       setActiveFilterText(`${startDate} ~ ${endDate} 상세 기간 탐색 결과`);
     }
 
+    // 💡 계산된 activeStart와 activeEnd를 명시적으로 넘겨줍니다.
     fetchUserRepositories(testGithubId, { 
       startDate: activeStart, 
       endDate: activeEnd 
@@ -502,16 +504,16 @@ const DeveloperTestGithub = () => {
               </div>
 
               {isFetchingRepos ? (
-  <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl space-y-3">
-    <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto" />
-    <p className="text-xs text-slate-300 font-bold">
-      [{testGithubId}]의 저장소 목록을 탐색하는 중입니다...
-    </p>
-    <p className="text-[11px] text-emerald-400">
-      * 소유 및 연동된 저장소를 불러오고 기간별 필터링을 적용하고 있습니다.
-    </p>
-  </div>
-) : (
+                <div className="p-12 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl space-y-3">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-400 mx-auto" />
+                    <p className="text-xs text-slate-300 font-bold">
+                    [{testGithubId}]의 저장소 목록을 탐색하는 중입니다...
+                    </p>
+                    <p className="text-[11px] text-emerald-400">
+                    * 소유 및 연동된 저장소를 불러오고 기간별 필터링을 적용하고 있습니다.
+                    </p>
+                </div>
+                ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
                   {filteredRepositories.map((repo) => {
                     const repoName = repo.full_name || repo.name;
@@ -583,19 +585,24 @@ const DeveloperTestGithub = () => {
 
                   {estimationResult && (
                     <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300">
-                      <p className="flex items-center justify-between">
-                        <span>📊 예상 입력 토큰 수 (정보량):</span>
-                        <strong className="text-white font-bold">{estimationResult.tokens.toLocaleString()} 토큰</strong>
-                      </p>
-                      <p className="flex items-center justify-between">
+                        <p className="flex items-center justify-between">
+                        <span>📥 입력 토큰 (소스 정제 데이터):</span>
+                        <strong className="text-white font-bold">{estimationResult.input_tokens.toLocaleString()} 토큰</strong>
+                        </p>
+                        <p className="flex items-center justify-between">
+                        <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
+                        <strong className="text-teal-300 font-bold">{estimationResult.output_tokens.toLocaleString()} 토큰</strong>
+                        </p>
+                        <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
+                        <span>📊 총 토큰 (Input + Output):</span>
+                        <strong className="text-yellow-400 font-bold">{estimationResult.total_tokens.toLocaleString()} 토큰</strong>
+                        </p>
+                        <p className="flex items-center justify-between">
                         <span>⚡ 소모될 에너지 비용:</span>
                         <strong className="text-amber-400 font-bold">{estimationResult.energy} 에너지</strong>
-                      </p>
-                      <p className="text-[11px] text-slate-400 pt-1 border-t border-emerald-950">
-                        * 대상 ID: <strong className="text-slate-200">{testGithubId}</strong> / 내 잔여 에너지: <strong className="text-slate-200">{creditBalance ?? 0}회</strong>
-                      </p>
+                        </p>
                     </div>
-                  )}
+                    )}
                 </div>
               )}
           </div>
