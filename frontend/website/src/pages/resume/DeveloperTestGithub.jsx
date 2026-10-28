@@ -27,7 +27,7 @@ const DeveloperTestGithub = () => {
   const [category, setCategory] = useState('신입 개발자');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 💡 테스트용 GitHub ID (다른 사람 아이디로 변경 가능)
+  // 💡 테스트용 GitHub ID (입력 시 localStorage 및 쿠키 값도 함께 갱신됨)
   const [testGithubId, setTestGithubId] = useState(
     getCookie('github_id') || localStorage.getItem('github_id') || 'kimdfarm'
   );
@@ -89,6 +89,15 @@ const DeveloperTestGithub = () => {
   useEffect(() => {
     setEstimationResult(null);
   }, [selectedRepos, startDate, endDate, testGithubId]);
+
+  // 💡 GitHub ID 변경 시 localStorage 및 쿠키 동기화 핸들러
+  const handleGithubIdChange = (newId) => {
+    setTestGithubId(newId);
+    if (newId.trim()) {
+      localStorage.setItem('github_id', newId.trim());
+      document.cookie = `github_id=${newId.trim()}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=none; secure`;
+    }
+  };
 
   const fetchUserRepositories = async (targetUser, customFilters = {}) => {
     const user = targetUser || testGithubId;
@@ -358,13 +367,13 @@ const DeveloperTestGithub = () => {
           {/* 테스트 대상 GitHub ID 변경 영역 */}
           <div className="p-5 bg-[#0a1024] border border-emerald-900/80 rounded-2xl space-y-3 shadow-md">
             <label className="block text-xs font-bold text-slate-200">
-              테스트할 GitHub ID 지정 (타인 계정 입력 가능)
+              테스트할 GitHub ID 지정 (입력 시 localStorage 및 쿠키 값 동기화)[cite: 3]
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={testGithubId}
-                onChange={(e) => setTestGithubId(e.target.value)}
+                onChange={(e) => handleGithubIdChange(e.target.value)}
                 placeholder="예: torvalds, kimdfarm 등"
                 className="flex-1 px-4 py-3 text-sm text-white bg-[#070b19] border border-emerald-950 rounded-xl focus:outline-none focus:border-emerald-500"
               />
