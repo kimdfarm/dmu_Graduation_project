@@ -589,19 +589,19 @@ const DeveloperTestGithub = () => {
   <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300 shadow-inner">
     <p className="flex items-center justify-between">
       <span>📥 입력 토큰 (소스 정제 데이터):</span>
-      <strong className="text-white font-bold">{estimationResult.input_tokens.toLocaleString()} 토큰</strong>
+      <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
     </p>
     <p className="flex items-center justify-between">
       <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
-      <strong className="text-teal-300 font-bold">{estimationResult.output_tokens.toLocaleString()} 토큰</strong>
+      <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
     </p>
     <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
       <span>📊 총 토큰 (Input + Output):</span>
-      <strong className="text-yellow-400 font-bold">{estimationResult.total_tokens.toLocaleString()} 토큰</strong>
+      <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
     </p>
     <p className="flex items-center justify-between">
       <span>⚡ 소모될 에너지 비용:</span>
-      <strong className="text-amber-400 font-bold">{estimationResult.energy} 에너지</strong>
+      <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
     </p>
   </div>
 )}
