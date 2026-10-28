@@ -290,7 +290,9 @@ const DeveloperTestGithub = () => {
 
       const result = await generateRes.json();
       if (result && result.id) {
-        alert(`성공! 생성된 토큰 정보: ${(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()} 토큰`);
+        // 💡 estimationResult.tokens 대신 estimationResult.total_tokens를 안전하게 참조하도록 수정
+        const totalTokens = estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0;
+        alert(`성공! 생성된 토큰 정보: ${totalTokens.toLocaleString()} 토큰, 소모 에너지: ${estimationResult?.energy ?? 1}회`);
         navigate(`/resume/${result.id}`);
       }
 
