@@ -110,7 +110,7 @@ const CoverLetterDetail = () => {
   const [isEmbeddingLocked, setIsEmbeddingLocked] = useState(false);
 
   const userId = localStorage.getItem('userId');
-
+  const [sectionAiModes, setSectionAiModes] = useState({});
   useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
@@ -254,48 +254,50 @@ const CoverLetterDetail = () => {
   };
 
   const handleAIProofreadSection = async (sectionId) => {
-    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+  const currentMode = sectionAiModes[sectionId] || 'STAR'; // 💡 선택된 모드 가져오기 (기본 STAR)
+  setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-    const targetSection = sections.find((s) => s.id === sectionId);
-    if (!targetSection || !targetSection.details) return;
+  const targetSection = sections.find((s) => s.id === sectionId);
+  if (!targetSection || !targetSection.details) return;
 
-    try {
-      setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
+  try {
+    setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-      const response = await fetch(`${API_URL}/api/sections/${sectionId}/ai-proofread`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          details: targetSection.details.map((d) => ({
-            id: d.id,
-            original_text: d.original_text || d.values?.답변 || d.title || ''
-          }))
+    const response = await fetch(`${API_URL}/api/sections/${sectionId}/coverletter-ai-proofread`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    mode: currentMode, // 'STAR' | 'IMPACT' | 'TECH' | 'TONE'
+    details: targetSection.details.map((d) => ({
+      id: d.id,
+      original_text: d.original_text || d.values?.답변 || d.title || ''
+    }))
+  })
+});
+
+    if (response.ok) {
+      const result = await response.json();
+      setSections((prevSections) =>
+        prevSections.map((sec) => {
+          if (sec.id !== sectionId) return sec;
+          const updatedDetails = sec.details.map((detail) => {
+            const proofreadItem = Array.isArray(result)
+              ? result.find((item) => item.id === detail.id)
+              : null;
+            return proofreadItem
+              ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
+              : detail;
+          });
+          return { ...sec, details: updatedDetails };
         })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setSections((prevSections) =>
-          prevSections.map((sec) => {
-            if (sec.id !== sectionId) return sec;
-            const updatedDetails = sec.details.map((detail) => {
-              const proofreadItem = Array.isArray(result)
-                ? result.find((item) => item.id === detail.id)
-                : null;
-              return proofreadItem
-                ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
-                : detail;
-            });
-            return { ...sec, details: updatedDetails };
-          })
-        );
-      }
-    } catch (err) {
-      console.error('AI 교정 API 오류:', err);
-    } finally {
-      setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+      );
     }
-  };
+  } catch (err) {
+    console.error('AI 교정 API 오류:', err);
+  } finally {
+    setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+  }
+};
 
   const executeRecommendation = async (endpoint) => {
     try {
@@ -512,52 +514,64 @@ const CoverLetterDetail = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 bg-[#07051a] p-1 rounded-xl border border-indigo-950/80">
-                      <button
-                        type="button"
-                        onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-                          sec.currentVersion === 'ORIGINAL'
-                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-indigo-200'
-                        }`}
-                      >
-                        원본
-                      </button>
+                    <div className="flex items-center gap-1 bg-[#07051a] p-1 rounded-xl border border-indigo-950/85">
+  <button
+    type="button"
+    onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
+    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+      sec.currentVersion === 'ORIGINAL'
+        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+        : 'text-slate-400 hover:text-indigo-200'
+    }`}
+  >
+    원본
+  </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleSpellCheckSection(sec.id)}
-                        disabled={processingSections[sec.id] === 'SPELL'}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                          sec.currentVersion === 'SPELL'
-                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-indigo-200'
-                        }`}
-                      >
-                        {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
-                      </button>
+  <button
+    type="button"
+    onClick={() => handleSpellCheckSection(sec.id)}
+    disabled={processingSections[sec.id] === 'SPELL'}
+    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+      sec.currentVersion === 'SPELL'
+        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+        : 'text-slate-400 hover:text-indigo-200'
+    }`}
+  >
+    {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
+  </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleAIProofreadSection(sec.id)}
-                        disabled={processingSections[sec.id] === 'AI'}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                          sec.currentVersion === 'AI'
-                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-indigo-200'
-                        }`}
-                      >
-                        {processingSections[sec.id] === 'AI' ? (
-                          <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
-                        ) : (
-                          <>
-                            <Sparkles className="w-3 h-3 text-amber-400" />
-                            AI 교정
-                          </>
-                        )}
-                      </button>
-                    </div>
+  {/* 💡 [추가] AI 교정 모드 선택 드롭다운 */}
+  <select
+    value={sectionAiModes[sec.id] || 'STAR'}
+    onChange={(e) => setSectionAiModes(prev => ({ ...prev, [sec.id]: e.target.value }))}
+    className="bg-[#0f152d] text-amber-300 text-[11px] font-bold outline-none cursor-pointer rounded-lg px-2 py-1.5 border border-indigo-900/85"
+  >
+    <option value="STAR">🎯 STAR 기법</option>
+    <option value="IMPACT">📊 성과 중심</option>
+    <option value="TECH">🛠️ 기술&트러블슈팅</option>
+    <option value="TONE">🏢 톤앤매너</option>
+  </select>
+
+  <button
+    type="button"
+    onClick={() => handleAIProofreadSection(sec.id)}
+    disabled={processingSections[sec.id] === 'AI'}
+    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+      sec.currentVersion === 'AI'
+        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+        : 'text-slate-400 hover:text-indigo-200'
+    }`}
+  >
+    {processingSections[sec.id] === 'AI' ? (
+      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+    ) : (
+      <>
+        <Sparkles className="w-3 h-3 text-amber-400" />
+        AI 교정
+      </>
+    )}
+  </button>
+</div>
                   </div>
 
                   <div className="space-y-4">
