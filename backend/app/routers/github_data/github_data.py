@@ -572,23 +572,24 @@ async def generate_github_resume(
                 continue
 
             try:
-                # 💡 template_columns와 language를 함께 전달
                 card_detail = parse_single_repo_card_with_groq(
                     repo_analytics, 
                     card_idx=idx, 
                     template_columns=template_columns,
                     language=payload.language
                 )
+                # 💡 None이 아닐 때만 유효한 카드로 추가
                 if card_detail and isinstance(card_detail, dict):
                     details_list.append(card_detail)
             except Exception as parse_err:
                 print(f"[{idx}번 저장소 카드 생성 실패]: {parse_err}")
                 continue
 
+        # 💡 유효한 프로젝트 카드가 단 하나도 생성되지 않았을 때의 예외 처리
         if not details_list:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="GitHub 저장소 분석 데이터를 카드로 생성하는 데 실패했습니다."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="선택하신 저장소들에 분석할 수 있는 유효한 커밋 또는 기여 내역이 존재하지 않습니다. 실제 커밋 내역이 있는 저장소를 선택해 주세요."
             )
 
         doc_payload = {
