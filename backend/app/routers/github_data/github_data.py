@@ -275,7 +275,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
-def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None) -> dict:
+def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int,template_columns: list = None) -> dict:
     if not groq_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -287,7 +287,6 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
 
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
-    default_columns = template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
 
     # ==========================================
     # 🤖 [Stage 1] 창의적이고 풍부한 심층 분석 (Temperature 0.6)
@@ -300,7 +299,7 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
 - PR 및 이슈: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
 
 [요청 사항]
-이 개발자의 GitHub 활동 내역을 바탕으로 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 **상세하고 풍부한 전문 개발 성과 서술문**을 작성해 주세요. 
+이 개발자의 GitHub 활동 내역을 바탕으로 단순 나열이 아닌, 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 **상세하고 풍부한 전문 개발 성과 서술문**을 작성해 주세요. 
 숨겨진 맥락과 기술적 깊이를 살려 구체적으로 4~6개의 핵심 성과 포인트로 풀어내 주세요.
 """
 
@@ -316,27 +315,40 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
 
         # ==========================================
-        # 📐 [Stage 2] 선택한 이력서 템플릿 컬럼 형태에 맞게 포맷팅 (Temperature 0.1)
+        # 📐 [Stage 2] 동적 컬럼 생성 및 데이터 매핑 (Temperature 0.1)
         # ==========================================
-        stage2_prompt = f"""
+        stage2_system_prompt = """You are an ultra-comprehensive document parsing and structuring engine.
+CRITICAL GOAL: Analyze the input development activity and dynamically define appropriate columns for a professional resume card without forcing rigid, empty fields.
+
+Rules for Dynamic Column Generation:
+1. DO NOT restrict yourself to a fixed list of column names. Analyze the project data and dynamically define appropriate "columns" (e.g., ["프로젝트명", "주요 기여도", "사용 기술", "아키텍처 및 트러블슈팅 성과"] 등 내용이 확실한 것만 동적으로 생성).
+2. OMIT unnecessary or empty columns that lack meaningful data.
+3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]\\n• 내용...` 형태로 깔끔하게 조합하세요.
+
+JSON Output Schema:
+{
+  "title": "프로젝트 이름",
+  "columns": ["컬럼1", "컬럼2", ...],
+  "original_text": "[컬럼1]\\n• 내용...\\n\\n[컬럼2]\\n• 내용..."
+}
+Return raw JSON without markdown formatting."""
+
+        stage2_user_prompt = f"""
 [심층 분석된 개발 성과 데이터]
 {deep_analysis_text}
 
-[이력서 템플릿 구조 (컬럼 목록)]
-{json.dumps(default_columns, ensure_ascii=False)}
+[저장소 기본 정보]
+- 저장소명: {repo_name}
+- 사용 기술: {tech_stack_str}
 
-[요청 사항]
-위의 심층 분석 데이터를 활용하여, 지정된 **이력서 템플릿 컬럼 구조**에 정확히 대응하는 JSON 객체로 변환해 주세요.
-반드시 아래 JSON 스키마 형태로만 응답하세요.
-- role_summary: 개발자의 핵심 역할 요약 문자열
-- achievements: 템플릿 컬럼 항목들에 대응하는 구체적인 성과 문장들의 리스트 (예: ["• 성과 1", "• 성과 2", ...])
+위 데이터를 바탕으로 이 프로젝트 카드에 가장 적합한 동적 컬럼들을 구성하고, 각 컬럼에 맞는 구체적인 내용을 작성하여 지정된 JSON 스키마로 반환해 주세요.
 """
 
         stage2_res = groq_client.chat.completions.create(
             model=GROQ_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "당신은 이력서 양식 포맷팅 전문 AI입니다. 지정된 JSON 스키마로만 응답하세요."},
-                {"role": "user", "content": stage2_prompt}
+                {"role": "system", "content": stage2_system_prompt},
+                {"role": "user", "content": stage2_user_prompt}
             ],
             temperature=0.1,
             response_format={"type": "json_object"}
@@ -347,29 +359,12 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
             raise HTTPException(status_code=500, detail="Groq API 응답 본문이 비어있습니다.")
 
         res_json = json.loads(content) or {}
-        role_summary = res_json.get("role_summary", f"{repo_name} 개발 및 구현")
-        achievements = res_json.get("achievements", [])
-
-        formatted_list = []
-        if isinstance(achievements, list):
-            for item in achievements:
-                text = str(next(iter(item.values()), "")) if isinstance(item, dict) else str(item)
-                clean_text = text.strip("• ").strip()
-                if clean_text:
-                    formatted_list.append(f"• {clean_text}")
-
-        achievements_formatted = "\n".join(formatted_list) if formatted_list else "• 주요 기능 및 모듈 구현"
-
-        original_text = (
-            f"[프로젝트명]\n• {repo_name}\n\n"
-            f"[담당 역할]\n• {role_summary}\n\n"
-            f"[사용 기술 및 스택]\n• {tech_stack_str}\n\n"
-            f"[주요 구현 및 문제 해결 성과]\n{achievements_formatted}"
-        )
+        card_title = res_json.get("title", repo_name)
+        original_text = res_json.get("original_text", f"[프로젝트명]\n• {repo_name}\n\n[사용 기술]\n• {tech_stack_str}")
 
         return {
             "id": f"card_{card_idx}",
-            "title": repo_name,
+            "title": card_title,
             "original_text": original_text,
             "spell_checked_text": None,
             "ai_proofread_text": None,
@@ -378,7 +373,6 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
-
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
@@ -746,8 +740,8 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
         total_chars += len(text_blob)
     
     input_tokens = total_chars // 3
-    output_tokens = input_tokens  # 동일하게 1:1 반영
-    total_tokens = input_tokens + output_tokens
+    output_tokens = input_tokens * 2  # 출력값은 입력값의 2배로 설정
+    total_tokens = input_tokens *2 + output_tokens
     
     energy_cost = max(1, total_tokens // 5000)
     
