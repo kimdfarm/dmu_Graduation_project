@@ -101,97 +101,105 @@ def github_callback(payload: GithubAuthRequest, response: Response):
     }
 
 def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "") -> dict:
-    """특정 작성자(target_author)의 기여 내역만 필터링하여 토큰 및 정확도 산출"""
-    effective_author = target_author or raw_graphql_data.get("target_author", "")
-    repo_name = (
-        raw_graphql_data.get("name") 
-        or raw_graphql_data.get("repo_name") 
-        or raw_graphql_data.get("full_name") 
-        or default_repo_name 
-        or "프로젝트"
-    )
+    try:
+        effective_author = target_author or raw_graphql_data.get("target_author", "")
+        repo_name = (
+            raw_graphql_data.get("name") 
+            or raw_graphql_data.get("repo_name") 
+            or raw_graphql_data.get("full_name") 
+            or default_repo_name 
+            or "프로젝트"
+        )
 
-    languages_data = raw_graphql_data.get("languages", {})
-    tech_stacks = []
-    if isinstance(languages_data, dict):
-        if "nodes" in languages_data:
-            tech_stacks = [n.get("name") for n in languages_data.get("nodes", []) if n and n.get("name")]
-        elif "edges" in languages_data:
-            tech_stacks = [e.get("node", {}).get("name") for e in languages_data.get("edges", []) if e and e.get("node")]
+        languages_data = raw_graphql_data.get("languages", {}) or {}
+        tech_stacks = []
+        if isinstance(languages_data, dict):
+            if "nodes" in languages_data:
+                tech_stacks = [n.get("name") for n in (languages_data.get("nodes") or []) if n and n.get("name")]
+            elif "edges" in languages_data:
+                tech_stacks = [e.get("node", {}).get("name") for e in (languages_data.get("edges") or []) if e and e.get("node")]
 
-    commits_raw = []
-    default_branch = raw_graphql_data.get("defaultBranchRef") or {}
-    if isinstance(default_branch, dict):
-        target = default_branch.get("target") or {}
-        if isinstance(target, dict):
-            history = target.get("history") or {}
-            if isinstance(history, dict):
-                commits_raw = history.get("nodes") or []
+        commits_raw = []
+        default_branch = raw_graphql_data.get("defaultBranchRef") or {}
+        if isinstance(default_branch, dict):
+            target = default_branch.get("target") or {}
+            if isinstance(target, dict):
+                history = target.get("history") or {}
+                if isinstance(history, dict):
+                    commits_raw = history.get("nodes") or []
 
-    merged_commits = {}
-    for c in commits_raw:
-        if not isinstance(c, dict):
-            continue
-            
-        author_info = c.get("author") or {}
-        user_info = author_info.get("user") or {}
-        author_login = user_info.get("login", "")
+        merged_commits = {}
+        for c in commits_raw:
+            if not isinstance(c, dict):
+                continue
+                
+            author_info = c.get("author") or {}
+            user_info = author_info.get("user") or {}
+            author_login = user_info.get("login", "")
 
-        if effective_author and author_login.lower() != effective_author.lower():
-            continue
-
-        msg = (c.get("messageHeadline") or c.get("message") or "").strip()
-        if not msg:
-            continue
-
-        additions = c.get("additions", 0)
-        deletions = c.get("deletions", 0)
-
-        if additions > 5000: additions = 100
-        if deletions > 5000: deletions = 100
-
-        if msg in merged_commits:
-            merged_commits[msg]["additions"] += additions
-            merged_commits[msg]["deletions"] += deletions
-            merged_commits[msg]["count"] += 1
-        else:
-            merged_commits[msg] = {
-                "additions": additions,
-                "deletions": deletions,
-                "count": 1
-            }
-
-    clean_commits = [
-        f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
-        for msg, stat in merged_commits.items()
-    ]
-
-    prs_raw = []
-    prs_data = raw_graphql_data.get("pullRequests") or {}
-    if isinstance(prs_data, dict):
-        prs_raw = prs_data.get("nodes") or []
-
-    merged_prs = {}
-    for pr in prs_raw:
-        if isinstance(pr, dict):
-            pr_author = (pr.get("author") or {}).get("login", "")
-            if effective_author and pr_author.lower() != effective_author.lower():
+            if effective_author and author_login and author_login.lower() != effective_author.lower():
                 continue
 
-            title = (pr.get("title") or "").strip()
-            state = pr.get("state", "")
-            if title:
-                key = f"[PR] {title} (상태: {state})"
-                merged_prs[key] = merged_prs.get(key, 0) + 1
+            msg = (c.get("messageHeadline") or c.get("message") or "").strip()
+            if not msg:
+                continue
 
-    clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
+            additions = c.get("additions", 0) or 0
+            deletions = c.get("deletions", 0) or 0
 
-    return {
-        "repo_name": repo_name,
-        "tech_stacks": tech_stacks,
-        "key_commits": clean_commits,
-        "key_prs_and_issues": clean_prs
-    }
+            if additions > 5000: additions = 100
+            if deletions > 5000: deletions = 100
+
+            if msg in merged_commits:
+                merged_commits[msg]["additions"] += additions
+                merged_commits[msg]["deletions"] += deletions
+                merged_commits[msg]["count"] += 1
+            else:
+                merged_commits[msg] = {
+                    "additions": additions,
+                    "deletions": deletions,
+                    "count": 1
+                }
+
+        clean_commits = [
+            f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
+            for msg, stat in merged_commits.items()
+        ]
+
+        prs_raw = []
+        prs_data = raw_graphql_data.get("pullRequests") or {}
+        if isinstance(prs_data, dict):
+            prs_raw = prs_data.get("nodes") or []
+
+        merged_prs = {}
+        for pr in prs_raw:
+            if isinstance(pr, dict):
+                pr_author = (pr.get("author") or {}).get("login", "")
+                if effective_author and pr_author and pr_author.lower() != effective_author.lower():
+                    continue
+
+                title = (pr.get("title") or "").strip()
+                state = pr.get("state", "")
+                if title:
+                    key = f"[PR] {title} (상태: {state})"
+                    merged_prs[key] = merged_prs.get(key, 0) + 1
+
+        clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
+
+        return {
+            "repo_name": repo_name,
+            "tech_stacks": tech_stacks,
+            "key_commits": clean_commits,
+            "key_prs_and_issues": clean_prs
+        }
+    except Exception as e:
+        print(f"Preprocessor Error: {e}")
+        return {
+            "repo_name": default_repo_name or "프로젝트",
+            "tech_stacks": [],
+            "key_commits": [],
+            "key_prs_and_issues": []
+        }
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -287,6 +295,11 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
 
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
+
+    # 💡 [핵심 방어] 커밋 내역, PR, 주요 기술 스택이 모두 없는 빈 저장소/포크는 분석 대상에서 제외
+    if not cleaned_data["key_commits"] and not cleaned_data["key_prs_and_issues"] and not cleaned_data["tech_stacks"]:
+        print(f"[{repo_name}] 유효한 기여 내역(커밋/PR/기술스택)이 없어 분석을 건너뜁니다.")
+        return None  # None을 리턴하여 상위 반복문에서 자연스럽게 필터링
     
     # 💡 저장소 원본 데이터에서 커밋 날짜 범위(최소 날짜 ~ 최대 날짜) 추출하여 날짜 왜곡 원천 차단
     commits_raw = graphql_data.get("defaultBranchRef", {}).get("target", {}).get("history", {}).get("nodes", [])
