@@ -575,7 +575,8 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        columns = card_detail.columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
+        # 💡 dict 객체이므로 대괄호 키 접근 방식을 사용하고, 없으면 template_columns나 기본값을 사용
+        columns = (details_list[-1].get("columns") if details_list else None) or template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
         
         section_payload = {
             "document_id": created_document_id,
