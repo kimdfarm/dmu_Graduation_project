@@ -4,7 +4,7 @@ import {
   ArrowLeft, Edit3, Loader2, Download, Briefcase, 
   CheckCircle2, ChevronDown, ChevronUp, Sparkles,
   FileText, Cpu, Search, Building2, ExternalLink,
-  CheckCircle, AlertTriangle, Lightbulb, BarChart3, Tag, Check, Info, RefreshCw 
+  CheckCircle, AlertTriangle, Lightbulb, BarChart3, Tag, Check, Info, RefreshCw, Target, Zap, Building 
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -110,7 +110,10 @@ const CoverLetterDetail = () => {
   const [isEmbeddingLocked, setIsEmbeddingLocked] = useState(false);
 
   const userId = localStorage.getItem('userId');
-  const [sectionAiModes, setSectionAiModes] = useState({});
+
+  // 💡 [추가] 섹션별 AI 모드 선택 패널 토글 상태 관리 (sectionId: boolean)
+  const [activeModeSelector, setActiveModeSelector] = useState({});
+
   useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
@@ -212,6 +215,7 @@ const CoverLetterDetail = () => {
 
   const handleSpellCheckSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false })); // 모드 패널 닫기
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
@@ -253,51 +257,52 @@ const CoverLetterDetail = () => {
     }
   };
 
-  const handleAIProofreadSection = async (sectionId) => {
-  const currentMode = sectionAiModes[sectionId] || 'STAR'; // 💡 선택된 모드 가져오기 (기본 STAR)
-  setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+  // 💡 선택한 모드별 AI 교정 실행 함수
+  const handleExecuteAIProofread = async (sectionId, selectedMode) => {
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false })); // 패널 닫기
 
-  const targetSection = sections.find((s) => s.id === sectionId);
-  if (!targetSection || !targetSection.details) return;
+    const targetSection = sections.find((s) => s.id === sectionId);
+    if (!targetSection || !targetSection.details) return;
 
-  try {
-    setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
+    try {
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-    const response = await fetch(`${API_URL}/api/sections/${sectionId}/coverletter-ai-proofread`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    mode: currentMode, // 'STAR' | 'IMPACT' | 'TECH' | 'TONE'
-    details: targetSection.details.map((d) => ({
-      id: d.id,
-      original_text: d.original_text || d.values?.답변 || d.title || ''
-    }))
-  })
-});
-
-    if (response.ok) {
-      const result = await response.json();
-      setSections((prevSections) =>
-        prevSections.map((sec) => {
-          if (sec.id !== sectionId) return sec;
-          const updatedDetails = sec.details.map((detail) => {
-            const proofreadItem = Array.isArray(result)
-              ? result.find((item) => item.id === detail.id)
-              : null;
-            return proofreadItem
-              ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
-              : detail;
-          });
-          return { ...sec, details: updatedDetails };
+      const response = await fetch(`${API_URL}/api/sections/${sectionId}/coverletter-ai-proofread`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: selectedMode, // 'STAR' | 'IMPACT' | 'TECH' | 'TONE'
+          details: targetSection.details.map((d) => ({
+            id: d.id,
+            original_text: d.original_text || d.values?.답변 || d.title || ''
+          }))
         })
-      );
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setSections((prevSections) =>
+          prevSections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+            const updatedDetails = sec.details.map((detail) => {
+              const proofreadItem = Array.isArray(result)
+                ? result.find((item) => item.id === detail.id)
+                : null;
+              return proofreadItem
+                ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
+                : detail;
+            });
+            return { ...sec, details: updatedDetails };
+          })
+        );
+      }
+    } catch (err) {
+      console.error('AI 교정 API 오류:', err);
+    } finally {
+      setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
     }
-  } catch (err) {
-    console.error('AI 교정 API 오류:', err);
-  } finally {
-    setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
-  }
-};
+  };
 
   const executeRecommendation = async (endpoint) => {
     try {
@@ -422,7 +427,7 @@ const CoverLetterDetail = () => {
     <div className="min-h-screen bg-[#070b1a] text-slate-100 p-6 md:p-12 font-sans overflow-y-auto">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         
-        {/* [1] 최상단 제어 컨트롤 바 (이전 목록, 제목, 편집, 다운로드) */}
+        {/* [1] 최상단 제어 컨트롤 바 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0a1024] px-6 py-4 rounded-2xl border border-indigo-950/80 shadow-lg">
           <div className="flex items-center gap-3">
             <button
@@ -503,157 +508,223 @@ const CoverLetterDetail = () => {
           {/* TAB 1: 자기소개서 문항 및 작성본 */}
           {activeMainTab === 'document' && (
             <div className="space-y-8">
-              {formattedSections.map((sec) => (
-                <div key={sec.id} className="bg-[#0a1024] border border-indigo-950/80 rounded-2xl p-6 space-y-5 shadow-inner">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-950 pb-4">
-                    <div className="flex items-center gap-2.5">
-                      <Briefcase className="w-4 h-4 text-indigo-400" />
-                      <h3 className="text-sm font-black text-white">{sec.section_title || '자기소개서 문항'}</h3>
-                      <span className="text-[10px] text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/30">
-                        {sec.rows ? sec.rows.length : 0}개 문항
-                      </span>
+              {formattedSections.map((sec) => {
+                const isModeSelectorOpen = !!activeModeSelector[sec.id];
+
+                return (
+                  <div key={sec.id} className="bg-[#0a1024] border border-indigo-950/80 rounded-2xl p-6 space-y-5 shadow-inner transition-all">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-950 pb-4">
+                      <div className="flex items-center gap-2.5">
+                        <Briefcase className="w-4 h-4 text-indigo-400" />
+                        <h3 className="text-sm font-black text-white">{sec.section_title || '자기소개서 문항'}</h3>
+                        <span className="text-[10px] text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/30">
+                          {sec.rows ? sec.rows.length : 0}개 문항
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-[#07051a] p-1 rounded-xl border border-indigo-950/85">
+                        <button
+                          type="button"
+                          onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                            sec.currentVersion === 'ORIGINAL'
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-indigo-200'
+                          }`}
+                        >
+                          원본
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSpellCheckSection(sec.id)}
+                          disabled={processingSections[sec.id] === 'SPELL'}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+                            sec.currentVersion === 'SPELL'
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-indigo-200'
+                          }`}
+                        >
+                          {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
+                        </button>
+
+                        {/* 💡 AI 교정 버튼 (클릭 시 하단에 모드 선택 카드 패널 토글) */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveModeSelector((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
+                          disabled={processingSections[sec.id] === 'AI'}
+                          className={`px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1.5 ${
+                            sec.currentVersion === 'AI' || isModeSelectorOpen
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
+                              : 'text-slate-300 hover:text-indigo-200 bg-indigo-950/40'
+                          }`}
+                        >
+                          {processingSections[sec.id] === 'AI' ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                          ) : (
+                            <Sparkles className="w-3 h-3 text-amber-400" />
+                          )}
+                          <span>AI 교정</span>
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isModeSelectorOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1 bg-[#07051a] p-1 rounded-xl border border-indigo-950/85">
-  <button
-    type="button"
-    onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
-    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-      sec.currentVersion === 'ORIGINAL'
-        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-        : 'text-slate-400 hover:text-indigo-200'
-    }`}
-  >
-    원본
-  </button>
+                    {/* 💡 [NEW] AI 교정 버튼을 눌렀을 때만 아래에 세련된 디자인으로 나타나는 4가지 모드 선택 패널 */}
+                    {isModeSelectorOpen && (
+                      <div className="bg-[#050914] border border-indigo-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3">
+                        <div className="flex items-center justify-between border-b border-indigo-950 pb-2.5">
+                          <span className="text-xs font-extrabold text-indigo-300 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" /> AI 교정 모드를 선택하세요
+                          </span>
+                          <span className="text-[10px] text-slate-400">문항의 목적에 맞는 최적의 윤문 엔진이 작동합니다</span>
+                        </div>
 
-  <button
-    type="button"
-    onClick={() => handleSpellCheckSection(sec.id)}
-    disabled={processingSections[sec.id] === 'SPELL'}
-    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-      sec.currentVersion === 'SPELL'
-        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-        : 'text-slate-400 hover:text-indigo-200'
-    }`}
-  >
-    {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
-  </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {/* 모드 1: STAR 기법 */}
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteAIProofread(sec.id, 'STAR')}
+                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
+                          >
+                            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                              <Target className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white group-hover:text-indigo-300">🎯 STAR 기법 강조 모드</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">상황-과제-행동-결과 흐름이 선명하게 드러나도록 구조화</div>
+                            </div>
+                          </button>
 
-  {/* 💡 [추가] AI 교정 모드 선택 드롭다운 */}
-  <select
-    value={sectionAiModes[sec.id] || 'STAR'}
-    onChange={(e) => setSectionAiModes(prev => ({ ...prev, [sec.id]: e.target.value }))}
-    className="bg-[#0f152d] text-amber-300 text-[11px] font-bold outline-none cursor-pointer rounded-lg px-2 py-1.5 border border-indigo-900/85"
-  >
-    <option value="STAR">🎯 STAR 기법</option>
-    <option value="IMPACT">📊 성과 중심</option>
-    <option value="TECH">🛠️ 기술&트러블슈팅</option>
-    <option value="TONE">🏢 톤앤매너</option>
-  </select>
+                          {/* 모드 2: 수치/성과 중심 */}
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteAIProofread(sec.id, 'IMPACT')}
+                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
+                          >
+                            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                              <Zap className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white group-hover:text-amber-300">📊 성과/수치 중심 (Impact Booster)</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">효율성 개선율 및 기여도 수치를 강조하여 임팩트 극대화</div>
+                            </div>
+                          </button>
 
-  <button
-    type="button"
-    onClick={() => handleAIProofreadSection(sec.id)}
-    disabled={processingSections[sec.id] === 'AI'}
-    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-      sec.currentVersion === 'AI'
-        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm'
-        : 'text-slate-400 hover:text-indigo-200'
-    }`}
-  >
-    {processingSections[sec.id] === 'AI' ? (
-      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
-    ) : (
-      <>
-        <Sparkles className="w-3 h-3 text-amber-400" />
-        AI 교정
-      </>
-    )}
-  </button>
-</div>
-                  </div>
+                          {/* 모드 3: 기술 스택 & 트러블슈팅 */}
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteAIProofread(sec.id, 'TECH')}
+                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
+                          >
+                            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                              <Cpu className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white group-hover:text-purple-300">🛠️ 기술 스택 & 트러블슈팅</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">아키텍처 및 문제 해결 과정을 전문 기술 어휘로 세련되게 윤문</div>
+                            </div>
+                          </button>
 
-                  <div className="space-y-4">
-                    {sec.rows && sec.rows.length > 0 ? (
-                      sec.rows.map((row, rIdx) => (
-                        <div key={row.id} className="bg-[#07051a] border border-indigo-950 rounded-xl p-4 space-y-3 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> 문항 #{rIdx + 1}
-                            </span>
-                          </div>
+                          {/* 모드 4: 톤앤매너 맞춤 */}
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteAIProofread(sec.id, 'TONE')}
+                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
+                          >
+                            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                              <Building className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white group-hover:text-emerald-300">🏢 기업 톤앤매너 (대기업/스타트업)</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">신뢰감 주는 서술형 문어체 및 비즈니스 매너 어조로 완성</div>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-                          <div className="overflow-x-auto pb-1">
-                            <div className="flex gap-3 min-w-full items-start">
-                              {(sec.columns || []).map((col) => {
-                                const val = row.values[col] || '';
-                                const cellKey = `${sec.id}-${row.id}-${col}`;
-                                const isExpanded = !!expandedCells[cellKey];
+                    <div className="space-y-4">
+                      {sec.rows && sec.rows.length > 0 ? (
+                        sec.rows.map((row, rIdx) => (
+                          <div key={row.id} className="bg-[#07051a] border border-indigo-950 rounded-xl p-4 space-y-3 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> 문항 #{rIdx + 1}
+                              </span>
+                            </div>
 
-                                const lines = val ? val.split('\n').filter((l) => l.trim()) : [];
-                                const isLongContent = lines.length > 2 || val.length > 45;
-                                const widthClass = getColumnWidthClass(col, val);
+                            <div className="overflow-x-auto pb-1">
+                              <div className="flex gap-3 min-w-full items-start">
+                                {(sec.columns || []).map((col) => {
+                                  const val = row.values[col] || '';
+                                  const cellKey = `${sec.id}-${row.id}-${col}`;
+                                  const isExpanded = !!expandedCells[cellKey];
 
-                                return (
-                                  <div
-                                    key={col}
-                                    className={`${widthClass} bg-[#040711] p-3 rounded-xl border border-indigo-950/80 flex flex-col transition-all ${
-                                      isExpanded ? 'h-auto' : 'h-28'
-                                    }`}
-                                  >
-                                    <span className="text-[11px] font-bold text-indigo-300 border-b border-indigo-950 pb-1.5 mb-1.5 truncate shrink-0">
-                                      {col}
-                                    </span>
+                                  const lines = val ? val.split('\n').filter((l) => l.trim()) : [];
+                                  const isLongContent = lines.length > 2 || val.length > 45;
+                                  const widthClass = getColumnWidthClass(col, val);
 
-                                    <div className="relative flex-1 overflow-hidden">
-                                      <div className={`text-xs text-slate-200 leading-relaxed font-sans ${!isExpanded && isLongContent ? 'max-h-10 overflow-hidden' : ''}`}>
-                                        {val ? (
-                                          lines.map((line, lIdx) => {
-                                            const clean = line.replace(/^[•\-\*\s]+/, '').trim();
-                                            if (!clean) return null;
-                                            return (
-                                              <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
-                                                <span className="text-indigo-400 shrink-0">•</span>
-                                                <span className="break-all">{clean}</span>
-                                              </div>
-                                            );
-                                          })
-                                        ) : (
-                                          <span className="text-slate-600 italic text-[10px]">내용 없음</span>
+                                  return (
+                                    <div
+                                      key={col}
+                                      className={`${widthClass} bg-[#040711] p-3 rounded-xl border border-indigo-950/80 flex flex-col transition-all ${
+                                        isExpanded ? 'h-auto' : 'h-28'
+                                      }`}
+                                    >
+                                      <span className="text-[11px] font-bold text-indigo-300 border-b border-indigo-950 pb-1.5 mb-1.5 truncate shrink-0">
+                                        {col}
+                                      </span>
+
+                                      <div className="relative flex-1 overflow-hidden">
+                                        <div className={`text-xs text-slate-200 leading-relaxed font-sans ${!isExpanded && isLongContent ? 'max-h-10 overflow-hidden' : ''}`}>
+                                          {val ? (
+                                            lines.map((line, lIdx) => {
+                                              const clean = line.replace(/^[•\-\*\s]+/, '').trim();
+                                              if (!clean) return null;
+                                              return (
+                                                <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
+                                                  <span className="text-indigo-400 shrink-0">•</span>
+                                                  <span className="break-all">{clean}</span>
+                                                </div>
+                                              );
+                                            })
+                                          ) : (
+                                            <span className="text-slate-600 italic text-[10px]">내용 없음</span>
+                                          )}
+                                        </div>
+
+                                        {!isExpanded && isLongContent && (
+                                          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
                                         )}
                                       </div>
 
-                                      {!isExpanded && isLongContent && (
-                                        <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
+                                      {isLongContent && (
+                                        <button
+                                          onClick={() => toggleCellExpand(cellKey)}
+                                          className="mt-1.5 pt-1.5 border-t border-indigo-950 text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
+                                        >
+                                          {isExpanded ? (
+                                            <><span>접기</span><ChevronUp className="w-3 h-3" /></>
+                                          ) : (
+                                            <><span>자세히 보기</span><ChevronDown className="w-3 h-3" /></>
+                                          )}
+                                        </button>
                                       )}
                                     </div>
-
-                                    {isLongContent && (
-                                      <button
-                                        onClick={() => toggleCellExpand(cellKey)}
-                                        className="mt-1.5 pt-1.5 border-t border-indigo-950 text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
-                                      >
-                                        {isExpanded ? (
-                                          <><span>접기</span><ChevronUp className="w-3 h-3" /></>
-                                        ) : (
-                                          <><span>자세히 보기</span><ChevronDown className="w-3 h-3" /></>
-                                        )}
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-xs text-slate-500 italic py-2">등록된 작성 내용이 없습니다.</p>
-                    )}
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500 italic py-2">등록된 작성 내용이 없습니다.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
