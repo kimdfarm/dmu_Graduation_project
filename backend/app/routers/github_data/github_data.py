@@ -523,15 +523,18 @@ Return raw JSON without markdown formatting in this exact schema:
                     "selected_version": "ORIGINAL"
                 }]
 
+            except RateLimitError as rle:
+                print(f"[{sec_title}] Groq 토큰 한도 초과(Rate Limit): {rle}")
+                raise HTTPException(
+                    status_code=429,
+                    detail="Groq API 분당 토큰/요청 한도(Rate Limit)를 초과했습니다. 잠시 후 다시 시도해 주세요."
+                )
             except Exception as sec_err:
                 print(f"[{sec_title}] 섹션 생성 중 오류 발생: {sec_err}")
-                section_details = [{
-                    "id": f"card_{s_idx}_err",
-                    "title": sec_title,
-                    "columns": sec_columns,
-                    "original_text": f"[{sec_columns[0]}]\n• 생성 실패 또는 기본 내용",
-                    "selected_version": "ORIGINAL"
-                }]
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"[{sec_title}] 섹션 AI 생성 중 오류 발생: {str(sec_err)}"
+                )
 
             all_sections_list.append({
                 "document_id": created_document_id,

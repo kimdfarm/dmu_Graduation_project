@@ -255,10 +255,10 @@ const DeveloperTestGithub = () => {
     }
 
     const requiredEnergy = estimationResult.energy;
-    if (creditBalance !== null && creditBalance < requiredEnergy) {
-      alert(`에너지가 부족합니다. (필요: ${requiredEnergy}회, 잔여: ${creditBalance}회)`);
-      return;
-    }
+if (creditBalance !== null && creditBalance < requiredEnergy) {
+  alert(`에너지가 부족합니다. (필요: ${requiredEnergy}회, 잔여: ${creditBalance}회)`);
+  return;
+}
 
     const userId = localStorage.getItem('userId');
     if (!userId) {
@@ -289,7 +289,13 @@ const DeveloperTestGithub = () => {
 
       if (!generateRes.ok) {
         const errorData = await generateRes.json();
-        throw new Error(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
+        // 에너지가 부족한 경우 특별히 안내
+        if (generateRes.status === 402) {
+          alert(`⚡ 에너지가 부족하여 이력서를 생성할 수 없습니다.\n\n${errorData.detail}`);
+        } else {
+          alert(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
+        }
+        return;
       }
 
       const result = await generateRes.json();
@@ -636,25 +642,36 @@ const DeveloperTestGithub = () => {
                   )}
 
                   {estimationResult && (
-                    <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300 shadow-inner">
-                      <p className="flex items-center justify-between">
-                        <span>📥 입력 토큰 (소스 정제 데이터):</span>
-                        <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
-                      </p>
-                      <p className="flex items-center justify-between">
-                        <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
-                        <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
-                      </p>
-                      <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
-                        <span>📊 총 토큰 (Input + Output):</span>
-                        <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
-                      </p>
-                      <p className="flex items-center justify-between">
-                        <span>⚡ 소모될 에너지 비용:</span>
-                        <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
-                      </p>
-                    </div>
-                  )}
+  <div className={`p-4 rounded-xl text-xs space-y-2 border ${
+    creditBalance !== null && creditBalance < estimationResult.energy 
+      ? 'bg-rose-950/40 border-rose-500/50 text-rose-300' 
+      : 'bg-[#070b19] border-emerald-500/40 text-emerald-300'
+  }`}>
+    <p className="flex items-center justify-between">
+      <span>📥 입력 토큰 (소스 정제 데이터):</span>
+      <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
+    </p>
+    <p className="flex items-center justify-between">
+      <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
+      <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
+    </p>
+    <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
+      <span>📊 총 토큰 (Input + Output):</span>
+      <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
+    </p>
+    <p className="flex items-center justify-between">
+      <span>⚡ 소모될 에너지 비용:</span>
+      <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
+    </p>
+    
+    {creditBalance !== null && creditBalance < estimationResult.energy && (
+      <div className="pt-2 border-t border-rose-900/50 text-rose-300 font-bold flex items-center gap-1.5">
+        <span>🚨</span>
+        <span>보유 중인 에너지(잔여: {creditBalance}회)가 부족합니다! 충전이 필요합니다.</span>
+      </div>
+    )}
+  </div>
+)}
                 </div>
               )}
           </div>
