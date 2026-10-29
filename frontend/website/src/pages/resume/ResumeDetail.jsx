@@ -17,57 +17,89 @@ const generateUniqueId = () => {
 };
 
 const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
+  // 💡 DB에 저장된 실제 columns 배열을 기준 컬럼으로 고정 사용!
+  let targetColumns = Array.isArray(secColumns) && secColumns.length > 0 
+    ? [...secColumns] 
+    : [
+        "Project Name (프로젝트명 & 역할)",
+        "Timeline (기간)",
+        "Tech Stack (사용 기술)",
+        "Architecture & Impact (아키텍처 및 기술적 성과)"
+      ];
+
   if (!details) {
-    return { columns: ['프로젝트명', '담당 역할', '사용 기술 및 스택', '주요 구현 및 문제 해결 성과'], rows: [] };
+    return { columns: targetColumns, rows: [] };
   }
 
   const rawList = Array.isArray(details) ? details : [details];
   const extractedRows = [];
-  const foundColumnsSet = new Set(); // 💡 중복 없는 동적 컬럼 수집용 세트
 
   rawList.forEach((cardObj) => {
     const rowValues = {};
 
-    if (typeof cardObj === 'object' && cardObj !== null) {
-      let textToParse = cardObj.original_text || '';
-      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
-        textToParse = cardObj.spell_checked_text;
-      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
-        textToParse = cardObj.ai_proofread_text;
-      }
+    // 💡 모든 targetColumns에 대해 기본 빈 값 초기화
+    targetColumns.forEach(col => {
+      rowValues[col] = '';
+    });
 
-      if (textToParse) {
-        // [컬럼명] 블록 단위로 쪼개기
-        const blocks = textToParse.split(/\n\s*\n/);
-        blocks.forEach((block) => {
-          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-          if (lines.length === 0) return;
+    let textToParse = cardObj.original_text || '';
+    if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
+      textToParse = cardObj.spell_checked_text;
+    } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
+      textToParse = cardObj.ai_proofread_text;
+    }
 
-          // [컬럼명] 형태의 헤더인 경우
-          if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
-            const keyName = lines[0].slice(1, -1).trim();
-            foundColumnsSet.add(keyName);
-            rowValues[keyName] = lines
-              .slice(1)
-              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
-              .join('\n');
-          } else {
-            // 태그가 없는 경우 기본 성과 컬럼으로 병합
-            const defaultKey = '주요 구현 및 문제 해결 성과';
-            foundColumnsSet.add(defaultKey);
-            const currentVal = rowValues[defaultKey] || '';
-            const joinedLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
-            rowValues[defaultKey] = currentVal ? `${currentVal}\n${joinedLines}` : joinedLines;
+    if (textToParse) {
+      const blocks = textToParse.split(/\n\s*\n/);
+      blocks.forEach((block) => {
+        const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (lines.length === 0) return;
+
+        if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
+          const rawKeyName = lines[0].slice(1, -1).trim();
+          
+          // 💡 targetColumns 중 이름이 일치하거나 포함되는 컬럼 찾기
+          let matchedCol = targetColumns.find(c => 
+            c === rawKeyName || 
+            c.toLowerCase().includes(rawKeyName.toLowerCase()) || 
+            rawKeyName.toLowerCase().includes(c.toLowerCase().split(' ')[0])
+          );
+          
+          // 매칭되는 컬럼이 없으면 키워드 기반으로 안전하게 배정
+          if (!matchedCol) {
+            if (rawKeyName.includes('프로젝트') || rawKeyName.includes('역할') || rawKeyName.includes('Name')) {
+              matchedCol = targetColumns[0];
+            } else if (rawKeyName.includes('기간') || rawKeyName.includes('Timeline')) {
+              matchedCol = targetColumns[1];
+            } else if (rawKeyName.includes('기술') || rawKeyName.includes('Stack')) {
+              matchedCol = targetColumns[2];
+            } else {
+              matchedCol = targetColumns[3] || targetColumns[0];
+            }
           }
-        });
-      }
 
-      // 카드 자체에 title이 있는 경우 프로젝트명으로 매핑
-      if (cardObj.title && cardObj.title !== '세부 항목') {
-        const cleanTitle = cardObj.title.replace(/^(제목\/역할:\s*)+/, '').trim();
-        foundColumnsSet.add('프로젝트명');
-        rowValues['프로젝트명'] = cleanTitle;
-      }
+          const cleanContent = lines
+            .slice(1)
+            .map((l) => l.replace(/^[•\-\*\s]+/, ''))
+            .join('\n');
+
+          if (matchedCol) {
+            rowValues[matchedCol] = rowValues[matchedCol] 
+              ? `${rowValues[matchedCol]}\n${cleanContent}` 
+              : cleanContent;
+          }
+        } else {
+          // 태그가 없는 경우 마지막 성과 컬럼(또는 첫 번째 컬럼)에 누적
+          const defaultCol = targetColumns[3] || targetColumns[0];
+          const cleanLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
+          rowValues[defaultCol] = rowValues[defaultCol] ? `${rowValues[defaultCol]}\n${cleanLines}` : cleanLines;
+        }
+      });
+    }
+
+    // 카드 자체의 title이 있고 첫 번째 컬럼(Project Name)이 비어있다면 채워넣기
+    if (cardObj.title && cardObj.title !== '세부 항목' && !rowValues[targetColumns[0]]) {
+      rowValues[targetColumns[0]] = cardObj.title;
     }
 
     extractedRows.push({
@@ -77,23 +109,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
     });
   });
 
-  // 💡 수집된 실제 컬럼들을 배열로 변환 (순서 정렬: 프로젝트명, 담당 역할, 사용 기술, 성과 순서 우대)
-  let detectedColumns = Array.from(foundColumnsSet);
-  const priorityOrder = ['프로젝트명', '담당 역할', '사용 기술 및 스택', '사용 기술', '주요 구현 및 문제 해결 성과', '성과'];
-  
-  detectedColumns.sort((a, b) => {
-    let idxA = priorityOrder.indexOf(a);
-    let idxB = priorityOrder.indexOf(b);
-    if (idxA === -1) idxA = 99;
-    if (idxB === -1) idxB = 99;
-    return idxA - idxB;
-  });
-
-  if (detectedColumns.length === 0) {
-    detectedColumns = ['프로젝트명', '담당 역할', '사용 기술 및 스택', '주요 구현 및 문제 해결 성과'];
-  }
-
-  return { columns: detectedColumns, rows: extractedRows };
+  return { columns: targetColumns, rows: extractedRows };
 };
 
 const ResumeDetail = () => {
