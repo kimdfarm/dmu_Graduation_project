@@ -616,27 +616,65 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        columns = (details_list[-1].get("columns") if details_list else None) or template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
-        
-        section_payload = {
-            "document_id": created_document_id,
-            "section_type": "EXPERIENCE",
-            "section_title": "경력 및 주요 프로젝트 성과",
-            "display_order": 1,
-            "columns": columns,
-            "details": details_list
-        }
+        # 💡 [핵심 수정] 템플릿에 정의된 모든 섹션을 동적으로 순회하여 all_sections_list 생성
+        # 만약 프론트에서 template_structure(또는 template_sections)를 넘겨주지 않았다면 기본 단일 섹션으로 방어
+        template_structure = getattr(payload, "template_structure", None) or {}
+        template_sections = template_structure.get("sections", [])
 
-        sec_res = db.table("document_sections").insert(section_payload).execute()
-        if not sec_res.data:
-            raise HTTPException(status_code=500, detail="document_sections 테이블 저장 실패")
+        all_sections_list = []
+
+        if template_sections:
+            for s_idx, tpl_sec in enumerate(template_sections, start=1):
+                sec_title = tpl_sec.get("title", f"섹션 {s_idx}")
+                sec_columns = tpl_sec.get("columns", ["항목", "내용"])
+                sec_type = tpl_sec.get("type", "EXPERIENCE")
+
+                # 프로젝트나 경력 관련 섹션인 경우 분석된 details_list를 매핑하고, 
+                # 요약(SUMMARY)이나 기술스택(SKILLS) 같은 다른 섹션인 경우 그에 맞는 형태나 빈 카드 세팅
+                is_target_section = any(keyword in sec_title.lower() for keyword in ["project", "experience", "프로젝트", "경력", "실적"])
+                
+                sec_details = details_list if is_target_section else [
+                    {
+                        "id": f"card_empty_{s_idx}",
+                        "title": sec_title,
+                        "columns": sec_columns,
+                        "original_text": f"[{sec_columns[0]}]\n• 내용을 입력해주세요.",
+                        "selected_version": "ORIGINAL"
+                    }
+                ]
+
+                all_sections_list.append({
+                    "document_id": created_document_id,
+                    "section_type": sec_type,
+                    "section_title": sec_title,
+                    "display_order": s_idx,
+                    "columns": sec_columns,
+                    "details": sec_details
+                })
+        else:
+            # 템플릿 정보가 없을 때의 기본 백업 처리
+            columns = (details_list[-1].get("columns") if details_list else None) or template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
+            all_sections_list.append({
+                "document_id": created_document_id,
+                "section_type": "EXPERIENCE",
+                "section_title": "경력 및 주요 프로젝트 성과",
+                "display_order": 1,
+                "columns": columns,
+                "details": details_list
+            })
+
+        # 💡 완성된 다중 섹션 리스트를 Supabase에 한 번에 Bulk Insert!
+        if all_sections_list:
+            sec_res = db.table("document_sections").insert(all_sections_list).execute()
+            if not sec_res.data:
+                raise HTTPException(status_code=500, detail="document_sections 테이블 일괄 저장 실패")
 
         return {
             "status": "success",
             "id": created_document_id,
             "title": payload.title,
             "category": payload.category,
-            "total_projects": len(details_list),
+            "total_sections": len(all_sections_list),
             "estimated_tokens": estimated_tokens,
             "deducted_energy": required_energy
         }
