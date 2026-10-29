@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Loader2, Sparkles, Search, 
-  Calendar, CheckCircle2, Check
+  Calendar, CheckCircle2, Check, Globe
 } from 'lucide-react';
+import { FRAME_TEMPLATES } from '../../templates/resumeTemplates';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -25,6 +26,7 @@ const DeveloperTestGithub = () => {
 
   const [title, setTitle] = useState('GitHub 테스트 이력서');
   const [category, setCategory] = useState('신입 개발자');
+  const [selectedFrame, setSelectedFrame] = useState('KR_DEV_BACKEND'); // 💡 템플릿 선택 상태 추가
   const [errorMessage, setErrorMessage] = useState('');
 
   const [testGithubId, setTestGithubId] = useState(
@@ -36,9 +38,8 @@ const DeveloperTestGithub = () => {
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
   const [selectedRepos, setSelectedRepos] = useState([]);
   
-  // 토큰 분석량 및 에너지 견적 관련 상태
   const [isEstimating, setIsEstimating] = useState(false);
-  const [estimationProgress, setEstimationProgress] = useState({ current: 0, total: 0, currentRepo: '' }); // 💡 분석 진행 상태용 state 추가
+  const [estimationProgress, setEstimationProgress] = useState({ current: 0, total: 0, currentRepo: '' });
   const [estimationResult, setEstimationResult] = useState(null); 
   const [creditBalance, setCreditBalance] = useState(null);
 
@@ -87,7 +88,7 @@ const DeveloperTestGithub = () => {
 
   useEffect(() => {
     setEstimationResult(null);
-  }, [selectedRepos, startDate, endDate, testGithubId]);
+  }, [selectedRepos, startDate, endDate, testGithubId, selectedFrame]);
 
   const handleGithubIdChange = (newId) => {
     setTestGithubId(newId);
@@ -107,7 +108,6 @@ const DeveloperTestGithub = () => {
       setIsFetchingRepos(true);
       setErrorMessage('');
 
-      // 💡 customFilters로 넘어온 날짜가 있으면 우선 사용하고, 없으면 현재 state 사용
       const activeStartDate = customFilters.startDate !== undefined ? customFilters.startDate : startDate;
       const activeEndDate = customFilters.endDate !== undefined ? customFilters.endDate : endDate;
 
@@ -163,14 +163,12 @@ const DeveloperTestGithub = () => {
       setActiveFilterText(`${startDate} ~ ${endDate} 상세 기간 탐색 결과`);
     }
 
-    // 💡 계산된 activeStart와 activeEnd를 명시적으로 넘겨줍니다.
     fetchUserRepositories(testGithubId, { 
       startDate: activeStart, 
       endDate: activeEnd 
     });
   };
 
-  // 💡 [개선] 분석량 및 에너지 사전 계산 함수 (순회하며 실시간 진행 상황 UI 반영)
   const handleEstimateCost = async () => {
     if (selectedRepos.length === 0) {
       alert("분석할 저장소를 1개 이상 선택해 주세요.");
@@ -186,7 +184,6 @@ const DeveloperTestGithub = () => {
 
       const projectsData = [];
 
-      // Promise.all 대신 순회문을 사용하여 하나씩 분석하며 상태 업데이트
       for (let i = 0; i < selectedRepos.length; i++) {
         const repoName = selectedRepos[i];
         setEstimationProgress({ 
@@ -218,7 +215,6 @@ const DeveloperTestGithub = () => {
         projectsData.push(data);
       }
 
-      // 한 번에 견적 API 호출
       const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -269,7 +265,11 @@ const DeveloperTestGithub = () => {
 
     try {
       setLoading(true);
-      setLoadingText(`[${testGithubId}] GitHub 데이터 분석 이력서 생성 중...`);
+      setLoadingText(`[${testGithubId}] 2단계 심층 AI 분석 및 이력서 생성 중...`);
+
+      // 💡 선택한 템플릿의 컬럼 정보 추출하여 전달
+      const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
+      const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -279,6 +279,7 @@ const DeveloperTestGithub = () => {
           title: title.trim() || `[${testGithubId}] GitHub 기술 이력서`,
           category: category,
           repo_name: selectedRepos.join(', '),
+          template_columns: targetColumns, // 💡 템플릿 컬럼 매핑용 데이터 전달
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });
@@ -290,7 +291,7 @@ const DeveloperTestGithub = () => {
 
       const result = await generateRes.json();
       if (result && result.id) {
-        alert(`성공! 생성된 토큰 정보: ${(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()} 토큰`);
+        alert(`성공! 총 토큰: ${(estimationResult?.total_tokens ?? 0).toLocaleString()} 토큰`);
         navigate(`/resume/${result.id}`);
       }
 
@@ -379,7 +380,7 @@ const DeveloperTestGithub = () => {
           {/* 테스트 대상 GitHub ID 변경 영역 */}
           <div className="p-5 bg-[#0a1024] border border-emerald-900/80 rounded-2xl space-y-3 shadow-md">
             <label className="block text-xs font-bold text-slate-200">
-              테스트할 GitHub ID 지정 (입력 시 localStorage 및 쿠키 값 동기화)[cite: 3]
+              테스트할 GitHub ID 지정
             </label>
             <div className="flex gap-2">
               <input
@@ -422,6 +423,38 @@ const DeveloperTestGithub = () => {
                   <option key={opt} value={opt} className="bg-[#0f152d] text-white">{opt}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* 💡 [추가] 이력서 프레임 템플릿 선택 영역 */}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Globe className="w-4 h-4 text-emerald-400" />
+              이력서 프레임 템플릿 선택 (AI가 이 형식에 맞춰 풍부하게 분석합니다)
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {Object.entries(FRAME_TEMPLATES).map(([key, tpl]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSelectedFrame(key)}
+                  className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
+                    selectedFrame === key
+                      ? 'bg-emerald-950/30 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                      : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <p className="font-bold text-slate-100 text-xs leading-snug break-words flex-1">{tpl.name}</p>
+                    <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">{tpl.desc}</p>
+                  </div>
+                  <div>
+                    <span className="inline-block text-[10px] px-2.5 py-0.5 rounded-md bg-[#070b19] border border-emerald-950 text-emerald-300 font-semibold">
+                      {tpl.category}
+                    </span>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -511,9 +544,6 @@ const DeveloperTestGithub = () => {
                     <p className="text-xs text-slate-300 font-bold">
                     [{testGithubId}]의 저장소 목록을 탐색하는 중입니다...
                     </p>
-                    <p className="text-[11px] text-emerald-400">
-                    * 소유 및 연동된 저장소를 불러오고 기간별 필터링을 적용하고 있습니다.
-                    </p>
                 </div>
                 ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
@@ -565,7 +595,6 @@ const DeveloperTestGithub = () => {
                     </button>
                   </div>
 
-                  {/* 💡 [추가] 실시간 분석 진행 상황 UI 바 및 텍스트 */}
                   {isEstimating && (
                     <div className="p-4 bg-[#070b19] border border-teal-500/40 rounded-xl text-xs space-y-2 text-teal-300 animate-pulse">
                       <div className="flex items-center justify-between font-semibold">
@@ -575,7 +604,6 @@ const DeveloperTestGithub = () => {
                       <p className="text-slate-300 text-[11px] truncate">
                         현재 분석 중인 저장소: <strong className="text-white font-mono">{estimationProgress.currentRepo}</strong>
                       </p>
-                      {/* 프로그레스 바 */}
                       <div className="w-full bg-[#0a1024] h-2 rounded-full overflow-hidden border border-teal-900">
                         <div 
                           className="bg-teal-500 h-full transition-all duration-300"
@@ -586,25 +614,25 @@ const DeveloperTestGithub = () => {
                   )}
 
                   {estimationResult && (
-  <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300 shadow-inner">
-    <p className="flex items-center justify-between">
-      <span>📥 입력 토큰 (소스 정제 데이터):</span>
-      <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between">
-      <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
-      <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
-      <span>📊 총 토큰 (Input + Output):</span>
-      <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between">
-      <span>⚡ 소모될 에너지 비용:</span>
-      <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
-    </p>
-  </div>
-)}
+                    <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300 shadow-inner">
+                      <p className="flex items-center justify-between">
+                        <span>📥 입력 토큰 (소스 정제 데이터):</span>
+                        <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between">
+                        <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
+                        <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
+                        <span>📊 총 토큰 (Input + Output):</span>
+                        <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between">
+                        <span>⚡ 소모될 에너지 비용:</span>
+                        <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
           </div>
@@ -630,15 +658,15 @@ const DeveloperTestGithub = () => {
                 <span>{loadingText || '처리 중...'}</span>
               </span>
             ) : estimationResult ? (
-  <span className="flex items-center gap-2">
-    <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
-    <span>[{testGithubId}] 총 토큰 수({(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()}) 검증 후 이력서 생성 테스트</span>
-  </span>
-) : (
-  <span className="text-slate-400 font-medium text-xs md:text-sm">
-    ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
-  </span>
-)}
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
+                <span>[{testGithubId}] 2단계 심층 AI 분석 후 이력서 생성하기</span>
+              </span>
+            ) : (
+              <span className="text-slate-400 font-medium text-xs md:text-sm">
+                ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
+              </span>
+            )}
           </button>
         </div>
 

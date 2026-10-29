@@ -302,14 +302,18 @@ const ResumeNew = () => {
       setLoading(true);
       setLoadingText("AI 이력서 카드 생성 및 에너지 차감 중...");
 
+      const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
+      const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
+
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           member_id: userId,
-          title: title.trim() || `GitHub 기반 기술 이력서`,
+          title: title.trim() || `[${githubUser}] GitHub 기술 이력서`,
           category: category,
           repo_name: selectedRepos.join(', '),
+          template_columns: targetColumns, // 💡 템플릿 컬럼 정보 전달
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });

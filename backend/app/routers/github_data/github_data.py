@@ -275,7 +275,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
-def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
+def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None) -> dict:
     if not groq_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -287,38 +287,62 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int) -> dict:
 
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
+    default_columns = template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
 
-    prompt_content = f"""
-[프로젝트 정보]
+    # ==========================================
+    # 🤖 [Stage 1] 창의적이고 풍부한 심층 분석 (Temperature 0.6)
+    # ==========================================
+    stage1_prompt = f"""
+[프로젝트 원본 데이터]
 - 저장소명: {repo_name}
 - 사용 기술: {tech_stack_str}
-
-[실제 개발 기여 및 작업 빈도 내역]
 - 커밋 내역: {json.dumps(cleaned_data['key_commits'], ensure_ascii=False)}
-- PR/이슈 내역: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
+- PR 및 이슈: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
 
-[작성 규칙]
-1. 제시된 커밋/PR 내역 중 '반복 횟수'나 '라인 변경량'이 높은 작업 항목을 이 개발자의 '핵심 구현 기능 및 주요 역할'로 판단하여 성과를 작성해라.
-2. 커밋 메시지에 등장하는 모듈명, 기능명, 기술 단어를 직접 언급하며 문장을 완성해라.
-3. 근거 없는 비현실적인 상투어는 자제하고 실제 작업 기록 기반의 성과 문장(achievements) 3~5개를 작성해라.
-4. 반드시 한국어로 작성하고, JSON 스키마 {{"role_summary": "string", "achievements": ["string"]}} 형식으로만 응답해라.
+[요청 사항]
+이 개발자의 GitHub 활동 내역을 바탕으로 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 **상세하고 풍부한 전문 개발 성과 서술문**을 작성해 주세요. 
+숨겨진 맥락과 기술적 깊이를 살려 구체적으로 4~6개의 핵심 성과 포인트로 풀어내 주세요.
 """
 
     try:
-        response = groq_client.chat.completions.create(
+        stage1_res = groq_client.chat.completions.create(
             model=GROQ_MODEL_NAME,
             messages=[
-                {
-                    "role": "system", 
-                    "content": "당신은 개발자의 GitHub 정제 데이터를 이력서 문장으로 변환해 주는 라이터입니다."
-                },
-                {"role": "user", "content": prompt_content}
+                {"role": "system", "content": "당신은 시니어 기술 리드이자 개발자 역량을 심층 분석하는 전문 테크니컬 라이터입니다."},
+                {"role": "user", "content": stage1_prompt}
+            ],
+            temperature=0.6,
+        )
+        deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
+
+        # ==========================================
+        # 📐 [Stage 2] 선택한 이력서 템플릿 컬럼 형태에 맞게 포맷팅 (Temperature 0.1)
+        # ==========================================
+        stage2_prompt = f"""
+[심층 분석된 개발 성과 데이터]
+{deep_analysis_text}
+
+[이력서 템플릿 구조 (컬럼 목록)]
+{json.dumps(default_columns, ensure_ascii=False)}
+
+[요청 사항]
+위의 심층 분석 데이터를 활용하여, 지정된 **이력서 템플릿 컬럼 구조**에 정확히 대응하는 JSON 객체로 변환해 주세요.
+반드시 아래 JSON 스키마 형태로만 응답하세요.
+- role_summary: 개발자의 핵심 역할 요약 문자열
+- achievements: 템플릿 컬럼 항목들에 대응하는 구체적인 성과 문장들의 리스트 (예: ["• 성과 1", "• 성과 2", ...])
+"""
+
+        stage2_res = groq_client.chat.completions.create(
+            model=GROQ_MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "당신은 이력서 양식 포맷팅 전문 AI입니다. 지정된 JSON 스키마로만 응답하세요."},
+                {"role": "user", "content": stage2_prompt}
             ],
             temperature=0.1,
             response_format={"type": "json_object"}
         )
 
-        content = response.choices[0].message.content if response.choices else None
+        content = stage2_res.choices[0].message.content if stage2_res.choices else None
         if not content:
             raise HTTPException(status_code=500, detail="Groq API 응답 본문이 비어있습니다.")
 
@@ -367,7 +391,9 @@ class GithubResumeGenerateRequest(BaseModel):
     title: str
     category: str
     repo_name: str
+    template_columns: Optional[List[str]] = None  # 💡 템플릿 컬럼 정보 수신
     analysis_data: Optional[Dict[str, Any]] = None
+
 @router.post("/github/analyze")
 async def analyze_repository_graphql(
     payload: RepoAnalyzeRequest,
@@ -477,6 +503,7 @@ async def generate_github_resume(
     try:
         analysis_data = payload.analysis_data or {}
         projects_data = analysis_data.get("projects_data", [])
+        template_columns = payload.template_columns # 💡 템플릿 컬럼 전달
 
         if not projects_data and analysis_data.get("repo_name"):
             projects_data = [analysis_data]
@@ -502,7 +529,8 @@ async def generate_github_resume(
                 continue
 
             try:
-                card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx)
+                # 💡 템플릿 컬럼 정보를 파싱 함수로 전달
+                card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx, template_columns=template_columns)
                 if card_detail and isinstance(card_detail, dict):
                     details_list.append(card_detail)
             except Exception as parse_err:
@@ -528,7 +556,7 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        columns = ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
+        columns = template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
         
         section_payload = {
             "document_id": created_document_id,
@@ -692,9 +720,12 @@ def estimate_github_cost(payload: EstimateCostRequest):
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
+    # 💡 입력 토큰과 출력 토큰을 동일하게 가져가거나, 명확한 1:1 비례로 설정
     input_tokens = total_chars // 3
-    output_tokens = int(input_tokens * 0.35) if input_tokens > 0 else 500
+    output_tokens = input_tokens  # 출력값도 입력값과 동일하게 계산
     total_tokens = input_tokens + output_tokens
+    
+    # 💡 5,000토큰당 1에너지 (원하시는 기준에 맞춰 조절 가능)
     energy_cost = max(1, total_tokens // 5000)
     
     return {
@@ -704,3 +735,20 @@ def estimate_github_cost(payload: EstimateCostRequest):
         "energy_cost": energy_cost,
         "message": f"입력: {input_tokens:,}개 / 출력: {output_tokens:,}개 / 총 토큰: {total_tokens:,}개"
     }
+
+
+def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
+    total_chars = 0
+    for repo in projects_data:
+        target_author = repo.get("target_author", "")
+        cleaned = preprocess_github_data(repo, target_author=target_author)
+        text_blob = json.dumps(cleaned, ensure_ascii=False)
+        total_chars += len(text_blob)
+    
+    input_tokens = total_chars // 3
+    output_tokens = input_tokens  # 동일하게 1:1 반영
+    total_tokens = input_tokens + output_tokens
+    
+    energy_cost = max(1, total_tokens // 5000)
+    
+    return total_tokens, energy_cost
