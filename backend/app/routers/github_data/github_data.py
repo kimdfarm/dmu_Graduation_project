@@ -312,7 +312,8 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         repo_timeline = f"{min_date} ~ {max_date}" if min_date != max_date else f"{min_date} (단일 활동)"
 
     target_columns = template_columns if template_columns and len(template_columns) > 0 else [
-        "Project Name (프로젝트명 & 역할)",
+        "Project (프로젝트명)",
+        "Name ( 역할)",
         "Timeline (기간)",
         "Tech Stack (사용 기술)",
         "Architecture & Impact (아키텍처 및 기술적 성과)"
@@ -354,9 +355,8 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
 
         # ==========================================
-        # 📐 [Stage 2] 템플릿 구조 및 DB 규격 맞춤형 포맷팅 (Temperature 0.1)
+        # 📐 [Stage 2] 템플릿 컬럼 기반 순수 문자열 Few-shot 예시 동적 생성 및 포맷팅
         # ==========================================
-        # 💡 제안해주신 방식대로 템플릿 컬럼과 타이틀을 활용해 examplestr 문자열을 동적으로 조립
         def create_dynamic_example(columns: list, sample_title: str) -> str:
             examplestr = "["
             
@@ -375,7 +375,6 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
             examplestr += "]"
             return examplestr
 
-        # 함수를 실행하여 템플릿 컬럼에 맞는 순수 문자열 예시 획득
         dynamic_example_str = create_dynamic_example(target_columns, repo_name)
 
         stage2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
@@ -440,7 +439,6 @@ Return raw JSON without markdown formatting."""
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
 
-    
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
@@ -454,7 +452,7 @@ class GithubResumeGenerateRequest(BaseModel):
     category: str
     repo_name: str
     template_columns: Optional[List[str]] = None
-    language: Optional[str] = "ko"  # 💡 프론트에서 넘어오는 언어 ('ko' 또는 'en')
+    language: Optional[str] = "ko"
     analysis_data: Optional[Dict[str, Any]] = None
 
 @router.post("/github/analyze")
@@ -475,7 +473,6 @@ async def analyze_repository_graphql(
         target_owner = parts[0]
         target_repo_name = parts[1]
 
-    # 💡 페이지네이션을 적용하여 기간 내 커밋을 안정적으로 수집
     async with httpx.AsyncClient(timeout=1200.0) as client:
         all_commits = []
         has_next_page = True
@@ -483,7 +480,6 @@ async def analyze_repository_graphql(
         
         start_dt = datetime.strptime(payload.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if payload.start_date else None
 
-        # 최대 3페이지(300개)까지만 안전하게 순회하여 타임아웃 방지
         for _ in range(3):
             if not has_next_page:
                 break
@@ -520,11 +516,9 @@ async def analyze_repository_graphql(
                     detail=f"저장소 정보를 찾을 수 없습니다: {target_owner}/{target_repo_name}"
                 )
 
-            # 첫 요청 시 기본 저장소 메타데이터 확보
             if not all_commits:
                 base_repo_data = repo_analytics
 
-            # 커밋 히스토리 추출
             history_data = repo_analytics.get("defaultBranchRef", {}).get("target", {}).get("history", {})
             page_info = history_data.get("pageInfo", {})
             nodes = history_data.get("nodes", [])
@@ -547,7 +541,6 @@ async def analyze_repository_graphql(
             after_cursor = page_info.get("endCursor")
             has_next_page = page_info.get("hasNextPage", False)
 
-        # 수집된 방대한 커밋 내역을 기본 저장소 구조에 교체 주입
         if base_repo_data.get("defaultBranchRef") and base_repo_data["defaultBranchRef"].get("target"):
             base_repo_data["defaultBranchRef"]["target"]["history"]["nodes"] = all_commits
 
@@ -566,7 +559,7 @@ async def generate_github_resume(
     try:
         analysis_data = payload.analysis_data or {}
         projects_data = analysis_data.get("projects_data", [])
-        template_columns = payload.template_columns # 💡 템플릿 컬럼 전달
+        template_columns = payload.template_columns 
 
         if not projects_data and analysis_data.get("repo_name"):
             projects_data = [analysis_data]
@@ -598,14 +591,12 @@ async def generate_github_resume(
                     template_columns=template_columns,
                     language=payload.language
                 )
-                # 💡 None이 아닐 때만 유효한 카드로 추가
                 if card_detail and isinstance(card_detail, dict):
                     details_list.append(card_detail)
             except Exception as parse_err:
                 print(f"[{idx}번 저장소 카드 생성 실패]: {parse_err}")
                 continue
 
-        # 💡 유효한 프로젝트 카드가 단 하나도 생성되지 않았을 때의 예외 처리
         if not details_list:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -625,7 +616,6 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        # 💡 dict 객체이므로 대괄호 키 접근 방식을 사용하고, 없으면 template_columns나 기본값을 사용
         columns = (details_list[-1].get("columns") if details_list else None) or template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
         
         section_payload = {
@@ -790,12 +780,10 @@ def estimate_github_cost(payload: EstimateCostRequest):
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
-    # 💡 입력 토큰과 출력 토큰을 동일하게 가져가거나, 명확한 1:1 비례로 설정
     input_tokens = total_chars // 3
-    output_tokens = input_tokens  # 출력값도 입력값과 동일하게 계산
+    output_tokens = input_tokens 
     total_tokens = input_tokens + output_tokens
     
-    # 💡 5,000토큰당 1에너지 (원하시는 기준에 맞춰 조절 가능)
     energy_cost = max(1, total_tokens // 5000)
     
     return {
@@ -816,8 +804,8 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
         total_chars += len(text_blob)
     
     input_tokens = total_chars // 3
-    output_tokens = input_tokens * 2  # 출력값은 입력값의 2배로 설정
-    total_tokens = input_tokens *2 + output_tokens
+    output_tokens = input_tokens * 2 
+    total_tokens = input_tokens * 2 + output_tokens
     
     energy_cost = max(1, total_tokens // 5000)
     
