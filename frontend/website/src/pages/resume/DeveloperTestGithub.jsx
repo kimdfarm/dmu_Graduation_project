@@ -290,9 +290,7 @@ const DeveloperTestGithub = () => {
 
       const result = await generateRes.json();
       if (result && result.id) {
-        // 💡 estimationResult.tokens 대신 estimationResult.total_tokens를 안전하게 참조하도록 수정
-        const totalTokens = estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0;
-        alert(`성공! 생성된 토큰 정보: ${totalTokens.toLocaleString()} 토큰, 소모 에너지: ${estimationResult?.energy ?? 1}회`);
+        alert(`성공! 생성된 토큰 정보: ${(estimationResult?.total_tokens ?? estimationResult?.tokens ?? 0).toLocaleString()} 토큰`);
         navigate(`/resume/${result.id}`);
       }
 
@@ -305,11 +303,7 @@ const DeveloperTestGithub = () => {
     }
   };
 
-  const toggleRepoSelection = (repoItem) => {
-    // 💡 repoItem이 객체든 문자열이든 상관없이 안전하게 full_name 문자열만 추출
-    const repoName = typeof repoItem === 'string' ? repoItem : (repoItem.full_name || repoItem.name);
-    if (!repoName) return;
-
+  const toggleRepoSelection = (repoName) => {
     setSelectedRepos((prev) =>
       prev.includes(repoName)
         ? prev.filter((name) => name !== repoName)
@@ -317,12 +311,11 @@ const DeveloperTestGithub = () => {
     );
   };
 
-const handleSelectAllRepos = () => {
-    const allRepoNames = filteredRepositories.map(r => r.full_name || r.name).filter(Boolean);
-    if (selectedRepos.length === allRepoNames.length) {
+  const handleSelectAllRepos = () => {
+    if (selectedRepos.length === filteredRepositories.length) {
       setSelectedRepos([]);
     } else {
-      setSelectedRepos(allRepoNames);
+      setSelectedRepos(filteredRepositories.map(r => r.full_name || r.name));
     }
   };
 
@@ -528,17 +521,25 @@ const handleSelectAllRepos = () => {
                     const repoName = repo.full_name || repo.name;
                     const isSelected = selectedRepos.includes(repoName);
                     return (
-                        <div
+                      <div
                         key={repo.id || repoName}
-                        onClick={() => toggleRepoSelection(repo)} // 💡 repo 객체를 넘겨도 위에서 안전하게 문자열로 변환됨
+                        onClick={() => toggleRepoSelection(repoName)}
                         className={`p-4 rounded-2xl border cursor-pointer transition flex flex-col justify-between gap-3 ${
-                            isSelected ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500 shadow-md' : 'bg-[#0a1024] border-emerald-950'
+                          isSelected ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500 shadow-md' : 'bg-[#0a1024] border-emerald-950'
                         }`}
-                        >
-                        {/* 생략 */}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold text-slate-100 truncate">{repoName}</p>
+                            <p className="text-[11px] text-slate-400 line-clamp-2">{repo.description || '설명 없음'}</p>
+                          </div>
+                          <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 ${isSelected ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-slate-700 bg-[#070b19]'}`}>
+                            {isSelected && <Check className="w-3.5 h-3.5" />}
+                          </div>
                         </div>
+                      </div>
                     );
-                    })}
+                  })}
                 </div>
               )}
 
