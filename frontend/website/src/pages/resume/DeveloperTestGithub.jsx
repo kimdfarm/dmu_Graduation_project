@@ -26,7 +26,7 @@ const DeveloperTestGithub = () => {
 
   const [title, setTitle] = useState('GitHub 테스트 이력서');
   const [category, setCategory] = useState('신입 개발자');
-  const [selectedFrame, setSelectedFrame] = useState('KR_DEV_BACKEND'); // 💡 템플릿 선택 상태 추가
+  const [selectedFrame, setSelectedFrame] = useState(''); // 💡 초기값 비워둠 (선택 강제화)
   const [errorMessage, setErrorMessage] = useState('');
   const [language, setLanguage] = useState('ko');
 
@@ -66,14 +66,8 @@ const DeveloperTestGithub = () => {
   const [endDate, setEndDate] = useState(initialDates.end);
   const [activeFilterText, setActiveFilterText] = useState('최근 6개월 기준 탐색 결과');
 
+  // 💡 처음 접속할 때 자동으로 fetchUserRepositories가 실행되지 않도록 수정함 (구독 정보만 조회)
   useEffect(() => {
-    if (testGithubId) {
-      fetchUserRepositories(testGithubId, { 
-        startDate: initialDates.start, 
-        endDate: initialDates.end 
-      });
-    }
-
     const userId = localStorage.getItem('userId');
     if (userId) {
       fetch(`${BASE_URL}/api/subscription/${userId}`)
@@ -103,7 +97,10 @@ const DeveloperTestGithub = () => {
     const user = targetUser || testGithubId;
     const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
 
-    if (!user) return;
+    if (!user) {
+      alert("GitHub ID를 입력해 주세요.");
+      return;
+    }
 
     try {
       setIsFetchingRepos(true);
@@ -247,6 +244,11 @@ const DeveloperTestGithub = () => {
   };
 
   const handleDirectGenerateResume = async () => {
+    if (!selectedFrame) {
+      alert("이력서 프레임 템플릿을 선택해 주세요.");
+      return;
+    }
+
     if (!estimationResult || !estimationResult.projects_data) {
       alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
       return;
@@ -268,12 +270,9 @@ const DeveloperTestGithub = () => {
       setLoading(true);
       setLoadingText(`[${testGithubId}] 2단계 심층 AI 분석 및 이력서 생성 중...`);
 
-      // 💡 선택한 템플릿의 컬럼 정보 추출하여 전달
       const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
       const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
 
-      // 예: 템플릿 키가 영문용이거나 사용자가 선택한 언어 모드에 따라 결정
-      const selectedLang = selectedFrame.includes('EN') ? 'en' : 'ko';
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -283,7 +282,7 @@ const DeveloperTestGithub = () => {
           category: category,
           repo_name: selectedRepos.join(', '),
           template_columns: targetColumns,
-          language: language, // 💡 선택된 언어('ko' 또는 'en') 전송
+          language: language,
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });
@@ -405,7 +404,6 @@ const DeveloperTestGithub = () => {
           </div>
 
           {/* 기본 정보 입력 */}
-          {/* 기본 정보 입력 (제목, 직군, 언어 선택) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-200">이력서 제목</label>
@@ -430,7 +428,6 @@ const DeveloperTestGithub = () => {
               </select>
             </div>
 
-            {/* 💡 [추가] 분석 및 작성 언어 선택 UI */}
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
                 <Globe className="w-4 h-4 text-emerald-400" />
@@ -447,11 +444,11 @@ const DeveloperTestGithub = () => {
             </div>
           </div>
 
-          {/* 💡 [추가] 이력서 프레임 템플릿 선택 영역 */}
+          {/* 이력서 프레임 템플릿 선택 영역 */}
           <div className="space-y-3">
             <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
               <Globe className="w-4 h-4 text-emerald-400" />
-              이력서 프레임 템플릿 선택 (AI가 이 형식에 맞춰 풍부하게 분석합니다)
+              이력서 프레임 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(FRAME_TEMPLATES).map(([key, tpl]) => (
@@ -566,7 +563,11 @@ const DeveloperTestGithub = () => {
                     [{testGithubId}]의 저장소 목록을 탐색하는 중입니다...
                     </p>
                 </div>
-                ) : (
+              ) : repositories.length === 0 ? (
+                <div className="p-10 text-center bg-[#0a1024] border border-emerald-950 rounded-2xl text-slate-400 text-xs">
+                  상단의 <strong className="text-emerald-400">[저장소 불러오기]</strong> 버튼을 눌러 저장소 목록을 가져와 주세요.
+                </div>
+              ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
                   {filteredRepositories.map((repo) => {
                     const repoName = repo.full_name || repo.name;
@@ -662,12 +663,12 @@ const DeveloperTestGithub = () => {
           <button
             type="button"
             onClick={handleDirectGenerateResume}
-            disabled={loading || !estimationResult || selectedRepos.length === 0}
+            disabled={loading || !selectedFrame || !estimationResult || selectedRepos.length === 0}
             className={`
               w-full py-4 px-6 rounded-2xl font-black text-sm md:text-base transition-all duration-200 
               flex items-center justify-center gap-2 mt-8 cursor-pointer
               ${
-                loading || !estimationResult || selectedRepos.length === 0
+                loading || !selectedFrame || !estimationResult || selectedRepos.length === 0
                   ? 'bg-[#0a1024] text-slate-500 border border-emerald-950/60 cursor-not-allowed'
                   : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30'
               }
@@ -677,6 +678,10 @@ const DeveloperTestGithub = () => {
               <span className="flex items-center gap-2 text-white">
                 <Loader2 className="w-5 h-5 animate-spin text-emerald-300" />
                 <span>{loadingText || '처리 중...'}</span>
+              </span>
+            ) : !selectedFrame ? (
+              <span className="text-slate-400 font-medium text-xs md:text-sm">
+                ⚠️ 상단에서 이력서 프레임 템플릿을 선택해 주세요
               </span>
             ) : estimationResult ? (
               <span className="flex items-center gap-2">
