@@ -356,24 +356,43 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         # ==========================================
         # 📐 [Stage 2] 템플릿 구조 및 DB 규격 맞춤형 포맷팅 (Temperature 0.1)
         # ==========================================
+        # 💡 제안해주신 방식대로 템플릿 컬럼과 타이틀을 활용해 examplestr 문자열을 동적으로 조립
+        def create_dynamic_example(columns: list, sample_title: str) -> str:
+            examplestr = "["
+            
+            text_blocks = []
+            for col in columns:
+                text_blocks.append(f"[{col}]\\n• 실제 커밋 및 PR 기반의 사실적 성과 내용 작성")
+            
+            joined_text = "\\n\\n".join(text_blocks)
+            
+            examplestr += f"""  {{
+    "title": "{sample_title}",
+    "columns": {json.dumps(columns, ensure_ascii=False)},
+    "original_text": "{joined_text}"
+  }}"""
+            
+            examplestr += "]"
+            return examplestr
+
+        # 함수를 실행하여 템플릿 컬럼에 맞는 순수 문자열 예시 획득
+        dynamic_example_str = create_dynamic_example(target_columns, repo_name)
+
         stage2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
 CRITICAL GOAL: Transform the verified analysis text into exact JSON format matching the selected template columns without adding any unverified claims or fake dates.
 
 Rules:
 1. You MUST use the exact column names provided in the template list.
 2. For the Timeline column, strictly use the verified activity period: {repo_timeline}.
-3. For each column, format the output in `original_text` starting with its exact name wrapped in brackets like `[컬럼명]` followed by content bullets.
+3. Your output structure MUST strictly follow the schema of the Dynamic Few-shot Example provided below.
 4. Maintain the language used in the deep analysis text.
 
-Template Columns to use:
+Target Template Columns to use:
 {json.dumps(target_columns, ensure_ascii=False)}
 
-JSON Output Schema:
-{{
-  "title": "프로젝트 이름",
-  "columns": {json.dumps(target_columns, ensure_ascii=False)},
-  "original_text": "[컬럼명1]\\n• 내용...\\n\\n[컬럼명2]\\n• 내용..."
-}}
+[Dynamic Few-shot Example Structure]:
+{dynamic_example_str}
+
 Return raw JSON without markdown formatting."""
 
         stage2_user_prompt = f"""
@@ -421,6 +440,7 @@ Return raw JSON without markdown formatting."""
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
 
+    
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
