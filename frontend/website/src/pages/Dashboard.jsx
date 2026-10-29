@@ -16,10 +16,12 @@ export default function Dashboard() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // 유저 정보 상태
+
+  const savedUserId = localStorage.getItem('userId');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userAvatar, setUserAvatar] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(!!savedUserId);
   
   // 실제 문서 목록 및 로딩 상태
   const [documents, setDocuments] = useState([]);
