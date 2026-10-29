@@ -17,25 +17,13 @@ const generateUniqueId = () => {
 };
 
 const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
-  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
-    ? [...secColumns] 
-    : [];
-
   if (!details) {
-    return { 
-      columns: detectedColumns.length > 0 ? detectedColumns : ['제목/역할', '참여 기간', '상세 내용'], 
-      rows: [] 
-    };
+    return { columns: ['프로젝트명', '담당 역할', '사용 기술 및 스택', '주요 구현 및 문제 해결 성과'], rows: [] };
   }
 
   const rawList = Array.isArray(details) ? details : [details];
   const extractedRows = [];
-
-  const addColumn = (colName) => {
-    if (colName && !detectedColumns.includes(colName)) {
-      detectedColumns.push(colName);
-    }
-  };
+  const foundColumnsSet = new Set(); // 💡 중복 없는 동적 컬럼 수집용 세트
 
   rawList.forEach((cardObj) => {
     const rowValues = {};
@@ -49,56 +37,37 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
       }
 
       if (textToParse) {
-        const blocks = textToParse.split('\n\n');
+        // [컬럼명] 블록 단위로 쪼개기
+        const blocks = textToParse.split(/\n\s*\n/);
         blocks.forEach((block) => {
           const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
           if (lines.length === 0) return;
 
+          // [컬럼명] 형태의 헤더인 경우
           if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
-            const keyName = lines[0].slice(1, -1);
-            addColumn(keyName);
+            const keyName = lines[0].slice(1, -1).trim();
+            foundColumnsSet.add(keyName);
             rowValues[keyName] = lines
               .slice(1)
               .map((l) => l.replace(/^[•\-\*\s]+/, ''))
               .join('\n');
           } else {
-            lines.forEach((line) => {
-              const colonIdx = line.indexOf(':');
-              if (colonIdx !== -1 && !line.startsWith('•') && !line.startsWith('-')) {
-                const k = line.slice(0, colonIdx).trim();
-                const v = line.slice(colonIdx + 1).trim();
-                addColumn(k);
-                rowValues[k] = v;
-              } else {
-                const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무'));
-                if (targetCol) {
-                  addColumn(targetCol);
-                  const currentVal = rowValues[targetCol] || '';
-                  const cleanLine = line.replace(/^[•\-\*\s]+/, '');
-                  rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
-                }
-              }
-            });
+            // 태그가 없는 경우 기본 성과 컬럼으로 병합
+            const defaultKey = '주요 구현 및 문제 해결 성과';
+            foundColumnsSet.add(defaultKey);
+            const currentVal = rowValues[defaultKey] || '';
+            const joinedLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
+            rowValues[defaultKey] = currentVal ? `${currentVal}\n${joinedLines}` : joinedLines;
           }
-        });
-      } else {
-        Object.entries(cardObj).forEach(([k, v]) => {
-          if (['id', 'selected_version', 'ai_proofread_text', 'spell_checked_text', 'title', 'original_text'].includes(k)) return;
-          addColumn(k);
-          rowValues[k] = Array.isArray(v) ? v.join('\n') : String(v || '');
         });
       }
 
+      // 카드 자체에 title이 있는 경우 프로젝트명으로 매핑
       if (cardObj.title && cardObj.title !== '세부 항목') {
         const cleanTitle = cardObj.title.replace(/^(제목\/역할:\s*)+/, '').trim();
-        const existingKey = detectedColumns.find(c => c.includes('제목') || c.includes('역할') || c.includes('프로젝트'));
-        if (existingKey && !rowValues[existingKey]) {
-          rowValues[existingKey] = cleanTitle;
-        }
+        foundColumnsSet.add('프로젝트명');
+        rowValues['프로젝트명'] = cleanTitle;
       }
-    } else {
-      addColumn('내용');
-      rowValues['내용'] = String(cardObj);
     }
 
     extractedRows.push({
@@ -108,8 +77,20 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
     });
   });
 
+  // 💡 수집된 실제 컬럼들을 배열로 변환 (순서 정렬: 프로젝트명, 담당 역할, 사용 기술, 성과 순서 우대)
+  let detectedColumns = Array.from(foundColumnsSet);
+  const priorityOrder = ['프로젝트명', '담당 역할', '사용 기술 및 스택', '사용 기술', '주요 구현 및 문제 해결 성과', '성과'];
+  
+  detectedColumns.sort((a, b) => {
+    let idxA = priorityOrder.indexOf(a);
+    let idxB = priorityOrder.indexOf(b);
+    if (idxA === -1) idxA = 99;
+    if (idxB === -1) idxB = 99;
+    return idxA - idxB;
+  });
+
   if (detectedColumns.length === 0) {
-    detectedColumns = ['내용'];
+    detectedColumns = ['프로젝트명', '담당 역할', '사용 기술 및 스택', '주요 구현 및 문제 해결 성과'];
   }
 
   return { columns: detectedColumns, rows: extractedRows };
