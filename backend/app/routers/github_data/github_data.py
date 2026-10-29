@@ -368,84 +368,105 @@ class GithubResumeGenerateRequest(BaseModel):
     category: str
     repo_name: str
     analysis_data: Optional[Dict[str, Any]] = None
-
 @router.post("/github/analyze")
-async def fetch_all_commits_with_pagination(client, token, owner, repo_name, start_date):
-    all_commits = []
-    has_next_page = True
-    after_cursor = None
+async def analyze_repository_graphql(
+    payload: RepoAnalyzeRequest,
+    authorization: Optional[str] = Header(None)
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="GitHub Access Token이 필요합니다.")
     
-    # 사용자가 지정한 시작일 변환
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_date else None
+    token = authorization.split(" ")[1]
 
-    # 페이지네이션 루프 (최대 5페이지 = 500개까지 안전장치 설정)
-    for _ in range(5):
-        if not has_next_page:
-            break
+    target_owner = payload.github_id
+    target_repo_name = payload.repo_name
 
-        query = """
-        query GetCommits($owner: String!, $name: String!, $afterCursor: String) {
-          repository(owner: $owner, name: $name) {
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 100, after: $afterCursor) {
-                    pageInfo {
-                      hasNextPage
-                      endCursor
+    if "/" in payload.repo_name:
+        parts = payload.repo_name.split("/")
+        target_owner = parts[0]
+        target_repo_name = parts[1]
+
+    # 💡 페이지네이션을 적용하여 기간 내 커밋을 안정적으로 수집
+    async with httpx.AsyncClient(timeout=1200.0) as client:
+        all_commits = []
+        has_next_page = True
+        after_cursor = None
+        
+        start_dt = datetime.strptime(payload.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if payload.start_date else None
+
+        # 최대 3페이지(300개)까지만 안전하게 순회하여 타임아웃 방지
+        for _ in range(3):
+            if not has_next_page:
+                break
+
+            response = await client.post(
+                "https://api.github.com/graphql",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "query": GRAPHQL_REPO_QUERY,
+                    "variables": {
+                        "owner": target_owner,
+                        "name": target_repo_name,
+                        "afterCursor": after_cursor
                     }
-                    nodes {
-                      messageHeadline
-                      committedDate
-                      additions
-                      deletions
-                      author {
-                        user {
-                          login
-                        }
-                      }
-                    }
-                  }
                 }
-              }
-            }
-          }
-        }
-        """
+            )
+            
+            res_data = response.json()
+            if "errors" in res_data:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"GitHub GraphQL 요청 실패: {res_data['errors'][0].get('message')}"
+                )
+            
+            raw_data = res_data.get("data", {})
+            repo_analytics = raw_data.get("repository") or {}
 
-        response = await client.post(
-            "https://api.github.com/graphql",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"query": query, "variables": {"owner": owner, "name": repo_name, "afterCursor": after_cursor}}
-        )
+            if not repo_analytics:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"저장소 정보를 찾을 수 없습니다: {target_owner}/{target_repo_name}"
+                )
 
-        res_data = response.json()
-        repo_data = res_data.get("data", {}).get("repository", {})
-        if not repo_data:
-            break
+            # 첫 요청 시 기본 저장소 메타데이터 확보
+            if not all_commits:
+                base_repo_data = repo_analytics
 
-        history = repo_data.get("defaultBranchRef", {}).get("target", {}).get("history", {})
-        page_info = history.get("pageInfo", {})
-        nodes = history.get("nodes", [])
+            # 커밋 히스토리 추출
+            history_data = repo_analytics.get("defaultBranchRef", {}).get("target", {}).get("history", {})
+            page_info = history_data.get("pageInfo", {})
+            nodes = history_data.get("nodes", [])
 
-        should_stop = False
-        for node in nodes:
-            committed_date = node.get("committedDate")
-            if committed_date and start_dt:
-                commit_dt = datetime.fromisoformat(committed_date.replace("Z", "+00:00"))
-                # 만약 커밋 날짜가 사용자가 지정한 시작일보다 더 과거라면 수집 중단 검토
-                if commit_dt < start_dt:
-                    should_stop = True
-            all_commits.append(node)
+            should_stop = False
+            for node in nodes:
+                committed_date = node.get("committedDate")
+                if committed_date and start_dt:
+                    try:
+                        commit_dt = datetime.fromisoformat(committed_date.replace("Z", "+00:00"))
+                        if commit_dt < start_dt:
+                            should_stop = True
+                    except Exception:
+                        pass
+                all_commits.append(node)
 
-        if should_stop or not page_info.get("hasNextPage"):
-            break
+            if should_stop or not page_info.get("hasNextPage"):
+                break
 
-        after_cursor = page_info.get("endCursor")
-        has_next_page = page_info.get("hasNextPage", False)
+            after_cursor = page_info.get("endCursor")
+            has_next_page = page_info.get("hasNextPage", False)
 
-    return all_commits
+        # 수집된 방대한 커밋 내역을 기본 저장소 구조에 교체 주입
+        if base_repo_data.get("defaultBranchRef") and base_repo_data["defaultBranchRef"].get("target"):
+            base_repo_data["defaultBranchRef"]["target"]["history"]["nodes"] = all_commits
 
+        base_repo_data["repo_name"] = base_repo_data.get("name") or target_repo_name
+        base_repo_data["target_author"] = target_owner
+
+        return base_repo_data
+    
 @router.post("/resumes/github-generate")
 async def generate_github_resume(
     payload: GithubResumeGenerateRequest,
