@@ -275,7 +275,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
-def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int,template_columns: list = None) -> dict:
+def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None) -> dict:
     if not groq_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -287,9 +287,17 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int,template_
 
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
+    
+    # 💡 템플릿 컬럼이 전달되지 않은 경우 기본 표준 템플릿 컬럼 사용
+    target_columns = template_columns if template_columns and len(template_columns) > 0 else [
+        "Project Name (프로젝트명 & 역할)",
+        "Timeline (기간)",
+        "Tech Stack (사용 기술)",
+        "Architecture & Impact (아키텍처 및 기술적 성과)"
+    ]
 
     # ==========================================
-    # 🤖 [Stage 1] 창의적이고 풍부한 심층 분석 (Temperature 0.6)
+    # 🤖 [Stage 1] DB 구조 무관: 순수 깃허브 데이터 역량 및 성과 심층 추출 (Temperature 0.6)
     # ==========================================
     stage1_prompt = f"""
 [프로젝트 원본 데이터]
@@ -315,22 +323,25 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int,template_
         deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
 
         # ==========================================
-        # 📐 [Stage 2] 동적 컬럼 생성 및 데이터 매핑 (Temperature 0.1)
+        # 📐 [Stage 2] 선택된 템플릿 구조 및 DB 규격 맞춤형 포맷팅 (Temperature 0.1)
         # ==========================================
-        stage2_system_prompt = """You are an ultra-comprehensive document parsing and structuring engine.
-CRITICAL GOAL: Analyze the input development activity and dynamically define appropriate columns for a professional resume card without forcing rigid, empty fields.
+        stage2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
+CRITICAL GOAL: Transform the deep analysis text into exact JSON format matching the selected template columns.
 
-Rules for Dynamic Column Generation:
-1. DO NOT restrict yourself to a fixed list of column names. Analyze the project data and dynamically define appropriate "columns" (e.g., ["프로젝트명", "주요 기여도", "사용 기술", "아키텍처 및 트러블슈팅 성과"] 등 내용이 확실한 것만 동적으로 생성).
-2. OMIT unnecessary or empty columns that lack meaningful data.
-3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]\\n• 내용...` 형태로 깔끔하게 조합하세요.
+Rules:
+1. You MUST use the exact column names provided in the template list.
+2. For each column, format the output in `original_text` starting with its exact name wrapped in brackets like `[컬럼명]` followed by content bullets.
+3. Distribute the analysis appropriately across the given columns. If a column's data is minimal, summarize concisely.
+
+Template Columns to use:
+{json.dumps(target_columns, ensure_ascii=False)}
 
 JSON Output Schema:
-{
+{{
   "title": "프로젝트 이름",
-  "columns": ["컬럼1", "컬럼2", ...],
-  "original_text": "[컬럼1]\\n• 내용...\\n\\n[컬럼2]\\n• 내용..."
-}
+  "columns": {json.dumps(target_columns, ensure_ascii=False)},
+  "original_text": "[컬럼명1]\\n• 내용...\\n\\n[컬럼명2]\\n• 내용..."
+}}
 Return raw JSON without markdown formatting."""
 
         stage2_user_prompt = f"""
@@ -341,7 +352,7 @@ Return raw JSON without markdown formatting."""
 - 저장소명: {repo_name}
 - 사용 기술: {tech_stack_str}
 
-위 데이터를 바탕으로 이 프로젝트 카드에 가장 적합한 동적 컬럼들을 구성하고, 각 컬럼에 맞는 구체적인 내용을 작성하여 지정된 JSON 스키마로 반환해 주세요.
+위 데이터를 지정된 템플릿 컬럼들에 정확히 매핑하여 지정된 JSON 스키마 형태로 반환해 주세요.
 """
 
         stage2_res = groq_client.chat.completions.create(
@@ -360,11 +371,15 @@ Return raw JSON without markdown formatting."""
 
         res_json = json.loads(content) or {}
         card_title = res_json.get("title", repo_name)
-        original_text = res_json.get("original_text", f"[프로젝트명]\n• {repo_name}\n\n[사용 기술]\n• {tech_stack_str}")
+        
+        # 💡 AI가 반환한 컬럼과 원본 텍스트 구조 반영
+        res_columns = res_json.get("columns", target_columns)
+        original_text = res_json.get("original_text", f"[{target_columns[0]}]\n• {repo_name}")
 
         return {
             "id": f"card_{card_idx}",
             "title": card_title,
+            "columns": res_columns, # 💡 DB 구조에 맞게 컬럼 동적 포함
             "original_text": original_text,
             "spell_checked_text": None,
             "ai_proofread_text": None,
@@ -373,6 +388,7 @@ Return raw JSON without markdown formatting."""
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
+
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
@@ -550,7 +566,7 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        columns = template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
+        columns = card_detail.columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
         
         section_payload = {
             "document_id": created_document_id,
