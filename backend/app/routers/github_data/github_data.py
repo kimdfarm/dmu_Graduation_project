@@ -288,6 +288,16 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
     
+    # 💡 저장소 원본 데이터에서 커밋 날짜 범위(최소 날짜 ~ 최대 날짜) 추출하여 날짜 왜곡 원천 차단
+    commits_raw = graphql_data.get("defaultBranchRef", {}).get("target", {}).get("history", {}).get("nodes", [])
+    commit_dates = [c.get("committedDate")[:10] for c in commits_raw if isinstance(c, dict) and c.get("committedDate")]
+    
+    repo_timeline = "기간 정보 없음"
+    if commit_dates:
+        min_date = min(commit_dates)
+        max_date = max(commit_dates)
+        repo_timeline = f"{min_date} ~ {max_date}" if min_date != max_date else f"{min_date} (단일 활동)"
+
     target_columns = template_columns if template_columns and len(template_columns) > 0 else [
         "Project Name (프로젝트명 & 역할)",
         "Timeline (기간)",
@@ -295,46 +305,51 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         "Architecture & Impact (아키텍처 및 기술적 성과)"
     ]
 
-    # 💡 언어 설정에 따른 프롬프트 분기 가이드
     lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if language == "ko" else "Please write everything in professional **English**."
 
     # ==========================================
-    # 🤖 [Stage 1] 언어별 심층 분석 및 성과 추출 (Temperature 0.6)
+    # 🤖 [Stage 1] 환각 및 수치/날짜 왜곡 방지 엄격 적용 (Temperature 0.1)
     # ==========================================
     stage1_prompt = f"""
 [프로젝트 원본 데이터]
 - 저장소명: {repo_name}
+- 실제 커밋 활동 기간: {repo_timeline}
 - 사용 기술: {tech_stack_str}
 - 커밋 내역: {json.dumps(cleaned_data['key_commits'], ensure_ascii=False)}
 - PR 및 이슈: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
 
-[요청 사항]
-1. 이 개발자의 GitHub 활동 내역을 바탕으로 단순 나열이 아닌, 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 상세하고 풍부한 전문 개발 성과 서술문을 작성해 주세요.
-2. 숨겨진 맥락과 기술적 깊이를 살려 구체적으로 4~6개의 핵심 성과 포인트로 풀어내 주세요.
-3. 언어 규칙: {lang_instruction}
+[지시사항 및 엄격 준수 규칙]
+1. 제시된 'GitHub 본인 기여 데이터'를 분석하여 개발자의 이력서용 핵심 성과 문장(불렛포인트 3~5개)을 작성해라.
+2. **환각 및 수치 조작 절대 금지 (매우 중요)**:
+   - 커밋 내역이나 PR에 명시되지 않은 성능 개선율(예: 70% 절감, 3초→1초 등)이나 비즈니스 지표(전환율 상승 등)를 임의로 지어내어 창작하지 마라.
+   - 오직 커밋에 나타난 실제 구현 기능, 모듈, 기술 스택 변경 사항만을 기반으로 사실적으로 작성해라.
+3. **날짜 왜곡 방지**:
+   - 위에서 제공된 실제 커밋 활동 기간({repo_timeline}) 또는 커밋에 기록된 날짜 범위만 사실 그대로 반영하고, 임의의 과거/현재 날짜를 지어내지 마라.
+4. **성과 중심 작성**: 단순 커밋 나열이 아닌, "어떤 기능을 구현했는지" 구조와 역할 중심으로 요약해라.
+5. **언어 규칙**: {lang_instruction}
 """
 
     try:
         stage1_res = groq_client.chat.completions.create(
             model=GROQ_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "당신은 시니어 기술 리드이자 개발자 역량을 심층 분석하는 전문 테크니컬 라이터입니다."},
+                {"role": "system", "content": "당신은 사실에 기반하여 객관적이고 정확한 개발자 이력서를 작성하는 전문 테크니컬 라이터입니다."},
                 {"role": "user", "content": stage1_prompt}
             ],
-            temperature=0.6,
+            temperature=0.1,  # 💡 왜곡을 줄이기 위해 Temperature를 0.1로 낮춰 사실 기반 결정 강화
         )
         deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
 
         # ==========================================
-        # 📐 [Stage 2] 선택된 템플릿 구조 및 DB 규격 맞춤형 포맷팅 (Temperature 0.1)
+        # 📐 [Stage 2] 템플릿 구조 및 DB 규격 맞춤형 포맷팅 (Temperature 0.1)
         # ==========================================
         stage2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
-CRITICAL GOAL: Transform the deep analysis text into exact JSON format matching the selected template columns.
+CRITICAL GOAL: Transform the verified analysis text into exact JSON format matching the selected template columns without adding any unverified claims or fake dates.
 
 Rules:
 1. You MUST use the exact column names provided in the template list.
-2. For each column, format the output in `original_text` starting with its exact name wrapped in brackets like `[컬럼명]` followed by content bullets.
-3. Distribute the analysis appropriately across the given columns. If a column's data is minimal, summarize concisely.
+2. For the Timeline column, strictly use the verified activity period: {repo_timeline}.
+3. For each column, format the output in `original_text` starting with its exact name wrapped in brackets like `[컬럼명]` followed by content bullets.
 4. Maintain the language used in the deep analysis text.
 
 Template Columns to use:
@@ -349,11 +364,12 @@ JSON Output Schema:
 Return raw JSON without markdown formatting."""
 
         stage2_user_prompt = f"""
-[심층 분석된 개발 성과 데이터]
+[사실 기반 심층 분석된 개발 성과 데이터]
 {deep_analysis_text}
 
 [저장소 기본 정보]
 - 저장소명: {repo_name}
+- 실제 활동 기간: {repo_timeline}
 - 사용 기술: {tech_stack_str}
 
 위 데이터를 지정된 템플릿 컬럼들에 정확히 매핑하여 지정된 JSON 스키마 형태로 반환해 주세요.
