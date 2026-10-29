@@ -98,7 +98,10 @@ app.include_router(subscription_router)
 @app.get("/", tags=["Root"])
 def read_root():
     return {"message": "FastAPI 서버 가동 중! 구조 분리 완료."}
-
+@app.get("/health")
+def health_check():
+    """Render 슬립 방지용 헬스체크 엔드포인트"""
+    return {"status": "alive"}
 
 if __name__ == "__main__":
     import uvicorn
