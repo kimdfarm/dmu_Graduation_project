@@ -31,13 +31,11 @@ def deduct_user_energy(db: Client, member_id: str, amount: int, description: str
     
     new_balance = current_balance - amount
     
-    # 잔액 업데이트
     db.table("user_credits").update({
         "balance": new_balance, 
         "updated_at": datetime.utcnow().isoformat()
     }).eq("member_id", member_id).execute()
     
-    # 트랜잭션 로그 기록
     db.table("credit_transactions").insert({
         "member_id": member_id,
         "amount": -amount,
@@ -203,9 +201,6 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# ------------------------------------------------------------------
-# 1. Author(작성자) 정보가 포함된 GraphQL Query (최대 100개로 상향)
-# ------------------------------------------------------------------
 GRAPHQL_REPO_QUERY = """
 query GetRepoAnalytics($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -223,7 +218,6 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
       }
     }
     
-    # 💡 커밋 히스토리 최대 100개로 변경
     defaultBranchRef {
       target {
         ... on Commit {
@@ -244,7 +238,6 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
       }
     }
     
-    # 💡 최근 Issue 최대 100개로 변경
     issues(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
       nodes {
         title
@@ -259,7 +252,6 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
       }
     }
     
-    # 💡 최근 PR 최대 100개로 변경
     pullRequests(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
       nodes {
         title
@@ -283,162 +275,6 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
-def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None, language: str = "ko") -> dict:
-    if not groq_client:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GROQ_API_KEY가 설정되지 않았습니다."
-        )
-
-    fallback_name = graphql_data.get("repo_name", f"프로젝트_{card_idx}")
-    cleaned_data = preprocess_github_data(graphql_data, default_repo_name=fallback_name)
-
-    repo_name = cleaned_data["repo_name"]
-    tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
-
-    # 💡 [핵심 방어] 커밋 내역, PR, 주요 기술 스택이 모두 없는 빈 저장소/포크는 분석 대상에서 제외
-    if not cleaned_data["key_commits"] and not cleaned_data["key_prs_and_issues"] and not cleaned_data["tech_stacks"]:
-        print(f"[{repo_name}] 유효한 기여 내역(커밋/PR/기술스택)이 없어 분석을 건너뜁니다.")
-        return None  # None을 리턴하여 상위 반복문에서 자연스럽게 필터링
-    
-    # 💡 저장소 원본 데이터에서 커밋 날짜 범위(최소 날짜 ~ 최대 날짜) 추출하여 날짜 왜곡 원천 차단
-    commits_raw = graphql_data.get("defaultBranchRef", {}).get("target", {}).get("history", {}).get("nodes", [])
-    commit_dates = [c.get("committedDate")[:10] for c in commits_raw if isinstance(c, dict) and c.get("committedDate")]
-    
-    repo_timeline = "기간 정보 없음"
-    if commit_dates:
-        min_date = min(commit_dates)
-        max_date = max(commit_dates)
-        repo_timeline = f"{min_date} ~ {max_date}" if min_date != max_date else f"{min_date} (단일 활동)"
-
-    target_columns = template_columns if template_columns and len(template_columns) > 0 else [
-        "Project (프로젝트명)",
-        "Name ( 역할)",
-        "Timeline (기간)",
-        "Tech Stack (사용 기술)",
-        "Architecture & Impact (아키텍처 및 기술적 성과)"
-    ]
-
-    lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if language == "ko" else "Please write everything in professional **English**."
-
-    # ==========================================
-    # 🤖 [Stage 1] 환각 및 수치/날짜 왜곡 방지 엄격 적용 (Temperature 0.1)
-    # ==========================================
-    stage1_prompt = f"""
-[프로젝트 원본 데이터]
-- 저장소명: {repo_name}
-- 실제 커밋 활동 기간: {repo_timeline}
-- 사용 기술: {tech_stack_str}
-- 커밋 내역: {json.dumps(cleaned_data['key_commits'], ensure_ascii=False)}
-- PR 및 이슈: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
-
-[지시사항 및 엄격 준수 규칙]
-1. 제시된 'GitHub 본인 기여 데이터'를 분석하여 개발자의 이력서용 핵심 성과 문장(불렛포인트 3~5개)을 작성해라.
-2. **환각 및 수치 조작 절대 금지 (매우 중요)**:
-   - 커밋 내역이나 PR에 명시되지 않은 성능 개선율(예: 70% 절감, 3초→1초 등)이나 비즈니스 지표(전환율 상승 등)를 임의로 지어내어 창작하지 마라.
-   - 오직 커밋에 나타난 실제 구현 기능, 모듈, 기술 스택 변경 사항만을 기반으로 사실적으로 작성해라.
-3. **날짜 왜곡 방지**:
-   - 위에서 제공된 실제 커밋 활동 기간({repo_timeline}) 또는 커밋에 기록된 날짜 범위만 사실 그대로 반영하고, 임의의 과거/현재 날짜를 지어내지 마라.
-4. **성과 중심 작성**: 단순 커밋 나열이 아닌, "어떤 기능을 구현했는지" 구조와 역할 중심으로 요약해라.
-5. **언어 규칙**: {lang_instruction}
-"""
-
-    try:
-        stage1_res = groq_client.chat.completions.create(
-            model=GROQ_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "당신은 사실에 기반하여 객관적이고 정확한 개발자 이력서를 작성하는 전문 테크니컬 라이터입니다."},
-                {"role": "user", "content": stage1_prompt}
-            ],
-            temperature=0.1,  # 💡 왜곡을 줄이기 위해 Temperature를 0.1로 낮춰 사실 기반 결정 강화
-        )
-        deep_analysis_text = stage1_res.choices[0].message.content if stage1_res.choices else "상세 분석 내용 없음"
-
-        # ==========================================
-        # 📐 [Stage 2] 템플릿 컬럼 기반 순수 문자열 Few-shot 예시 동적 생성 및 포맷팅
-        # ==========================================
-        def create_dynamic_example(columns: list, sample_title: str) -> str:
-            examplestr = "["
-            
-            text_blocks = []
-            for col in columns:
-                text_blocks.append(f"[{col}]\\n• 실제 커밋 및 PR 기반의 사실적 성과 내용 작성")
-            
-            joined_text = "\\n\\n".join(text_blocks)
-            
-            examplestr += f"""  {{
-    "title": "{sample_title}",
-    "columns": {json.dumps(columns, ensure_ascii=False)},
-    "original_text": "{joined_text}"
-  }}"""
-            
-            examplestr += "]"
-            return examplestr
-
-        dynamic_example_str = create_dynamic_example(target_columns, repo_name)
-
-        stage2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
-CRITICAL GOAL: Transform the verified analysis text into exact JSON format matching the selected template columns without adding any unverified claims or fake dates.
-
-Rules:
-1. You MUST use the exact column names provided in the template list.
-2. For the Timeline column, strictly use the verified activity period: {repo_timeline}.
-3. Your output structure MUST strictly follow the schema of the Dynamic Few-shot Example provided below.
-4. Maintain the language used in the deep analysis text.
-
-Target Template Columns to use:
-{json.dumps(target_columns, ensure_ascii=False)}
-
-[Dynamic Few-shot Example Structure]:
-{dynamic_example_str}
-
-Return raw JSON without markdown formatting."""
-
-        stage2_user_prompt = f"""
-[사실 기반 심층 분석된 개발 성과 데이터]
-{deep_analysis_text}
-
-[저장소 기본 정보]
-- 저장소명: {repo_name}
-- 실제 활동 기간: {repo_timeline}
-- 사용 기술: {tech_stack_str}
-
-위 데이터를 지정된 템플릿 컬럼들에 정확히 매핑하여 지정된 JSON 스키마 형태로 반환해 주세요.
-"""
-
-        stage2_res = groq_client.chat.completions.create(
-            model=GROQ_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": stage2_system_prompt},
-                {"role": "user", "content": stage2_user_prompt}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-
-        content = stage2_res.choices[0].message.content if stage2_res.choices else None
-        if not content:
-            raise HTTPException(status_code=500, detail="Groq API 응답 본문이 비어있습니다.")
-
-        res_json = json.loads(content) or {}
-        card_title = res_json.get("title", repo_name)
-        
-        res_columns = res_json.get("columns", target_columns)
-        original_text = res_json.get("original_text", f"[{target_columns[0]}]\n• {repo_name}")
-
-        return {
-            "id": f"card_{card_idx}",
-            "title": card_title,
-            "columns": res_columns,
-            "original_text": original_text,
-            "spell_checked_text": None,
-            "ai_proofread_text": None,
-            "selected_version": "ORIGINAL"
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"카드 생성 중 오류: {str(e)}")
-
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
@@ -452,6 +288,7 @@ class GithubResumeGenerateRequest(BaseModel):
     category: str
     repo_name: str
     template_columns: Optional[List[str]] = None
+    template_structure: Optional[Dict[str, Any]] = None  # 💡 템플릿 전체 구조 객체
     language: Optional[str] = "ko"
     analysis_data: Optional[Dict[str, Any]] = None
 
@@ -556,10 +393,15 @@ async def generate_github_resume(
 ):
     created_document_id = None
 
+    if not groq_client:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GROQ_API_KEY가 설정되지 않았습니다."
+        )
+
     try:
         analysis_data = payload.analysis_data or {}
         projects_data = analysis_data.get("projects_data", [])
-        template_columns = payload.template_columns 
 
         if not projects_data and analysis_data.get("repo_name"):
             projects_data = [analysis_data]
@@ -576,33 +418,10 @@ async def generate_github_resume(
             db=db, 
             member_id=payload.member_id, 
             amount=required_energy, 
-            description=f"GitHub 분석 (입력 토큰: {estimated_tokens:,}개, 사용 에너지: {required_energy}회)"
+            description=f"GitHub 템플릿 기반 다중 섹션 일괄 생성 (사용 에너지: {required_energy}회)"
         )
 
-        details_list = []
-        for idx, repo_analytics in enumerate(projects_data, start=1):
-            if not repo_analytics or not isinstance(repo_analytics, dict):
-                continue
-
-            try:
-                card_detail = parse_single_repo_card_with_groq(
-                    repo_analytics, 
-                    card_idx=idx, 
-                    template_columns=template_columns,
-                    language=payload.language
-                )
-                if card_detail and isinstance(card_detail, dict):
-                    details_list.append(card_detail)
-            except Exception as parse_err:
-                print(f"[{idx}번 저장소 카드 생성 실패]: {parse_err}")
-                continue
-
-        if not details_list:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="선택하신 저장소들에 분석할 수 있는 유효한 커밋 또는 기여 내역이 존재하지 않습니다. 실제 커밋 내역이 있는 저장소를 선택해 주세요."
-            )
-
+        # 1. 상위 documents 문서 생성
         doc_payload = {
             "member_id": payload.member_id,
             "title": payload.title,
@@ -616,58 +435,118 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        # 💡 [핵심 수정] 템플릿에 정의된 모든 섹션을 동적으로 순회하여 all_sections_list 생성
-        # 만약 프론트에서 template_structure(또는 template_sections)를 넘겨주지 않았다면 기본 단일 섹션으로 방어
-        template_structure = getattr(payload, "template_structure", None) or {}
+        # 2. 프론트엔드에서 전달된 템플릿 전체 구조 가져오기
+        template_structure = payload.template_structure or {}
         template_sections = template_structure.get("sections", [])
+        
+        if not template_sections and payload.template_columns:
+            template_sections = [
+                {
+                    "type": "PROJECTS",
+                    "title": "경력 및 주요 프로젝트 성과",
+                    "columns": payload.template_columns
+                }
+            ]
+
+        lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if payload.language == "ko" else "Please write everything in professional **English**."
 
         all_sections_list = []
 
-        if template_sections:
-            for s_idx, tpl_sec in enumerate(template_sections, start=1):
-                sec_title = tpl_sec.get("title", f"섹션 {s_idx}")
-                sec_columns = tpl_sec.get("columns", ["항목", "내용"])
-                sec_type = tpl_sec.get("type", "EXPERIENCE")
+        # =========================================================================
+        # 💡 [핵심] 템플릿 섹션별 반복 루프 (모델 2 구조)
+        # 템플릿의 각 섹션(SUMMARY, SKILLS, PROJECTS 등)을 순회하며 개별 포맷팅 생성
+        # =========================================================================
+        for s_idx, tpl_sec in enumerate(template_sections, start=1):
+            sec_title = tpl_sec.get("title", f"섹션 {s_idx}")
+            sec_type = tpl_sec.get("type", "EXPERIENCE")
+            sec_columns = tpl_sec.get("columns", ["항목", "내용"])
 
-                # 프로젝트나 경력 관련 섹션인 경우 분석된 details_list를 매핑하고, 
-                # 요약(SUMMARY)이나 기술스택(SKILLS) 같은 다른 섹션인 경우 그에 맞는 형태나 빈 카드 세팅
-                is_target_section = any(keyword in sec_title.lower() for keyword in ["project", "experience", "프로젝트", "경력", "실적"])
-                
-                sec_details = details_list if is_target_section else [
-                    {
-                        "id": f"card_empty_{s_idx}",
-                        "title": sec_title,
-                        "columns": sec_columns,
-                        "original_text": f"[{sec_columns[0]}]\n• 내용을 입력해주세요.",
-                        "selected_version": "ORIGINAL"
-                    }
-                ]
+            # 각 섹션 규격에 맞는 동적 Few-shot 예시 문자열 생성 함수
+            def create_section_example(columns: list, sample_title: str) -> str:
+                examplestr = "["
+                text_blocks = [f"[{col}]\\n• 해당 섹션에 맞는 사실적 내용" for col in columns]
+                joined_text = "\\n\\n".join(text_blocks)
+                examplestr += f"""  {{\n    "title": "{sample_title}",\n    "columns": {json.dumps(columns, ensure_ascii=False)},\n    "original_text": "{joined_text}"\n  }}"""
+                examplestr += "]"
+                return examplestr
 
-                all_sections_list.append({
-                    "document_id": created_document_id,
-                    "section_type": sec_type,
-                    "section_title": sec_title,
-                    "display_order": s_idx,
+            dynamic_example_str = create_section_example(sec_columns, sec_title)
+
+            model2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
+CRITICAL GOAL: Transform the GitHub project analysis data into exact JSON format matching the current template section.
+
+Rules:
+1. You MUST use the exact column names provided: {json.dumps(sec_columns, ensure_ascii=False)}
+2. Target Section Title: {sec_title}
+3. Your output structure MUST strictly follow the schema of the Dynamic Few-shot Example provided below.
+4. Language rule: {lang_instruction}
+
+[Dynamic Few-shot Example Structure]:
+{dynamic_example_str}
+
+Return raw JSON without markdown formatting in this exact schema:
+{{
+  "title": "{sec_title}",
+  "columns": {json.dumps(sec_columns, ensure_ascii=False)},
+  "original_text": "[컬럼명]\\n• 내용..."
+}}"""
+
+            model2_user_prompt = f"""
+[깃허브 원본 프로젝트 분석 데이터]
+{json.dumps(projects_data, ensure_ascii=False)}
+
+위 데이터를 바탕으로 현재 템플릿 섹션인 '{sec_title}'에 알맞은 내용을 지정된 스키마 형태로 생성해 주세요.
+"""
+
+            try:
+                model2_res = groq_client.chat.completions.create(
+                    model=GROQ_MODEL_NAME,
+                    messages=[
+                        {"role": "system", "content": model2_system_prompt},
+                        {"role": "user", "content": model2_user_prompt}
+                    ],
+                    temperature=0.1,  # 💡 온도 0.1로 고정하여 환각 및 포맷 이탈 방지
+                    response_format={"type": "json_object"}
+                )
+
+                content = model2_res.choices[0].message.content if model2_res.choices else None
+                res_json = json.loads(content) if content else {}
+
+                card_title = res_json.get("title", sec_title)
+                orig_text = res_json.get("original_text", f"[{sec_columns[0]}]\n• 내용 없음")
+
+                section_details = [{
+                    "id": f"card_{s_idx}_1",
+                    "title": card_title,
                     "columns": sec_columns,
-                    "details": sec_details
-                })
-        else:
-            # 템플릿 정보가 없을 때의 기본 백업 처리
-            columns = (details_list[-1].get("columns") if details_list else None) or template_columns or ["프로젝트명", "담당 역할", "사용 기술 및 스택", "주요 구현 및 문제 해결 성과"]
+                    "original_text": orig_text,
+                    "selected_version": "ORIGINAL"
+                }]
+
+            except Exception as sec_err:
+                print(f"[{sec_title}] 섹션 생성 중 오류 발생: {sec_err}")
+                section_details = [{
+                    "id": f"card_{s_idx}_err",
+                    "title": sec_title,
+                    "columns": sec_columns,
+                    "original_text": f"[{sec_columns[0]}]\n• 생성 실패 또는 기본 내용",
+                    "selected_version": "ORIGINAL"
+                }]
+
             all_sections_list.append({
                 "document_id": created_document_id,
-                "section_type": "EXPERIENCE",
-                "section_title": "경력 및 주요 프로젝트 성과",
-                "display_order": 1,
-                "columns": columns,
-                "details": details_list
+                "section_type": sec_type,
+                "section_title": sec_title,
+                "display_order": s_idx,
+                "columns": sec_columns,
+                "details": section_details
             })
 
-        # 💡 완성된 다중 섹션 리스트를 Supabase에 한 번에 Bulk Insert!
+        # 3. 💡 완성된 모든 템플릿 섹션 리스트를 Supabase `document_sections`에 한 번에 Bulk Insert!
         if all_sections_list:
             sec_res = db.table("document_sections").insert(all_sections_list).execute()
             if not sec_res.data:
-                raise HTTPException(status_code=500, detail="document_sections 테이블 일괄 저장 실패")
+                raise HTTPException(status_code=500, detail="document_sections 일괄 저장 실패")
 
         return {
             "status": "success",
@@ -693,6 +572,7 @@ async def generate_github_resume(
             detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
         )
 
+
 def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
     total_chars = 0
     for repo in projects_data:
@@ -701,10 +581,13 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
-    estimated_tokens = total_chars // 3 
-    energy_cost = max(1, estimated_tokens // 5000)
+    input_tokens = total_chars // 3
+    output_tokens = input_tokens * 2 
+    total_tokens = input_tokens * 2 + output_tokens
     
-    return estimated_tokens, energy_cost
+    energy_cost = max(1, total_tokens // 5000)
+    
+    return total_tokens, energy_cost
 
 @router.get("/develop/github/repositories")
 def get_github_repositories(
