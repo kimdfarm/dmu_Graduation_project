@@ -275,7 +275,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 
 GROQ_MODEL_NAME = "openai/gpt-oss-120b"
 
-def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None) -> dict:
+def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template_columns: list = None, language: str = "ko") -> dict:
     if not groq_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -288,7 +288,6 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
     repo_name = cleaned_data["repo_name"]
     tech_stack_str = ", ".join(cleaned_data["tech_stacks"]) if cleaned_data["tech_stacks"] else "미지정"
     
-    # 💡 템플릿 컬럼이 전달되지 않은 경우 기본 표준 템플릿 컬럼 사용
     target_columns = template_columns if template_columns and len(template_columns) > 0 else [
         "Project Name (프로젝트명 & 역할)",
         "Timeline (기간)",
@@ -296,8 +295,11 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
         "Architecture & Impact (아키텍처 및 기술적 성과)"
     ]
 
+    # 💡 언어 설정에 따른 프롬프트 분기 가이드
+    lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if language == "ko" else "Please write everything in professional **English**."
+
     # ==========================================
-    # 🤖 [Stage 1] DB 구조 무관: 순수 깃허브 데이터 역량 및 성과 심층 추출 (Temperature 0.6)
+    # 🤖 [Stage 1] 언어별 심층 분석 및 성과 추출 (Temperature 0.6)
     # ==========================================
     stage1_prompt = f"""
 [프로젝트 원본 데이터]
@@ -307,8 +309,9 @@ def parse_single_repo_card_with_groq(graphql_data: dict, card_idx: int, template
 - PR 및 이슈: {json.dumps(cleaned_data['key_prs_and_issues'], ensure_ascii=False)}
 
 [요청 사항]
-이 개발자의 GitHub 활동 내역을 바탕으로 단순 나열이 아닌, 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 **상세하고 풍부한 전문 개발 성과 서술문**을 작성해 주세요. 
-숨겨진 맥락과 기술적 깊이를 살려 구체적으로 4~6개의 핵심 성과 포인트로 풀어내 주세요.
+1. 이 개발자의 GitHub 활동 내역을 바탕으로 단순 나열이 아닌, 실제 어떤 문제를 해결했고 어떤 아키텍처적 기여를 했는지 상세하고 풍부한 전문 개발 성과 서술문을 작성해 주세요.
+2. 숨겨진 맥락과 기술적 깊이를 살려 구체적으로 4~6개의 핵심 성과 포인트로 풀어내 주세요.
+3. 언어 규칙: {lang_instruction}
 """
 
     try:
@@ -332,6 +335,7 @@ Rules:
 1. You MUST use the exact column names provided in the template list.
 2. For each column, format the output in `original_text` starting with its exact name wrapped in brackets like `[컬럼명]` followed by content bullets.
 3. Distribute the analysis appropriately across the given columns. If a column's data is minimal, summarize concisely.
+4. Maintain the language used in the deep analysis text.
 
 Template Columns to use:
 {json.dumps(target_columns, ensure_ascii=False)}
@@ -372,14 +376,13 @@ Return raw JSON without markdown formatting."""
         res_json = json.loads(content) or {}
         card_title = res_json.get("title", repo_name)
         
-        # 💡 AI가 반환한 컬럼과 원본 텍스트 구조 반영
         res_columns = res_json.get("columns", target_columns)
         original_text = res_json.get("original_text", f"[{target_columns[0]}]\n• {repo_name}")
 
         return {
             "id": f"card_{card_idx}",
             "title": card_title,
-            "columns": res_columns, # 💡 DB 구조에 맞게 컬럼 동적 포함
+            "columns": res_columns,
             "original_text": original_text,
             "spell_checked_text": None,
             "ai_proofread_text": None,
@@ -401,7 +404,8 @@ class GithubResumeGenerateRequest(BaseModel):
     title: str
     category: str
     repo_name: str
-    template_columns: Optional[List[str]] = None  # 💡 템플릿 컬럼 정보 수신
+    template_columns: Optional[List[str]] = None
+    language: Optional[str] = "ko"  # 💡 프론트에서 넘어오는 언어 ('ko' 또는 'en')
     analysis_data: Optional[Dict[str, Any]] = None
 
 @router.post("/github/analyze")
@@ -539,8 +543,13 @@ async def generate_github_resume(
                 continue
 
             try:
-                # 💡 템플릿 컬럼 정보를 파싱 함수로 전달
-                card_detail = parse_single_repo_card_with_groq(repo_analytics, card_idx=idx, template_columns=template_columns)
+                # 💡 template_columns와 language를 함께 전달
+                card_detail = parse_single_repo_card_with_groq(
+                    repo_analytics, 
+                    card_idx=idx, 
+                    template_columns=template_columns,
+                    language=payload.language
+                )
                 if card_detail and isinstance(card_detail, dict):
                     details_list.append(card_detail)
             except Exception as parse_err:

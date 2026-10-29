@@ -28,6 +28,7 @@ const DeveloperTestGithub = () => {
   const [category, setCategory] = useState('신입 개발자');
   const [selectedFrame, setSelectedFrame] = useState('KR_DEV_BACKEND'); // 💡 템플릿 선택 상태 추가
   const [errorMessage, setErrorMessage] = useState('');
+  const [language, setLanguage] = useState('ko');
 
   const [testGithubId, setTestGithubId] = useState(
     getCookie('github_id') || localStorage.getItem('github_id') || 'kimdfarm'
@@ -271,6 +272,8 @@ const DeveloperTestGithub = () => {
       const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
       const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
 
+      // 예: 템플릿 키가 영문용이거나 사용자가 선택한 언어 모드에 따라 결정
+      const selectedLang = selectedFrame.includes('EN') ? 'en' : 'ko';
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -279,7 +282,8 @@ const DeveloperTestGithub = () => {
           title: title.trim() || `[${testGithubId}] GitHub 기술 이력서`,
           category: category,
           repo_name: selectedRepos.join(', '),
-          template_columns: targetColumns, // 💡 템플릿 컬럼 매핑용 데이터 전달
+          template_columns: targetColumns,
+          language: language, // 💡 선택된 언어('ko' 또는 'en') 전송
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });
@@ -401,7 +405,8 @@ const DeveloperTestGithub = () => {
           </div>
 
           {/* 기본 정보 입력 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 기본 정보 입력 (제목, 직군, 언어 선택) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-200">이력서 제목</label>
               <input
@@ -422,6 +427,22 @@ const DeveloperTestGithub = () => {
                 {categoryOptions.map((opt) => (
                   <option key={opt} value={opt} className="bg-[#0f152d] text-white">{opt}</option>
                 ))}
+              </select>
+            </div>
+
+            {/* 💡 [추가] 분석 및 작성 언어 선택 UI */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Globe className="w-4 h-4 text-emerald-400" />
+                이력서 작성 언어
+              </label>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all shadow-md cursor-pointer"
+              >
+                <option value="ko" className="bg-[#0f152d] text-white">🇰🇷 한국어 (Korean)</option>
+                <option value="en" className="bg-[#0f152d] text-white">🇺🇸 영어 (English)</option>
               </select>
             </div>
           </div>
