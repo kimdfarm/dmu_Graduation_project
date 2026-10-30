@@ -24,7 +24,7 @@ class DetailItem(BaseModel):
 
 class SectionTextRequest(BaseModel):
     details: List[DetailItem]
-    mode: Optional[str] = "STAR"
+    mode: Optional[str] = "STAR"  # 자기소개서용 4가지 모드 ('STAR', 'IMPACT', 'TECH', 'TONE')
 
 class SpellCheckResponseItem(BaseModel):
     id: str
@@ -37,7 +37,7 @@ class AIProofreadResponseItem(BaseModel):
     mode: Optional[str] = "STAR"
 
 class UpdateVersionRequest(BaseModel):
-    selected_version: str
+    selected_version: str  # 'ORIGINAL', 'SPELL', 'AI' 중 하나
 
 
 # ------------------------------------------------------------------
@@ -92,7 +92,7 @@ def run_resume_ai_proofread_llm(text: str) -> str:
     """
 
     try:
-        response = groq_client.chat.completions.create(
+        response = groq_client.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": "너는 채용 담당자의 눈길을 사로잡는 전문 이력서 컨설턴트 및 라이터이다."},
@@ -107,7 +107,7 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 
 
 # ------------------------------------------------------------------
-# Helper 3: [자기소개서(Cover Letter) 전용] AI 동적 교정 및 컬럼 생성 함수
+# Helper 3: [자기소개서(Cover Letter) 전용] AI 동적 교정 및 컬럼 생성 함수 (프롬프트 강화)
 # ------------------------------------------------------------------
 import json
 
@@ -130,12 +130,14 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
     [작성 지침]
     1. 완성형 경어체(~했습니다, ~구현했습니다 등)를 사용하세요.
     2. 원문의 핵심 키워드, 수치, 구조는 손실 없이 유지하세요.
-    3. 이 텍스트의 특성과 내용을 가장 잘 담아낼 수 있는 맞춤형 분석 컬럼 이름들(예: 2~4개)을 직접 결정해 주세요.
+    3. 이 텍스트의 특성과 내용을 가장 잘 담아낼 수 있는 맞춤형 분석 컬럼 이름들을 `ai_columns` 배열(예: 2~4개)로 직접 결정해 주세요.
+    4. **매우 중요**: `ai_proofread_text` 본문 텍스트는 반드시 `ai_columns`에 정의한 각 컬럼 이름과 **정확히 일치하는 대괄호 태그 형식**으로 나누어 작성해 주세요. 
+       (형식 예시: "[컬럼1이름]\\n내용...\\n\\n[컬럼2이름]\\n내용...")
     
     반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
     {{
-      "ai_proofread_text": "교정된 본문 텍스트 내용",
-      "ai_columns": ["컬럼1", "컬럼2", "컬럼3"]
+      "ai_proofread_text": "[컬럼1]\\n내용...\\n\\n[컬럼2]\\n내용...",
+      "ai_columns": ["컬럼1", "컬럼2"]
     }}
 
     [원문]
@@ -324,7 +326,7 @@ async def resume_ai_proofread_section(
 
 
 # ------------------------------------------------------------------
-# Endpoint 3-2: [자기소개서 전용] 모드별 그룹 구조 (`mode`, `ai_columns`, `items`) AI 교정 엔드포인트
+# Endpoint 3-2: [자기소개서 전용] 완벽한 모드별 캐싱 & 동적 컬럼 매칭 엔드포인트
 # ------------------------------------------------------------------
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
@@ -334,7 +336,7 @@ async def coverletter_ai_proofread_section(
 ):
     current_mode = payload.mode if payload.mode else "STAR"
 
-    # 1. DB에서 기존에 저장되어 있던 모드 그룹 리스트 불러오기
+    # 1. DB에서 기존 모드 그룹 리스트 조회
     existing_groups = []
     try:
         db_res = supabase.table("document_sections") \
@@ -350,16 +352,17 @@ async def coverletter_ai_proofread_section(
     except Exception as e:
         print(f"Supabase Select Error: {e}")
 
-    # 현재 요청된 모드에 해당하는 기존 그룹이 있는지 탐색
+    # 현재 모드 그룹 탐색
     target_group = None
     for group in existing_groups:
         if isinstance(group, dict) and group.get("mode") == current_mode:
             target_group = group
             break
 
-    # 기존 그룹 내 아이템 캐시 맵 구성 ({ id: ai_proofread_text })
+    requested_ids = [item.id for item in payload.details]
     cached_items_map = {}
     existing_group_columns = []
+
     if target_group:
         existing_group_columns = target_group.get("ai_columns", [])
         items_list = target_group.get("items", [])
@@ -367,18 +370,31 @@ async def coverletter_ai_proofread_section(
             if isinstance(it, dict) and "id" in it:
                 cached_items_map[it["id"]] = it.get("ai_proofread_text", "")
 
+    # 💡 [핵심 최적화] 요청된 모든 카드 ID가 이미 캐시에 존재한다면 LLM을 전혀 호출하지 않고 즉시 반환!
+    all_cached = len(requested_ids) > 0 and all(rid in cached_items_map and cached_items_map[rid].strip() for rid in requested_ids)
+
+    if all_cached and existing_group_columns:
+        response_items = []
+        for rid in requested_ids:
+            response_items.append(AIProofreadResponseItem(
+                id=rid,
+                ai_proofread_text=cached_items_map[rid],
+                ai_columns=existing_group_columns,
+                mode=current_mode
+            ))
+        return response_items
+
+    # 캐시에 없거나 누락된 항목이 있을 때만 LLM 실행
     new_items_list = []
     has_new_llm_call = False
     resolved_columns = existing_group_columns
 
-    # 2. 각 카드 항목별로 처리
     for item in payload.details:
         existing_text = cached_items_map.get(item.id)
 
         if existing_text and existing_text.strip():
             ai_text = existing_text
         else:
-            # 새로운 LLM 호출 및 해당 카드에 맞는 동적 컬럼 생성
             ai_response = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
             ai_text = ai_response["ai_proofread_text"]
             if ai_response["ai_columns"]:
@@ -393,7 +409,7 @@ async def coverletter_ai_proofread_section(
     if not resolved_columns:
         resolved_columns = [current_mode, "내용"]
 
-    # 3. 모드별 그룹 구조(`mode`, `ai_columns`, `items`)로 전체 그룹 리스트 갱신
+    # 모드별 그룹 구조 갱신
     updated_groups = []
     group_found = False
     for group in existing_groups:
@@ -414,11 +430,11 @@ async def coverletter_ai_proofread_section(
             "items": new_items_list
         })
 
-    # 4. DB 업데이트 수행
+    # DB 업데이트 수행
     try:
         update_payload = {
             "selected_version": "AI",
-            "ai_proofread_text": updated_groups, # 모드별 그룹 구조 배열 저장
+            "ai_proofread_text": updated_groups,
         }
         supabase.table("document_sections") \
             .update(update_payload) \
@@ -431,7 +447,7 @@ async def coverletter_ai_proofread_section(
             detail=f"DB 저장 오류: {str(e)}"
         )
 
-    # 5. 프론트엔드가 기존에 기대하는 평탄화된(Flat) 응답 형태로 변환하여 반환
+    # 프론트엔드 응답 생성
     response_items = []
     for it in new_items_list:
         response_items.append(AIProofreadResponseItem(
