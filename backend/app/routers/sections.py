@@ -34,11 +34,74 @@ class AIProofreadResponseItem(BaseModel):
     id: str
     ai_proofread_text: str
     ai_columns: Optional[List[str]] = []
+    column_values: Optional[Dict[str, str]] = {}  # 💡 컬럼별 매핑 데이터를 위한 필드 추가
     mode: Optional[str] = "STAR"
 
 class UpdateVersionRequest(BaseModel):
     selected_version: str  # 'ORIGINAL', 'SPELL', 'AI' 중 하나
+    ai_style: Optional[str] = None  # 💡 ai_style 필드 추가
 
+import json
+
+# 💡 [추가] AI를 소환하여 기존 컬럼과 모드 기본 컬럼을 분석하고 최적의 통일된 use_columns를 추천받는 함수
+def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_texts: list) -> list:
+    default_mode_columns = {
+        "STAR": ["Situation", "Task", "Action", "Result"],
+        "IMPACT": ["Core Challenge", "Implemented Solution", "Quantitative Impact"],
+        "TECH": ["Technology Stack", "Technical Challenges", "Solution & Implementation", "Performance Improvements"],
+        "TONE": ["Role", "Technologies", "Key Achievements"]
+    }
+    
+    mode_defaults = default_mode_columns.get(mode, ["항목", "내용"])
+    
+    # 결합할 대상이 없다면 모드 기본값 반환
+    if not existing_columns and not sample_texts:
+        return mode_defaults
+
+    prompt = f"""
+    너는 전문 데이터 스키마 설계 및 자기소개서 컨설턴트이다.
+    현재 '{mode}' 모드로 자기소개서 카드들을 AI 교정하려고 한다.
+    
+    1. 해당 모드의 기본 권장 컬럼: {mode_defaults}
+    2. 이전에 사용되었던 기존 컬럼들: {existing_columns}
+    3. 카드들의 원문 샘플: {sample_texts[:2]}
+    
+    위 정보들을 종합하여, 이 섹션의 모든 카드에 공통으로 적용할 **가장 이상적이고 일관된 3~4개의 분석 컬럼 이름 목록(JSON 배열)**을 결정해 줘.
+    반드시 아래의 **JSON 형식**으로만 응답하며, 다른 설명은 절대 포함하지 마세요.
+    {{
+      "unified_columns": ["컬럼1", "컬럼2", "컬럼3"]
+    }}
+    """
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="qwen/qwen3.8-27b",
+            messages=[
+                {"role": "system", "content": "너는 오직 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+        )
+        content = response.choices[0].message.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+            
+        result = json.loads(content)
+        columns = result.get("unified_columns", [])
+        if columns and isinstance(columns, list):
+            return columns
+    except Exception as e:
+        print(f"AI Column Unification Error: {e}")
+
+    # 실패 시 기본값과 기존 컬럼 병합 폴백
+    merged = list(mode_defaults)
+    for col in existing_columns:
+        if col not in merged and col not in ["질문", "답변"]:
+            merged.append(col)
+    return merged
 
 # ------------------------------------------------------------------
 # Helper 1: 공통 맞춤법 교정
@@ -58,7 +121,7 @@ def run_spell_check_llm(text: str) -> str:
 
     try:
         response = groq_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="qwen/qwen3.8-27b",
             messages=[
                 {"role": "system", "content": "너는 한국어 맞춤법 및 문법 교정 전문가이다."},
                 {"role": "user", "content": prompt}
@@ -93,7 +156,7 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 
     try:
         response = groq_client.completions.create(
-            model="openai/gpt-oss-120b",
+            model="qwen/qwen3.8-27b",
             messages=[
                 {"role": "system", "content": "너는 채용 담당자의 눈길을 사로잡는 전문 이력서 컨설턴트 및 라이터이다."},
                 {"role": "user", "content": prompt}
@@ -107,13 +170,14 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 
 
 # ------------------------------------------------------------------
-# Helper 3: [자기소개서(Cover Letter) 전용] AI 동적 교정 및 컬럼 생성 함수 (프롬프트 강화)
+# Helper 3: [자기소개서(Cover Letter) 전용] AI 동적 교정 및 컬럼 생성 함수 (요청하신 방식 적용)
 # ------------------------------------------------------------------
 import json
 
-def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
+# 수정 후 (target_columns 파라미터 추가 및 프롬프트 반영)
+def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR", target_columns: list = None) -> dict:
     if not text.strip():
-        return {"ai_proofread_text": "", "ai_columns": []}
+        return {"ai_proofread_text": "", "ai_columns": [], "column_values": {}}
 
     mode_descriptions = {
         "STAR": "STAR 기법(Situation, Task, Action, Result) 흐름에 맞추어 항목을 나누어 작성",
@@ -123,21 +187,22 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
     }
 
     mode_desc = mode_descriptions.get(mode, mode_descriptions["STAR"])
+    cols_hint = f"지정된 컬럼 목록: {target_columns}" if target_columns else "텍스트 내용에 맞는 개수와 이름"
 
     prompt = f"""
-    다음 자기소개서/프로젝트 카드 텍스트를 선택된 교정 모드("{mode}" - {mode_desc})에 맞추어 채용 담당자의 눈길을 사로잡는 매끄러운 문장으로 재작성해 주세요.
+    다음 자기소개서/프로젝트 카드 텍스트를 "{mode}" 모드({mode_desc})에 맞추어 전문적인 문장으로 재작성해 주세요.
 
     [작성 지침]
-    1. 완성형 경어체(~했습니다, ~구현했습니다 등)를 사용하세요.
-    2. 원문의 핵심 키워드, 수치, 구조는 손실 없이 유지하세요.
-    3. 이 텍스트의 특성과 내용을 가장 잘 담아낼 수 있는 맞춤형 분석 컬럼 이름들을 `ai_columns` 배열(예: 2~4개)로 직접 결정해 주세요.
-    4. **매우 중요**: `ai_proofread_text` 본문 텍스트는 반드시 `ai_columns`에 정의한 각 컬럼 이름과 **정확히 일치하는 대괄호 태그 형식**으로 나누어 작성해 주세요. 
-       (형식 예시: "[컬럼1이름]\\n내용...\\n\\n[컬럼2이름]\\n내용...")
+    1. 분석 컬럼은 다음을 참고하여 선정하세요: {cols_hint}
+    2. 각 컬럼별로 작성된 내용을 아래의 **JSON 딕셔너리 형식**으로만 매핑하여 응답하세요.
     
     반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
     {{
-      "ai_proofread_text": "[컬럼1]\\n내용...\\n\\n[컬럼2]\\n내용...",
-      "ai_columns": ["컬럼1", "컬럼2"]
+      "ai_columns": {target_columns if target_columns else '["컬럼1", "컬럼2", "컬럼3"]'},
+      "column_values": {{
+        "컬럼1": "해당 컬럼에 들어갈 내용...",
+        "컬럼2": "해당 컬럼에 들어갈 내용..."
+      }}
     }}
 
     [원문]
@@ -146,7 +211,7 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
 
     try:
         response = groq_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="qwen/qwen3.8-27b",
             messages=[
                 {"role": "system", "content": "너는 채용 트렌드를 꿰뚫고 있는 수석 자기소개서 컨설턴트이며, 반드시 JSON 형식으로만 응답하는 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
@@ -162,14 +227,24 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
             content = content.strip()
 
         result_data = json.loads(content)
+        ai_columns = result_data.get("ai_columns", target_columns if target_columns else [])
+        column_values = result_data.get("column_values", {})
+
+        formatted_text_parts = []
+        for col in ai_columns:
+            val = column_values.get(col, "")
+            formatted_text_parts.append(f"[{col}]\n{val}")
+        
+        ai_proofread_text = "\n\n".join(formatted_text_parts)
+
         return {
-            "ai_proofread_text": result_data.get("ai_proofread_text", text),
-            "ai_columns": result_data.get("ai_columns", [mode, "내용"])
+            "ai_proofread_text": ai_proofread_text,
+            "ai_columns": ai_columns,
+            "column_values": column_values
         }
     except Exception as e:
         print(f"Groq API Call Error (CoverLetter Proofread Dynamic Mode {mode}): {e}")
-        return {"ai_proofread_text": text, "ai_columns": [mode, "내용"]}
-
+        return {"ai_proofread_text": text, "ai_columns": target_columns if target_columns else [mode, "내용"], "column_values": {mode: text}}
 
 # ------------------------------------------------------------------
 # Endpoint 1: document_sections의 selected_version 변경
@@ -181,8 +256,13 @@ async def update_section_version(
     supabase: Client = Depends(get_supabase)
 ):
     try:
+        update_data = {"selected_version": payload.selected_version}
+        
+        if payload.ai_style:
+            update_data["ai_style"] = payload.ai_style
+
         res = supabase.table("document_sections") \
-            .update({"selected_version": payload.selected_version}) \
+            .update(update_data) \
             .eq("id", section_id) \
             .execute()
         return {"success": True, "data": res.data}
@@ -298,6 +378,7 @@ async def resume_ai_proofread_section(
             "id": item.id,
             "ai_proofread_text": ai_text,
             "ai_columns": existing_columns,
+            "column_values": {},
             "mode": "RESUME"
         })
 
@@ -326,27 +407,27 @@ async def resume_ai_proofread_section(
 
 
 # ------------------------------------------------------------------
-# Endpoint 3-2: [자기소개서 전용] 완벽한 모드별 캐싱 & 동적 컬럼 매칭 엔드포인트
+# Endpoint 3-2: [자기소개서 전용] 동적 컬럼 매칭 및 캐싱 엔드포인트
 # ------------------------------------------------------------------
-# [자기소개서 전용] AI 교정 엔드포인트 수정 부분
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
     section_id: str,
     payload: SectionTextRequest,
     supabase: Client = Depends(get_supabase)
 ):
-    current_mode = payload.mode if payload.mode else "STAR"
+    current_style = payload.mode if payload.mode else "STAR"
 
-    # 1. DB에서 기존 모드 그룹 리스트 및 섹션 정보 조회
     existing_groups = []
+    base_sec_columns = []
     try:
         db_res = supabase.table("document_sections") \
-            .select("ai_proofread_text, ai_columns") \
+            .select("columns, ai_proofread_text, ai_style") \
             .eq("id", section_id) \
             .execute()
         
         if db_res.data and len(db_res.data) > 0:
             section_data = db_res.data[0]
+            base_sec_columns = section_data.get("columns", []) or []
             raw_data = section_data.get("ai_proofread_text")
             if isinstance(raw_data, list):
                 existing_groups = raw_data
@@ -355,79 +436,68 @@ async def coverletter_ai_proofread_section(
 
     target_group = None
     for group in existing_groups:
-        if isinstance(group, dict) and group.get("mode") == current_mode:
+        if isinstance(group, dict) and group.get("mode") == current_style:
             target_group = group
             break
 
-    requested_ids = [item.id for item in payload.details]
-    cached_items_map = {}
-    existing_group_columns = []
+    # 💡 [핵심] AI를 먼저 소환하여 기본 모드 컬럼과 기존 컬럼을 지능적으로 결합·추천받기
+    sample_texts = [d.original_text for d in payload.details]
+    existing_group_cols = target_group.get("ai_columns", []) if target_group else []
+    combined_base_cols = list(set(base_sec_columns + existing_group_cols))
+    
+    use_columns = derive_unified_columns_with_ai(
+        mode=current_style, 
+        existing_columns=combined_base_cols, 
+        sample_texts=sample_texts
+    )
 
+    # id 기반 캐시 맵 생성
+    cached_map = {}
     if target_group:
-        existing_group_columns = target_group.get("ai_columns", [])
         items_list = target_group.get("items", [])
-        for it in items_list:
-            if isinstance(it, dict) and "id" in it:
-                cached_items_map[it["id"]] = it.get("ai_proofread_text", "")
-
-    all_cached = len(requested_ids) > 0 and all(rid in cached_items_map and cached_items_map[rid].strip() for rid in requested_ids)
-
-    # 이미 캐시가 완벽히 존재할 때도, 섹션 테이블의 ai_columns가 최신 상태로 동기화되도록 보장
-    resolved_columns = existing_group_columns
-    if all_cached and resolved_columns:
-        # 캐시 데이터로 바로 응답하더라도 DB의 ai_columns 업데이트를 위해 아래 로직 태우기 혹은 바로 업데이트
-        pass
+        if isinstance(items_list, list):
+            for it in items_list:
+                if isinstance(it, dict) and "id" in it:
+                    cached_map[str(it["id"])] = it
 
     new_items_list = []
-    has_new_llm_call = False
 
+    # 각 카드별 처리 (AI가 확정한 공통 use_columns 주입)
     for item in payload.details:
-        existing_text = cached_items_map.get(item.id)
-
-        if existing_text and existing_text.strip():
-            ai_text = existing_text
-        else:
-            ai_response = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
-            ai_text = ai_response["ai_proofread_text"]
-            if ai_response["ai_columns"]:
-                resolved_columns = ai_response["ai_columns"]
-            has_new_llm_call = True
-
-        new_items_list.append({
-            "id": item.id,
-            "ai_proofread_text": ai_text
-        })
-
-    if not resolved_columns:
-        resolved_columns = [current_mode, "내용"]
-
-    # 모드별 그룹 구조 갱신
-    updated_groups = []
-    group_found = False
-    for group in existing_groups:
-        if isinstance(group, dict) and group.get("mode") == current_mode:
-            updated_groups.append({
-                "mode": current_mode,
-                "ai_columns": resolved_columns,
-                "items": new_items_list
+        item_id_str = str(item.id)
+        
+        if item_id_str in cached_map:
+            cached_item = cached_map[item_id_str]
+            new_items_list.append({
+                "id": item.id,
+                "ai_proofread_text": cached_item.get("ai_proofread_text", ""),
+                "column_values": cached_item.get("column_values", {})
             })
-            group_found = True
         else:
-            updated_groups.append(group)
+            ai_response = run_coverletter_ai_proofread_llm(
+                item.original_text, 
+                mode=current_style, 
+                target_columns=use_columns
+            )
+            new_items_list.append({
+                "id": item.id,
+                "ai_proofread_text": ai_response["ai_proofread_text"],
+                "column_values": ai_response["column_values"]
+            })
 
-    if not group_found:
-        updated_groups.append({
-            "mode": current_mode,
-            "ai_columns": resolved_columns,
-            "items": new_items_list
-        })
+    # DB 저장
+    updated_groups = [g for g in existing_groups if isinstance(g, dict) and g.get("mode") != current_style]
+    updated_groups.append({
+        "mode": current_style,
+        "ai_columns": use_columns,
+        "items": new_items_list
+    })
 
-    # 💡 [핵심] DB 업데이트 시 ai_proofread_text 뿐만 아니라, 섹션 레벨의 ai_columns 컬럼에 현재 모드의 열 구조를 대입합니다!
     try:
         update_payload = {
             "selected_version": "AI",
-            "ai_proofread_text": updated_groups,
-            "ai_columns": resolved_columns  # 👈 이 부분이 빠져있어 프론트가 스타일(컬럼)을 못 읽던 문제를 해결합니다.
+            "ai_style": current_style,
+            "ai_proofread_text": updated_groups
         }
         supabase.table("document_sections") \
             .update(update_payload) \
@@ -445,10 +515,9 @@ async def coverletter_ai_proofread_section(
         response_items.append(AIProofreadResponseItem(
             id=it["id"],
             ai_proofread_text=it["ai_proofread_text"],
-            ai_columns=resolved_columns,
-            mode=current_mode
+            ai_columns=use_columns,
+            column_values=it.get("column_values", {}),
+            mode=current_style
         ))
 
     return response_items
-
-

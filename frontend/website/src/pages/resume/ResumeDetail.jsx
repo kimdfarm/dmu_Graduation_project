@@ -17,7 +17,6 @@ const generateUniqueId = () => {
 };
 
 const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
-  // 💡 DB에 저장된 실제 columns 배열을 기준 컬럼으로 고정 사용!
   let targetColumns = Array.isArray(secColumns) && secColumns.length > 0 
     ? [...secColumns] 
     : [
@@ -37,67 +36,79 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
   rawList.forEach((cardObj) => {
     const rowValues = {};
 
-    // 💡 모든 targetColumns에 대해 기본 빈 값 초기화
-    targetColumns.forEach(col => {
-      rowValues[col] = '';
-    });
-
-    let textToParse = cardObj.original_text || '';
-    if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
-      textToParse = cardObj.spell_checked_text;
-    } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
-      textToParse = cardObj.ai_proofread_text;
-    }
-
-    if (textToParse) {
-      const blocks = textToParse.split(/\n\s*\n/);
-      blocks.forEach((block) => {
-        const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-        if (lines.length === 0) return;
-
-        if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
-          const rawKeyName = lines[0].slice(1, -1).trim();
-          
-          // 💡 targetColumns 중 이름이 일치하거나 포함되는 컬럼 찾기
-          let matchedCol = targetColumns.find(c => 
-            c === rawKeyName || 
-            c.toLowerCase().includes(rawKeyName.toLowerCase()) || 
-            rawKeyName.toLowerCase().includes(c.toLowerCase().split(' ')[0])
-          );
-          
-          // 매칭되는 컬럼이 없으면 키워드 기반으로 안전하게 배정
-          if (!matchedCol) {
-            if (rawKeyName.includes('프로젝트') || rawKeyName.includes('역할') || rawKeyName.includes('Name')) {
-              matchedCol = targetColumns[0];
-            } else if (rawKeyName.includes('기간') || rawKeyName.includes('Timeline')) {
-              matchedCol = targetColumns[1];
-            } else if (rawKeyName.includes('기술') || rawKeyName.includes('Stack')) {
-              matchedCol = targetColumns[2];
-            } else {
-              matchedCol = targetColumns[3] || targetColumns[0];
-            }
-          }
-
-          const cleanContent = lines
-            .slice(1)
-            .map((l) => l.replace(/^[•\-\*\s]+/, ''))
-            .join('\n');
-
-          if (matchedCol) {
-            rowValues[matchedCol] = rowValues[matchedCol] 
-              ? `${rowValues[matchedCol]}\n${cleanContent}` 
-              : cleanContent;
-          }
-        } else {
-          // 태그가 없는 경우 마지막 성과 컬럼(또는 첫 번째 컬럼)에 누적
-          const defaultCol = targetColumns[3] || targetColumns[0];
-          const cleanLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
-          rowValues[defaultCol] = rowValues[defaultCol] ? `${rowValues[defaultCol]}\n${cleanLines}` : cleanLines;
+    // 💡 AI 교정 버전이고 column_values가 존재하는 경우 직접 매핑
+    if (secVersion === 'AI' && cardObj.column_values && typeof cardObj.column_values === 'object') {
+      const aiCols = cardObj.ai_columns || Object.keys(cardObj.column_values);
+      
+      // 동적으로 생성된 AI 컬럼들을 targetColumns에 반영
+      aiCols.forEach(col => {
+        if (!targetColumns.includes(col)) {
+          targetColumns.push(col);
         }
       });
+
+      targetColumns.forEach(col => {
+        rowValues[col] = cardObj.column_values[col] || '';
+      });
+    } else {
+      // 기존 원본 / 맞춤법 / \n\n 블록 파싱 방식
+      targetColumns.forEach(col => {
+        rowValues[col] = '';
+      });
+
+      let textToParse = cardObj.original_text || '';
+      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
+        textToParse = cardObj.spell_checked_text;
+      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
+        textToParse = cardObj.ai_proofread_text;
+      }
+
+      if (textToParse) {
+        const blocks = textToParse.split(/\n\s*\n/);
+        blocks.forEach((block) => {
+          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+          if (lines.length === 0) return;
+
+          if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
+            const rawKeyName = lines[0].slice(1, -1).trim();
+            
+            let matchedCol = targetColumns.find(c => 
+              c === rawKeyName || 
+              c.toLowerCase().includes(rawKeyName.toLowerCase()) || 
+              rawKeyName.toLowerCase().includes(c.toLowerCase().split(' ')[0])
+            );
+            
+            if (!matchedCol) {
+              if (rawKeyName.includes('프로젝트') || rawKeyName.includes('역할') || rawKeyName.includes('Name')) {
+                matchedCol = targetColumns[0];
+              } else if (rawKeyName.includes('기간') || rawKeyName.includes('Timeline')) {
+                matchedCol = targetColumns[1];
+              } else if (rawKeyName.includes('기술') || rawKeyName.includes('Stack')) {
+                matchedCol = targetColumns[2];
+              } else {
+                matchedCol = targetColumns[3] || targetColumns[0];
+              }
+            }
+
+            const cleanContent = lines
+              .slice(1)
+              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
+              .join('\n');
+
+            if (matchedCol) {
+              rowValues[matchedCol] = rowValues[matchedCol] 
+                ? `${rowValues[matchedCol]}\n${cleanContent}` 
+                : cleanContent;
+            }
+          } else {
+            const defaultCol = targetColumns[3] || targetColumns[0];
+            const cleanLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
+            rowValues[defaultCol] = rowValues[defaultCol] ? `${rowValues[defaultCol]}\n${cleanLines}` : cleanLines;
+          }
+        });
+      }
     }
 
-    // 카드 자체의 title이 있고 첫 번째 컬럼(Project Name)이 비어있다면 채워넣기
     if (cardObj.title && cardObj.title !== '세부 항목' && !rowValues[targetColumns[0]]) {
       rowValues[targetColumns[0]] = cardObj.title;
     }
@@ -116,7 +127,6 @@ const ResumeDetail = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
 
-  // 메인 탭 상태 ('document' | 'analysis')
   const [activeMainTab, setActiveMainTab] = useState('document');
 
   const [resume, setResume] = useState(null);
@@ -149,13 +159,11 @@ const ResumeDetail = () => {
 
   const [expandedCells, setExpandedCells] = useState({});
 
-  // 🤖 AI 추천 및 설정 상태 (LSI & 피드백)
   const [topN, setTopN] = useState(3);
   const [isRecommending, setIsRecommending] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
   const [topKeywords, setTopKeywords] = useState([]);
   
-  // 선택된 공고 및 피드백 상태
   const [selectedJob, setSelectedJob] = useState(null);
   const [expandedJobDetails, setExpandedJobDetails] = useState({});
   const [isAnalyzingFeedback, setIsAnalyzingFeedback] = useState(false);
@@ -286,7 +294,9 @@ const ResumeDetail = () => {
           return {
             ...detail,
             selected_version: 'AI',
-            ai_proofread_text: proofreadItem ? proofreadItem.ai_proofread_text : detail.ai_proofread_text
+            ai_proofread_text: proofreadItem ? proofreadItem.ai_proofread_text : detail.ai_proofread_text,
+            ai_columns: proofreadItem ? proofreadItem.ai_columns : detail.ai_columns,
+            column_values: proofreadItem ? proofreadItem.column_values : detail.column_values
           };
         });
 
@@ -310,7 +320,6 @@ const ResumeDetail = () => {
     }
   };
 
-  // 🔍 LSI 기반 공고 추천 실행 함수
   const handleFetchRecommendationsLsi = async () => {
     try {
       setIsRecommending(true);
@@ -319,7 +328,6 @@ const ResumeDetail = () => {
       setAnalyzedJobRank(null);
       setSelectedJob(null);
 
-      // 이력서 텍스트 자동 조합
       let currentResumeText = "";
       
       if (profile.name) currentResumeText += `[이름] ${profile.name}\n`;
@@ -379,7 +387,6 @@ const ResumeDetail = () => {
     }
   };
 
-  // 💡 선택된 공고 대상 역량 피드백 분석 실행
   const handleRunFeedbackAnalysis = async () => {
     if (!selectedJob) {
       alert('분석을 진행할 공고를 먼저 선택해 주세요.');
@@ -511,7 +518,6 @@ const ResumeDetail = () => {
     <div className="min-h-screen bg-[#070b19] text-slate-100 p-6 md:p-12 font-sans overflow-y-auto">
       <div className="w-full max-w-5xl mx-auto space-y-6">
         
-        {/* [1] 최상단 제어 컨트롤 바 (이전 목록, 제목, 편집, 다운로드) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0a1024] px-6 py-4 rounded-2xl border border-emerald-950/80 shadow-lg">
           <div className="flex items-center gap-3">
             <button
@@ -557,7 +563,6 @@ const ResumeDetail = () => {
           </div>
         )}
 
-        {/* 상단 메인 탭 메뉴 */}
         <div className="flex items-center gap-2 border-b border-emerald-950/80 pb-1">
           <button
             onClick={() => setActiveMainTab('document')}
@@ -584,15 +589,12 @@ const ResumeDetail = () => {
           </button>
         </div>
 
-        {/* [마스터 문서 컨테이너] */}
         <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 md:p-10 shadow-2xl space-y-10 relative overflow-hidden">
           
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
 
-          {/* TAB 1: 이력서 상세 및 내역 */}
           {activeMainTab === 'document' && (
             <>
-              {/* [2] 프로필 컴포넌트 섹션 */}
               <section className="space-y-6">
                 <div className="flex items-center justify-between border-b border-emerald-950/80 pb-4">
                   <h2 className="text-sm font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
@@ -656,11 +658,9 @@ const ResumeDetail = () => {
                 </div>
               </section>
 
-              {/* [3] 학력 및 자격 컴포넌트 섹션 */}
               {(educations.length > 0 || certificates.length > 0) && (
                 <div className={`grid grid-cols-1 ${educations.length > 0 && certificates.length > 0 ? 'lg:grid-cols-2' : ''} gap-6 pt-2`}>
                   
-                  {/* 학력 사항 */}
                   {educations.length > 0 && (
                     <section className="space-y-4">
                       <div className="flex items-center justify-between border-b border-emerald-950/80 pb-3">
@@ -700,7 +700,6 @@ const ResumeDetail = () => {
                     </section>
                   )}
 
-                  {/* 자격증 및 면허 */}
                   {certificates.length > 0 && (
                     <section className="space-y-4">
                       <div className="flex items-center justify-between border-b border-emerald-950/80 pb-3">
@@ -739,7 +738,6 @@ const ResumeDetail = () => {
                 </div>
               )}
 
-              {/* [4] 이력서 상세 본문 컴포넌트 섹션 */}
               {formattedSections.length > 0 && (
                 <section className="space-y-8 pt-4 border-t border-emerald-950/80">
                   <div className="flex items-center justify-between">
@@ -753,7 +751,6 @@ const ResumeDetail = () => {
                     {formattedSections.map((sec) => (
                       <div key={sec.id} className="bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-6 space-y-5 shadow-inner">
                         
-                        {/* 섹션 타이틀 & 버전 조절 버튼 */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-950 pb-4">
                           <div className="flex items-center gap-2.5">
                             <Briefcase className="w-4 h-4 text-emerald-400" />
@@ -811,7 +808,6 @@ const ResumeDetail = () => {
                           </div>
                         </div>
 
-                        {/* 항목 카드 배열 */}
                         <div className="space-y-4">
                           {sec.rows && sec.rows.length > 0 && (
                             sec.rows.map((row, rIdx) => (
@@ -902,7 +898,6 @@ const ResumeDetail = () => {
             </>
           )}
 
-          {/* TAB 2: AI 공고 추천 & 역량 피드백 분석 */}
           {activeMainTab === 'analysis' && (
             <div className="space-y-6">
               
@@ -946,7 +941,6 @@ const ResumeDetail = () => {
               {recommendations.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
-                  {/* 좌측: 추천 공고 목록 */}
                   <div className="lg:col-span-6 space-y-4">
                     <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
                       <Building2 className="w-4 h-4" /> 추천 공고 Top {recommendations.length}
@@ -1052,7 +1046,6 @@ const ResumeDetail = () => {
                     )}
                   </div>
 
-                  {/* 우측: 피드백 분석 영역 */}
                   <div className="lg:col-span-6 space-y-4">
                     <div className="bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
                       <div>

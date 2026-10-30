@@ -68,7 +68,7 @@ def safe_json_parse(json_str: str) -> dict:
 
 
 def get_available_groq_models(client) -> list:
-    PRIMARY_MODEL = "openai/gpt-oss-120b"
+    PRIMARY_MODEL = "allam-2-7b"
     active_models = [PRIMARY_MODEL]
 
     try:
@@ -87,81 +87,6 @@ def get_available_groq_models(client) -> list:
     except Exception as e:
         print(f"[Groq Model List Fetch Error]: {e}")
         return [PRIMARY_MODEL]
-
-
-def split_text_by_columns(raw_text: str, columns: list, card_title: str = "") -> tuple[str, list]:
-    if not raw_text:
-        return raw_text, columns or ["항목", "상세내용"]
-
-    cleaned_text = re.sub(r'^[•\s\-\*]+\s*', '', raw_text.strip())
-    tag_pattern = r'\[([^\]]+)\]'
-    matches = list(re.finditer(tag_pattern, cleaned_text))
-
-    final_columns = list(columns) if columns else []
-    for match in matches:
-        tag_name = match.group(1).strip()
-        if tag_name not in final_columns:
-            final_columns.append(tag_name)
-
-    if not final_columns:
-        final_columns = ["항목", "상세내용"]
-
-    col_data = {col: [] for col in final_columns}
-    norm_columns = [c.strip().lower() for c in final_columns]
-
-    if not matches:
-        lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
-        for line in lines:
-            line_content = re.sub(r'^[•\s\-\*]+\s*', '', line)
-            if line_content and line_content.strip().lower() not in norm_columns:
-                col_data[final_columns[0]].append(f"• {line_content}")
-    else:
-        first_match_start = matches[0].start()
-        header_text = cleaned_text[:first_match_start].strip()
-        
-        first_col = final_columns[0]
-        if header_text:
-            lines = [l.strip() for l in header_text.split('\n') if l.strip()]
-            for l in lines:
-                l_content = re.sub(r'^[•\s\-\*]+\s*', '', l)
-                if l_content and l_content.strip().lower() not in norm_columns:
-                    col_data[first_col].append(f"• {l_content}")
-
-        for i, match in enumerate(matches):
-            tag_name = match.group(1).strip()
-            start_pos = match.end()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned_text)
-            
-            content_block = cleaned_text[start_pos:end_pos].strip()
-            
-            target_col = None
-            for col in final_columns:
-                if col.lower() == tag_name.lower():
-                    target_col = col
-                    break
-            
-            if not target_col:
-                target_col = final_columns[-1]
-
-            lines = [l.strip() for l in content_block.split('\n') if l.strip()]
-            for l in lines:
-                l_content = re.sub(r'^[•\s\-\*]+\s*', '', l)
-                if (
-                    l_content 
-                    and not l_content.startswith('[') 
-                    and l_content.strip().lower() != tag_name.lower()
-                    and l_content.strip().lower() not in norm_columns
-                ):
-                    col_data[target_col].append(f"• {l_content}")
-
-    formatted_blocks = []
-    for col in final_columns:
-        items = col_data.get(col, [])
-        if items:
-            block = f"[{col}]\n" + "\n".join(items)
-            formatted_blocks.append(block)
-
-    return "\n\n".join(formatted_blocks), final_columns
 
 
 def normalize_resume_data(parsed_dict: dict) -> dict:
@@ -185,8 +110,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
             "세부 정보"
         )
         section_type = sec.get("section_type") or "CUSTOM"
-        columns = sec.get("columns") or []
-
+        
         raw_details = (
             sec.get("details") or 
             sec.get("items") or 
@@ -197,45 +121,44 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
             raw_details = [raw_details]
 
         normalized_details = []
-        all_updated_columns = list(columns)
+        global_ai_columns = []
 
         for d_idx, item in enumerate(raw_details):
             if isinstance(item, dict):
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
                 item_title = str(item.get("title") or item.get("name") or "항목").strip()
-                raw_orig = item.get("original_text") or item.get("content") or ""
                 
-                structured_text, updated_cols = split_text_by_columns(str(raw_orig), all_updated_columns, item_title)
+                # 새로운 구조 수용: ai_columns와 column_values 처리
+                ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["컬럼1", "컬럼2"]
+                column_values = item.get("column_values") or {}
+
+                for col in ai_columns:
+                    if col not in global_ai_columns:
+                        global_ai_columns.append(col)
+
+                # 기존 호환용 ai_proofread_text(문자열 조합) 생성
+                formatted_text_parts = []
+                for col in ai_columns:
+                    val = column_values.get(col, "")
+                    formatted_text_parts.append(f"[{col}]\n{val}")
                 
-                for c in updated_cols:
-                    if c not in all_updated_columns:
-                        all_updated_columns.append(c)
+                structured_text = "\n\n".join(formatted_text_parts)
 
                 if structured_text.strip():
-                    # 교정 필드 제거 및 순수 원문만 유지
                     normalized_details.append({
                         "id": card_id,
                         "title": item_title,
-                        "original_text": structured_text.strip()
+                        "original_text": structured_text.strip(),
+                        "ai_columns": ai_columns,
+                        "column_values": column_values
                     })
-            elif isinstance(item, str) and item.strip():
-                structured_text, updated_cols = split_text_by_columns(item, all_updated_columns)
-                for c in updated_cols:
-                    if c not in all_updated_columns:
-                        all_updated_columns.append(c)
-
-                normalized_details.append({
-                    "id": f"card_{idx + 1}_{d_idx + 1}",
-                    "title": "상세 내용",
-                    "original_text": structured_text
-                })
 
         if normalized_details:
             normalized_sections.append({
                 "section_type": str(section_type),
                 "section_title": str(section_title).strip(),
                 "display_order": idx + 1,
-                "columns": all_updated_columns if all_updated_columns else ["항목", "상세내용"],
+                "columns": global_ai_columns if global_ai_columns else ["컬럼1", "컬럼2"],
                 "details": normalized_details
             })
 
@@ -245,7 +168,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
     }
 
 
-def parse_resume_with_groq(raw_text: str) -> dict:
+def parse_resume_with_groq(raw_text: str, mode: str = "RESUME") -> dict:
     if not groq_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -262,39 +185,36 @@ def parse_resume_with_groq(raw_text: str) -> dict:
     truncated_text = cleaned_text[:]
     safe_raw_text = truncated_text.replace("{", "{{").replace("}", "}}")
 
-    # 프롬프트 명시: 맞춤법/오타 수정 절대 금지 지침 추가
-    SYSTEM_PROMPT = """You are an ultra-comprehensive document parsing engine.
-CRITICAL GOAL: Extract 100% of ALL information from the input document exactly as written without discarding, omitting, correcting, or summarizing ANY detail.
+    # 사용자 요구사항에 맞춘 새로운 JSON Output Schema 프롬프트 적용
+    SYSTEM_PROMPT = f"""You are an ultra-comprehensive document parsing engine.
 
-STRICT INSTRUCTION REGARDING SPELLING/TYPOS:
-- DO NOT fix, correct, or alter any typos, spelling errors, or grammatical mistakes in the original text.
-- Preserve the EXACT raw words and character sequences as provided in the input text.
+[작성 지침]
+1. 이 텍스트에 가장 잘 어울리는 분석 컬럼들(예: 프로젝트명, 기간, 역할, 사용 기술, 상세 내용 등)을 선정하세요.
+2. 각 컬럼별로 작성된 내용을 아래의 **JSON 딕셔너리 형식**으로만 매핑하여 응답하세요.
+3. 절대 오타나 원문을 임의로 요약·누락하지 말고 충실히 반영하세요.
 
-Rules for Dynamic Column Generation:
-1. DO NOT restrict yourself to a fixed list of column names.
-2. Analyze each item/entry in the document and DYNAMICALLY define appropriate "columns" for each section.
-3. In "original_text", format EVERY extracted field with its matching tag like `[컬럼명]`.
-
-JSON Output Schema:
-{
+반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
+{{
   "doc_type": "RESUME",
   "sections": [
     {
       "section_type": "CAREER",
       "section_title": "경력 및 프로젝트",
       "display_order": 1,
-      "columns": ["프로젝트명", "기간", "역할/포지션", "사용 기술", "상세 내용"],
       "details": [
         {
           "id": "card_1",
-          "title": "스마트 이력서 시스템",
-          "original_text": "[프로젝트명]\\n• 스마트 이력서 시스템\\n\\n[기간]\\n• 2026.05 - 2026.06\\n\\n[역할/포지션]\\n• 개발자\\n\\n[사용 기술]\\n• Python\\n\\n[상세 내용]\\n• 기능 구현"
+          "title": "프로젝트 제목",
+          "ai_columns": ["컬럼1", "컬럼2", "컬럼3"],
+          "column_values": {{
+            "컬럼1": "해당 컬럼에 들어갈 내용...",
+            "컬럼2": "해당 컬럼에 들어갈 내용..."
+          }}
         }
       ]
     }
   ]
-}
-Return raw JSON without markdown formatting."""
+}}"""
 
     target_models = get_available_groq_models(groq_client)
     last_error = None
@@ -306,10 +226,11 @@ Return raw JSON without markdown formatting."""
                 model=model_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse all data dynamically from this text without modifying any original text:\n\n{safe_raw_text}"}
+                    {"role": "user", "content": f"Parse all data dynamically from this text into the requested JSON schema:\n\n{safe_raw_text}"}
                 ],
                 temperature=0.1,  
-                max_tokens=4096
+                max_tokens=4096,
+                response_format={"type": "json_object"}
             )
 
             raw_content = response.choices[0].message.content or ""
@@ -340,6 +261,7 @@ async def upload_resume_file(
     member_id: str = Form(...),
     title: str = Form(...),
     category: str = Form(...),
+    mode: Optional[str] = Form("RESUME"),
     file: UploadFile = File(...)
 ):
     created_document_id = None
@@ -354,7 +276,7 @@ async def upload_resume_file(
                 detail="파일에서 텍스트를 추출할 수 없습니다."
             )
 
-        parsed_result = parse_resume_with_groq(raw_text)
+        parsed_result = parse_resume_with_groq(raw_text, mode=mode)
 
         doc_payload = {
             "member_id": member_id,
@@ -382,7 +304,7 @@ async def upload_resume_file(
                 "section_type": sec.get("section_type", "CUSTOM"),
                 "section_title": sec.get("section_title", "세부 정보"),
                 "display_order": sec.get("display_order", idx + 1),
-                "columns": sec.get("columns", ["항목", "내용"]),
+                "columns": sec.get("columns", ["컬럼1", "컬럼2"]),
                 "details": sec.get("details", [])
             })
 

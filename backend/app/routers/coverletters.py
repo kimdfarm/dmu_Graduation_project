@@ -10,7 +10,69 @@ router = APIRouter(
     prefix="/api/cover-letters",
     tags=["CoverLetters"]
 )
+# ------------------------------------------------------------------
+# Helper: Groq LLM 기반 자기소개서 동적 컬럼 생성 함수 (요청하신 방식 적용)
+# ------------------------------------------------------------------
+async def generate_cover_letter_from_resume_with_ai(compressed_resume: str, category: str) -> List[Dict[str, Any]]:
+    """
+    Groq LLM 모델을 비동기로 호출하여 이력서 데이터를 바탕으로 
+    자기소개서 문항 및 동적 컬럼 구조의 답변을 생성합니다.
+    """
+    system_prompt = (
+        "너는 IT/소프트웨어 분야 전문 취업 컨설턴트이자 데이터 프로세서야.\n"
+        "전달받은 지원자의 이력 요약 데이터를 바탕으로 "
+        f"'{category}' 직무에 지원하기 위한 완성도 높은 **자기소개서**를 작성해줘.\n\n"
+        "[작성 지침 및 규칙]\n"
+        "1. 절대 이력서처럼 단어나 개조식 불렛포인트(•)로 기술 스택만 단순 나열하지 마라.\n"
+        "2. 모든 내용은 매끄럽고 구체적인 **자연어 경어체(~했습니다, ~하고자 합니다)** 완성형 문장으로 구성해라.\n"
+        "3. 각 문항마다 이 텍스트의 특성과 내용을 가장 잘 담아낼 수 있는 맞춤형 분석 컬럼 이름들을 `ai_columns` 배열(예: 2~4개)로 직접 결정해라.\n"
+        "4. 각 컬럼별로 작성된 내용은 `column_values`의 JSON 딕셔너리 형식으로 매핑해라.\n\n"
+        "[응답 JSON 규격]\n"
+        "반드시 아래의 JSON 형식으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.\n"
+        "{\n"
+        '  "sections": [\n'
+        "    {\n"
+        '      "section_type": "MOTIVATION",\n'
+        '      "section_title": "1. 지원 동기 및 입사 후 포부",\n'
+        '      "ai_columns": ["지원동기", "직무역량", "입사후포부"],\n'
+        '      "column_values": {\n'
+        '        "지원동기": "지원 동기 내용...",\n'
+        '        "직무역량": "직무 역량 내용...",\n'
+        '        "입사후포부": "입사 후 포부 내용..."\n'
+        '      }\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
 
+    user_prompt = f"지원자의 이력 요약 정보:\n{compressed_resume}"
+
+    try:
+        completion = await groq_client.chat.completions.create(
+            model=GROQ_MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.7,
+            max_completion_tokens=2000
+        )
+
+        ai_response_content = completion.choices[0].message.content
+        parsed_json = json.loads(ai_response_content)
+        return parsed_json.get("sections", [])
+    except Exception as e:
+        print(f"❌ Groq AI 생성 에러: {str(e)}")
+        # Fallback 구조
+        return [
+            {
+                "section_type": "GENERAL",
+                "section_title": "1. 자기소개서 항목",
+                "ai_columns": ["항목", "내용"],
+                "column_values": {"항목": "내용", "내용": "이력서 기반 자소서 생성 중 오류가 발생하여 기본 텍스트로 대체됩니다."}
+            }
+        ]
 # ------------------------------------------------------------------
 # 1. Pydantic Schemas (요청/응답 모델)
 # ------------------------------------------------------------------
@@ -474,70 +536,39 @@ async def generate_cover_letter_from_resume(payload: ResumeGenerateRequest):
         # 2. 이력서 텍스트 요약 (토큰 절약)
         compressed_resume = summarize_resume_for_prompt(resume_sections, max_chars=1500)
 
-        # 3. 개선된 프롬프트 설계 (이력서 나열이 아닌 자연스러운 자소서 문장 생성 강제)
-        system_prompt = (
-            "너는 IT/소프트웨어 분야 전문 취업 컨설턴트야.\n"
-            "전달받은 지원자의 이력 요약 데이터를 바탕으로 "
-            f"'{payload.category}' 직무에 지원하기 위한 완성도 높은 **자기소개서**를 작성해줘.\n\n"
-            "[작성 지침 및 규칙]\n"
-            "1. 절대 이력서처럼 단어나 개조식 불렛포인트(•)로 기술 스택만 단순 나열하지 마라.\n"
-            "2. 모든 내용은 매끄럽고 구체적인 **자연어 경어체(~했습니다, ~하고자 합니다)** 완성형 문장으로 구성해라.\n"
-            "3. 각 문항의 'content'는 최소 300자 이상, 2~3개의 문단으로 나누어 설득력 있는 스토리(경험 -> 역할 및 성과 -> 직무 적용점) 형태로 작성해라.\n"
-            "4. 문단 간 줄바꿈이 필요한 경우 실제 줄바꿈(Enter)을 사용하여 작성해라.\n\n"
-            "[응답 JSON 규격]\n"
-            "반드시 아래 JSON 구조로만 응답해라:\n"
-            "{\n"
-            '  "sections": [\n'
-            '    {"section_type": "MOTIVATION", "section_title": "1. 지원 동기", "content": "자연스러운 문장 형태의 자기소개서 내용..."},\n'
-            '    {"section_type": "STRENGTHS", "section_title": "2. 직무 핵심 역량", "content": "자연스러운 문장 형태의 자기소개서 내용..."}\n'
-            '    {"section_type": "PROJECT", "section_title": "3. 프로젝트 경험", "content": "자연스러운 문장 형태의 자기소개서 내용..."},\n'
-            '    {"section_type": "AFTER", "section_title": "4. 입사 후 포부", "content": "자연스러운 문장 형태의 자기소개서 내용..."}\n'            
-            '  ]\n'
-            "}"
-        )
-
-        user_prompt = f"지원자의 이력 요약 정보:\n{compressed_resume}"
-
-        # 4. Groq API 비동기 호출
-        completion = await groq_client.chat.completions.create(
-            model=GROQ_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.7,  # 창의적이고 자연스러운 문장을 위해 약간 상향
-            max_completion_tokens=1500
-        )
-
-        # 5. 응답 파싱 및 텍스트 깨짐 정제
-        ai_response_content = completion.choices[0].message.content
-        parsed_json = json.loads(ai_response_content)
-        parsed_sections = parsed_json.get("sections", [])
+        # 3. Groq AI 비동기 동적 컬럼 생성 호출
+        parsed_sections = await generate_cover_letter_from_resume_with_ai(compressed_resume, payload.category)
 
         generated_ai_sections = []
         for idx, sec in enumerate(parsed_sections):
-            raw_content = sec.get("content", "")
+            ai_columns = sec.get("ai_columns", ["항목", "내용"])
+            column_values = sec.get("column_values", {})
             
-            # \n• 같은 개조식 문자 및 이스케이프 이중 텍스트 정제
-            cleaned_content = raw_content.replace("\\n", "\n").replace("•", "").strip()
+            # column_values를 바탕으로 기존 호환용 ai_proofread_text(문자열 조합) 생성
+            formatted_text_parts = []
+            for col in ai_columns:
+                val = column_values.get(col, "")
+                formatted_text_parts.append(f"[{col}]\n{val}")
+            
+            cleaned_content = "\n\n".join(formatted_text_parts)
 
             generated_ai_sections.append({
                 "section_type": sec.get("section_type", "GENERAL"),
                 "section_title": sec.get("section_title", f"{idx+1}. 항목"),
                 "display_order": idx + 1,
-                "columns": ["질문 항목", "작성 내용"],
+                "columns": ai_columns,  # 💡 동적으로 생성된 컬럼 반영
                 "details": [{
                     "id": f"res-gen-{uuid.uuid4().hex[:8]}",
                     "title": sec.get("section_title", ""),
                     "original_text": cleaned_content,
                     "spell_checked_text": None,
-                    "ai_proofread_text": None,
-                    "selected_version": "ORIGINAL"
+                    "ai_proofread_text": cleaned_content,
+                    "column_values": column_values,  # 💡 세부 컬럼 밸류 저장
+                    "selected_version": "AI"
                 }]
             })
 
-        # 6. Supabase documents 테이블에 new COVER_LETTER 생성
+        # 4. Supabase documents 테이블에 new COVER_LETTER 생성
         doc_response = supabase.table("documents").insert({
             "member_id": payload.member_id,
             "title": payload.title,
@@ -550,7 +581,7 @@ async def generate_cover_letter_from_resume(payload: ResumeGenerateRequest):
 
         new_doc_id = doc_response.data[0]["id"]
 
-        # 7. document_sections 레코드 등록
+        # 5. document_sections 레코드 등록
         sections_to_insert = [
             {
                 "document_id": new_doc_id,
@@ -569,7 +600,7 @@ async def generate_cover_letter_from_resume(payload: ResumeGenerateRequest):
             "id": new_doc_id,
             "title": payload.title,
             "category": payload.category,
-            "message": "Groq AI 기반 자기소개서가 성공적으로 생성되었습니다.",
+            "message": "Groq AI 기반 자기소개서가 동적 컬럼 구조로 성공적으로 생성되었습니다.",
             "sections": sec_response.data
         }
 

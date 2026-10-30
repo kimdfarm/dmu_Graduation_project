@@ -453,49 +453,35 @@ async def generate_github_resume(
         all_sections_list = []
 
         # =========================================================================
-        # 💡 [핵심] 템플릿 섹션별 반복 루프 (모델 2 구조)
-        # 템플릿의 각 섹션(SUMMARY, SKILLS, PROJECTS 등)을 순회하며 개별 포맷팅 생성
+        # 💡 [핵심] 템플릿 섹션별 반복 루프 (요청하신 JSON 출력 구조 프롬프트 적용)
         # =========================================================================
         for s_idx, tpl_sec in enumerate(template_sections, start=1):
             sec_title = tpl_sec.get("title", f"섹션 {s_idx}")
             sec_type = tpl_sec.get("type", "EXPERIENCE")
             sec_columns = tpl_sec.get("columns", ["항목", "내용"])
 
-            # 각 섹션 규격에 맞는 동적 Few-shot 예시 문자열 생성 함수
-            def create_section_example(columns: list, sample_title: str) -> str:
-                examplestr = "["
-                text_blocks = [f"[{col}]\\n• 해당 섹션에 맞는 사실적 내용" for col in columns]
-                joined_text = "\\n\\n".join(text_blocks)
-                examplestr += f"""  {{\n    "title": "{sample_title}",\n    "columns": {json.dumps(columns, ensure_ascii=False)},\n    "original_text": "{joined_text}"\n  }}"""
-                examplestr += "]"
-                return examplestr
-
-            dynamic_example_str = create_section_example(sec_columns, sec_title)
-
             model2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
-CRITICAL GOAL: Transform the GitHub project analysis data into exact JSON format matching the current template section.
+다음 자기소개서/프로젝트 카드 텍스트를 현재 템플릿 섹션("{sec_title}")에 맞추어 전문적인 문장으로 재작성해 주세요.
 
-Rules:
-1. You MUST use the exact column names provided: {json.dumps(sec_columns, ensure_ascii=False)}
-2. Target Section Title: {sec_title}
-3. Your output structure MUST strictly follow the schema of the Dynamic Few-shot Example provided below.
-4. Language rule: {lang_instruction}
+[작성 지침]
+1. 이 텍스트에 가장 잘 어울리는 분석 컬럼들(예: {json.dumps(sec_columns, ensure_ascii=False)} 등)을 선정하세요.
+2. 각 컬럼별로 작성된 내용을 아래의 **JSON 딕셔너리 형식**으로만 매핑하여 응답하세요.
+3. Language rule: {lang_instruction}
 
-[Dynamic Few-shot Example Structure]:
-{dynamic_example_str}
-
-Return raw JSON without markdown formatting in this exact schema:
+반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {{
-  "title": "{sec_title}",
-  "columns": {json.dumps(sec_columns, ensure_ascii=False)},
-  "original_text": "[컬럼명]\\n• 내용..."
+  "ai_columns": ["컬럼1", "컬럼2", "컬럼3"],
+  "column_values": {{
+    "컬럼1": "해당 컬럼에 들어갈 내용...",
+    "컬럼2": "해당 컬럼에 들어갈 내용..."
+  }}
 }}"""
 
             model2_user_prompt = f"""
 [깃허브 원본 프로젝트 분석 데이터]
 {json.dumps(projects_data, ensure_ascii=False)}
 
-위 데이터를 바탕으로 현재 템플릿 섹션인 '{sec_title}'에 알맞은 내용을 지정된 스키마 형태로 생성해 주세요.
+위 데이터를 바탕으로 현재 템플릿 섹션인 '{sec_title}'에 알맞은 내용을 지정된 JSON 스키마 형태로 생성해 주세요.
 """
 
             try:
@@ -512,14 +498,24 @@ Return raw JSON without markdown formatting in this exact schema:
                 content = model2_res.choices[0].message.content if model2_res.choices else None
                 res_json = json.loads(content) if content else {}
 
-                card_title = res_json.get("title", sec_title)
-                orig_text = res_json.get("original_text", f"[{sec_columns[0]}]\n• 내용 없음")
+                ai_columns = res_json.get("ai_columns", sec_columns)
+                column_values = res_json.get("column_values", {})
+
+                # column_values를 바탕으로 기존 호환용 original_text 생성
+                formatted_text_parts = []
+                for col in ai_columns:
+                    val = column_values.get(col, "")
+                    formatted_text_parts.append(f"[{col}]\n{val}")
+                
+                orig_text = "\n\n".join(formatted_text_parts) if formatted_text_parts else f"[{sec_columns[0]}]\n• 내용 없음"
 
                 section_details = [{
                     "id": f"card_{s_idx}_1",
-                    "title": card_title,
-                    "columns": sec_columns,
+                    "title": sec_title,
+                    "columns": ai_columns,
                     "original_text": orig_text,
+                    "ai_columns": ai_columns,
+                    "column_values": column_values,
                     "selected_version": "ORIGINAL"
                 }]
 
@@ -541,7 +537,7 @@ Return raw JSON without markdown formatting in this exact schema:
                 "section_type": sec_type,
                 "section_title": sec_title,
                 "display_order": s_idx,
-                "columns": sec_columns,
+                "columns": ai_columns,
                 "details": section_details
             })
 
