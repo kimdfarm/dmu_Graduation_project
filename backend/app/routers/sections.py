@@ -105,7 +105,7 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 
 
 # ------------------------------------------------------------------
-# Helper 3: [자기소개서(Cover Letter) 전용] 모드별 AI 교정 함수
+# Helper 3: [자기소개서(Cover Letter) 전용] 4가지 모드별 AI 교정 함수 (빈 공간 방지 및 태그 정밀화)
 # ------------------------------------------------------------------
 def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
     if not text.strip():
@@ -114,8 +114,8 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
     mode_instructions = {
         "STAR": """
         [모드: STAR 기법 강조]
-        - 지원자의 경험을 아래 4가지 파트로 나누어 각 파트마다 명확한 불렛포인트(•)로 작성하세요. 
-        - 텍스트 내부에 마크다운 별표(**)는 절대 쓰지 말고, 정확히 아래 태그 형식만 사용하세요:
+        - 지원자의 경험을 반드시 아래 4가지 파트로 나누어 각 파트마다 명확한 불렛포인트(•)로 작성하세요.
+        - 마크다운 별표(**)는 절대 쓰지 말고, 정확히 아래 태그 형식만 사용하세요:
           [Situation] 상황 및 배경 내용
           [Task] 해결해야 했던 과제 내용
           [Action] 본인이 취한 구체적 행동 내용
@@ -123,35 +123,40 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
         """,
         "IMPACT": """
         [모드: 수치/성과 중심 (Impact Booster)]
-        - 지원자의 기여도와 성과가 객관적인 수치, 효율성 개선율(예: %, 시간 단축 등)을 중심으로 강력하게 어필되도록 재작성하세요.
-        - 모호한 표현은 "어떤 임팩트를 남겼는지" 결과를 최우선으로 하는 문장으로 격상시키세요.
-        - 설득력 높은 완성형 경어체를 사용하세요.
+        - 지원자의 기여도와 성과가 객관적인 수치, 효율성 개선율을 중심으로 강력하게 어필되도록 재작성하세요.
+        - 모호한 표현은 결과 중심 문장으로 격상시키고, 반드시 아래 태그 형식으로만 출력하세요:
+          [핵심 과제] 내용
+          [개선 및 기여도] 내용
+          [정량적 성과 (Impact)] 내용
         """,
         "TECH": """
         [모드: 기술 스택 & 트러블슈팅 강조]
-        - 사용된 기술 스택, 아키텍처, 그리고 기술적 난관을 극복한 트러블슈팅 과정이 전문가 눈에 띄도록 기술 용어를 명확히 다듬어 주세요.
-        - 단순 작업 나열이 아니라, 기술적 의사결정 과정과 문제 해결 능력이 돋보이게 작성하세요.
-        - 개발 직군 자소서에 어울리는 전문적이고 명확한 직무 어휘와 경어체를 사용하세요.
+        - 사용된 기술 스택, 아키텍처, 그리고 기술적 난관을 극복한 트러블슈팅 과정이 전문가 눈에 띄게 작성하세요.
+        - 반드시 아래 태그 형식으로만 출력하세요:
+          [사용 기술] 내용
+          [기술적 난관 (Troubleshooting)] 내용
+          [해결 및 성능 개선] 내용
         """,
         "TONE": """
         [모드: 톤앤매너 맞춤 (대기업/스타트업)]
-        - 대기업의 신뢰감·체계성 또는 스타트업의 실행력·주도성이 돋보이는 프로페셔널한 비즈니스 톤으로 윤문하세요.
-        - 군더더기 없는 세련된 문어체를 사용하여 채용 담당자에게 강한 신뢰를 주는 어조로 완성하세요.
+        - 대기업의 신뢰감 또는 스타트업의 실행력이 돋보이는 프로페셔널한 비즈니스 문어체로 윤문하세요.
+        - 반드시 아래 태그 형식으로만 출력하세요:
+          [역할 개요] 내용
+          [주요 업무 및 성과] 내용
         """
     }
 
     selected_instruction = mode_instructions.get(mode, mode_instructions["STAR"])
 
     prompt = f"""
-    다음 자기소개서 텍스트를 채용 담당자의 눈길을 사로잡는 매끄러운 서술형 문장으로 재작성해 주세요.
+    다음 자기소개서/프로젝트 카드 텍스트를 채용 담당자의 눈길을 사로잡는 매끄러운 문장으로 재작성해 주세요.
 
     {selected_instruction}
 
     [공통 작성 지침]
-    1. 이력서와 달리 자기소개서이므로 '~했습니다', '~고자 합니다' 등 완성형 경어체를 사용하세요.
+    1. 이력서와 달리 완성형 경어체(~했습니다, ~구현했습니다 등)를 사용하세요.
     2. 원문의 핵심 키워드, 수치, 구조는 손실 없이 그대로 유지해야 합니다.
-    3. 일반적인 AI가 쓴 흔적(~를 통해 등)을 지우고 지원자의 진정성이 느껴지도록 자연스럽게 작성하세요.
-    4. 설명이나 인삿말 없이 오직 자소서용으로 재작성된 텍스트만 출력하세요.
+    3. 설명이나 인삿말 없이 오직 지정된 대괄호 태그 구조의 결과 텍스트만 출력하세요.
 
     [원문]
     {text}
@@ -300,7 +305,6 @@ async def resume_ai_proofread_section(
             "ai_proofread_text": ai_text
         })
 
-    # 원본 columns를 참고하여 이력서용 ai_columns 구성
     base_cols = existing_columns if existing_columns else ["항목", "내용"]
     target_ai_columns = base_cols + ["개선 및 성과"]
 
@@ -326,7 +330,7 @@ async def resume_ai_proofread_section(
 
 
 # ------------------------------------------------------------------
-# Endpoint 3-2: [자기소개서 전용] 4가지 모드 AI 교정 엔드포인트 (columns + 모드 결합 ai_columns 생성)
+# Endpoint 3-2: [자기소개서 전용] 4가지 모드 AI 교정 엔드포인트 (모드별 고정 최적화 ai_columns 생성)
 # ------------------------------------------------------------------
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
@@ -336,18 +340,16 @@ async def coverletter_ai_proofread_section(
 ):
     current_mode = payload.mode if payload.mode else "STAR"
 
-    # 1. DB에서 기존 columns와 ai_proofread_text 캐시 조회
-    existing_columns = []
+    # 1. DB에서 기존 ai_proofread_text 캐시 조회
     cached_map = {}
     try:
         db_res = supabase.table("document_sections") \
-            .select("columns, ai_proofread_text") \
+            .select("ai_proofread_text") \
             .eq("id", section_id) \
             .execute()
         
         if db_res.data and len(db_res.data) > 0:
             section_data = db_res.data[0]
-            existing_columns = section_data.get("columns", [])
             existing_list = section_data.get("ai_proofread_text")
             
             if isinstance(existing_list, list):
@@ -357,19 +359,15 @@ async def coverletter_ai_proofread_section(
     except Exception as e:
         print(f"Supabase Select Error (section_id: {section_id}): {e}")
 
-    # 원본 columns 기본값 확보
-    base_cols = existing_columns if existing_columns else []
-
-    # 💡 2. 원본 columns의 성격과 AI 교정 모드 요구사항을 합쳐서 ai_columns 조합 생성
+    # 💡 2. 모드별 빈 공간 없는 깔끔한 전용 ai_columns 확정
     if current_mode == "STAR":
-        prefix_cols = [base_cols[0]] if len(base_cols) > 0 else []
-        target_ai_columns = prefix_cols + ["Situation", "Task", "Action", "Result"]
+        target_ai_columns = ["Situation", "Task", "Action", "Result"]
     elif current_mode == "IMPACT":
-        target_ai_columns = base_cols + ["개선 및 기여도", "정량적 성과 (Impact)"]
+        target_ai_columns = ["핵심 과제", "개선 및 기여도", "정량적 성과 (Impact)"]
     elif current_mode == "TECH":
-        target_ai_columns = base_cols + ["기술적 난관 (Troubleshooting)", "해결 및 성능 개선"]
-    else:  # TONE 등 기본
-        target_ai_columns = base_cols if base_cols else ["구분", "교정 내용"]
+        target_ai_columns = ["사용 기술", "기술적 난관 (Troubleshooting)", "해결 및 성능 개선"]
+    else:  # TONE
+        target_ai_columns = ["역할 개요", "주요 업무 및 성과"]
 
     proofread_results = []
     has_new_llm_call = False
@@ -395,7 +393,7 @@ async def coverletter_ai_proofread_section(
             update_payload = {
                 "selected_version": "AI",
                 "ai_proofread_text": proofread_results,
-                "ai_columns": target_ai_columns  # 💡 원본 columns와 모드 요구사항이 자연스럽게 결합된 열 구조 저장
+                "ai_columns": target_ai_columns  # 💡 빈 공간 없이 매칭되는 모드 전용 최적화 열 구조 저장
             }
             supabase.table("document_sections") \
                 .update(update_payload) \
