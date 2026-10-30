@@ -143,18 +143,21 @@ const CoverLetterDetail = () => {
             }
 
             const aiTextMap = {};
-            const aiColumnsMap = {}; 
+            const modeColumnsMap = {}; // 💡 모드별 컬럼 구조 저장 맵 (예: { STAR: [...], IMPACT: [...] })
             
             if (Array.isArray(sec.ai_proofread_text)) {
               sec.ai_proofread_text.forEach((group) => {
-                if (group && Array.isArray(group.items)) {
+                if (group && group.mode) {
                   const groupColumns = group.ai_columns || [];
-                  group.items.forEach((item) => {
-                    if (item && item.id) {
-                      aiTextMap[item.id] = item.ai_proofread_text || '';
-                      aiColumnsMap[item.id] = groupColumns; 
-                    }
-                  });
+                  modeColumnsMap[group.mode] = groupColumns;
+
+                  if (Array.isArray(group.items)) {
+                    group.items.forEach((item) => {
+                      if (item && item.id) {
+                        aiTextMap[item.id] = item.ai_proofread_text || '';
+                      }
+                    });
+                  }
                 }
               });
             }
@@ -162,28 +165,25 @@ const CoverLetterDetail = () => {
             const updatedDetails = (sec.details || []).map((detail) => ({
               ...detail,
               spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-              ai_proofread_text: aiTextMap[detail.id] || detail.ai_proofread_text || '',
-              ai_columns: aiColumnsMap[detail.id] || detail.ai_columns || []
+              ai_proofread_text: aiTextMap[detail.id] || detail.ai_proofread_text || ''
             }));
 
-            return { ...sec, details: updatedDetails };
+            // 💡 섹션 객체에 모드별 컬럼 맵을 보관합니다.
+            return { ...sec, details: updatedDetails, modeColumnsMap };
           });
 
           setSections(parsedSections);
 
-          // 💡 데이터 로딩 직후 안전하게 초기 AI 모드 및 버전 상태 설정
           const initialModes = {};
           const initialVersions = {};
           
           parsedSections.forEach((sec) => {
             initialVersions[sec.id] = sec.selected_version || 'ORIGINAL';
 
-            if (Array.isArray(sec.ai_proofread_text)) {
-              sec.ai_proofread_text.forEach((group) => {
-                if (group && group.mode && Array.isArray(group.items) && group.items.length > 0) {
-                  initialModes[sec.id] = group.mode;
-                }
-              });
+            if (Array.isArray(sec.ai_proofread_text) && sec.ai_proofread_text.length > 0) {
+              initialModes[sec.id] = sec.ai_proofread_text[0].mode || 'STAR';
+            } else {
+              initialModes[sec.id] = 'STAR';
             }
           });
 
@@ -429,11 +429,17 @@ const CoverLetterDetail = () => {
   // 💡 순수하게 데이터 매핑만 수행하도록 수정 (렌더링 루프 원인 제거)
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
+    const currentMode = sectionAiModes[sec.id] || 'STAR';
+
+    // 💡 현재 선택된 모드에 해당하는 컬럼 배열을 가져옵니다. (없으면 기본값 혹은 sec.ai_columns)
+    const targetAiColumns = (sec.modeColumnsMap && sec.modeColumnsMap[currentMode]) 
+      ? sec.modeColumnsMap[currentMode] 
+      : (sec.ai_columns || []);
     
     const { columns, rows } = parseDetailsToTableSchema(
       sec.details, 
       sec.columns, 
-      sec.ai_columns,  
+      targetAiColumns,  // 👈 현재 모드의 정확한 ai_columns 전달
       secVersion
     );
     
