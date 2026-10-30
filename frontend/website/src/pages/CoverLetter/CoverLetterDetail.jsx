@@ -16,11 +16,9 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-// 💡 [수정] secAiColumns를 인자로 받아 AI 버전일 때 동적 열 구조를 우선 적용하도록 개선
 const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
 
-  // 💡 AI 버전일 때는 DB에서 가져온 섹션별 ai_columns(secAiColumns)를 최우선으로 반영합니다.
   let defaultColumns = ['질문', '답변'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
     defaultColumns = [...secAiColumns];
@@ -88,7 +86,6 @@ const CoverLetterDetail = () => {
   const { coverLetterId } = useParams();
   const navigate = useNavigate();
 
-  // 메인 탭 상태 ('document' | 'analysis')
   const [activeMainTab, setActiveMainTab] = useState('document');
 
   const [coverLetter, setCoverLetter] = useState(null);
@@ -102,13 +99,11 @@ const CoverLetterDetail = () => {
 
   const [expandedCells, setExpandedCells] = useState({});
 
-  // 🤖 AI 추천 및 설정 상태
   const [topN, setTopN] = useState(3);
   const [isRecommending, setIsRecommending] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
   const [topKeywords, setTopKeywords] = useState([]);
   
-  // 선택된 공고 및 상세 보기 토글 상태
   const [selectedJob, setSelectedJob] = useState(null);
   const [expandedJobDetails, setExpandedJobDetails] = useState({});
   const [isAnalyzingFeedback, setIsAnalyzingFeedback] = useState(false);
@@ -116,14 +111,11 @@ const CoverLetterDetail = () => {
   const [analyzedJobRank, setAnalyzedJobRank] = useState(null);
   const [analysisError, setAnalysisError] = useState('');
 
-  const [recommendEngine, setRecommendEngine] = useState('lsi');
-  const [isEmbeddingLocked, setIsEmbeddingLocked] = useState(false);
-
   const userId = localStorage.getItem('userId');
 
-  // 섹션별 AI 모드 선택 패널 토글 상태 관리
   const [activeModeSelector, setActiveModeSelector] = useState({});
   const [sectionAiModes, setSectionAiModes] = useState({});
+
   useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
@@ -142,49 +134,60 @@ const CoverLetterDetail = () => {
         setCoverLetter(data);
 
         if (data.sections && Array.isArray(data.sections)) {
-  const parsedSections = data.sections.map((sec) => {
-    const spellMap = {};
-    if (Array.isArray(sec.spell_checked_text)) {
-      sec.spell_checked_text.forEach((item) => {
-        if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
-      });
-    }
-
-    const aiTextMap = {};
-    const aiColumnsMap = {}; 
-    
-    if (Array.isArray(sec.ai_proofread_text)) {
-      // 💡 새로운 백엔드 구조: 모드별 그룹 배열 순회 ([ { mode, ai_columns, items: [...] }, ... ])
-      sec.ai_proofread_text.forEach((group) => {
-        if (group && Array.isArray(group.items)) {
-          const groupColumns = group.ai_columns || [];
-          group.items.forEach((item) => {
-            if (item && item.id) {
-              // 각 item(카드의 id)별로 텍스트와 해당 모드의 동적 컬럼 매핑 저장
-              aiTextMap[item.id] = item.ai_proofread_text || '';
-              aiColumnsMap[item.id] = groupColumns; 
+          const parsedSections = data.sections.map((sec) => {
+            const spellMap = {};
+            if (Array.isArray(sec.spell_checked_text)) {
+              sec.spell_checked_text.forEach((item) => {
+                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
+              });
             }
+
+            const aiTextMap = {};
+            const aiColumnsMap = {}; 
+            
+            if (Array.isArray(sec.ai_proofread_text)) {
+              sec.ai_proofread_text.forEach((group) => {
+                if (group && Array.isArray(group.items)) {
+                  const groupColumns = group.ai_columns || [];
+                  group.items.forEach((item) => {
+                    if (item && item.id) {
+                      aiTextMap[item.id] = item.ai_proofread_text || '';
+                      aiColumnsMap[item.id] = groupColumns; 
+                    }
+                  });
+                }
+              });
+            }
+
+            const updatedDetails = (sec.details || []).map((detail) => ({
+              ...detail,
+              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
+              ai_proofread_text: aiTextMap[detail.id] || detail.ai_proofread_text || '',
+              ai_columns: aiColumnsMap[detail.id] || detail.ai_columns || []
+            }));
+
+            return { ...sec, details: updatedDetails };
           });
-        }
-      });
-    }
 
-    const updatedDetails = (sec.details || []).map((detail) => ({
-      ...detail,
-      spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-      ai_proofread_text: aiTextMap[detail.id] || detail.ai_proofread_text || '',
-      ai_columns: aiColumnsMap[detail.id] || detail.ai_columns || [] // 💡 detail 객체에 할당
-    }));
+          setSections(parsedSections);
 
-    return { ...sec, details: updatedDetails };
-  });
-
-  setSections(parsedSections);
-
+          // 💡 데이터 로딩 직후 안전하게 초기 AI 모드 및 버전 상태 설정
+          const initialModes = {};
           const initialVersions = {};
+          
           parsedSections.forEach((sec) => {
             initialVersions[sec.id] = sec.selected_version || 'ORIGINAL';
+
+            if (Array.isArray(sec.ai_proofread_text)) {
+              sec.ai_proofread_text.forEach((group) => {
+                if (group && group.mode && Array.isArray(group.items) && group.items.length > 0) {
+                  initialModes[sec.id] = group.mode;
+                }
+              });
+            }
           });
+
+          setSectionAiModes(initialModes);
           setSectionVersions(initialVersions);
         }
       } catch (err) {
@@ -280,13 +283,11 @@ const CoverLetterDetail = () => {
     }
   };
 
-  // 선택한 모드별 AI 교정 실행 함수
   const handleExecuteAIProofread = async (sectionId, selectedMode) => {
-    
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
     setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
-
     setSectionAiModes((prev) => ({ ...prev, [sectionId]: selectedMode }));
+
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
 
@@ -306,9 +307,6 @@ const CoverLetterDetail = () => {
       });
 
       if (response.ok) {
-        const result = await response.json();
-        
-        // 💡 백엔드에서 응답과 함께 ai_columns가 갱신되었을 수 있으므로 전체 문서를 재조회하거나 상태를 업데이트합니다.
         const updatedRes = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}`);
         if (updatedRes.ok) {
           const updatedData = await updatedRes.json();
@@ -428,30 +426,17 @@ const CoverLetterDetail = () => {
     return 'flex-[1.5] min-w-[180px]';
   };
 
-  // 💡 [수정] 파싱할 때 sec.ai_columns 정보를 함께 전달하여 버전에 맞는 테이블 스키마 구성
+  // 💡 순수하게 데이터 매핑만 수행하도록 수정 (렌더링 루프 원인 제거)
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
     
-    // 💡 sec.ai_columns (테이블의 ai_columns 컬럼 값)을 파싱 함수에 명시적으로 전달합니다.
     const { columns, rows } = parseDetailsToTableSchema(
       sec.details, 
       sec.columns, 
-      sec.ai_columns,  // 👈 이 부분이 전달되어야 AI 모드에 맞는 열 이름이 렌더링됩니다.
+      sec.ai_columns,  
       secVersion
     );
-    const modesMap = {};
-if (Array.isArray(sec.ai_proofread_text)) {
-  sec.ai_proofread_text.forEach((group) => {
-    if (group && group.mode && Array.isArray(group.items)) {
-      group.items.forEach((item) => {
-        if (item && item.id) {
-          modesMap[sec.id] = group.mode; // 해당 섹션이 마지막으로 교정된 모드 저장
-        }
-      });
-    }
-  });
-}
-setSectionAiModes(modesMap);
+    
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 
@@ -621,7 +606,6 @@ setSectionAiModes(modesMap);
                         <span className="text-[10px] text-slate-400">문항의 목적에 맞는 최적의 윤문 엔진이 작동합니다</span>
                       </div>
 
-                      {/* 현재 이 섹션에 적용되어 있는 모드 확인 (기본값 'STAR') */}
                       {(() => {
                         const currentSelectedMode = sectionAiModes[sec.id] || 'STAR';
 
