@@ -19,9 +19,10 @@ const generateUniqueId = () => {
 const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
 
+  // 💡 AI 버전일 때는 오직 해당 모드의 ai_columns만 사용하고, 아니면 원본 컬럼을 사용합니다.
   let defaultColumns = ['질문', '답변'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
-    defaultColumns = [...secAiColumns];
+    defaultColumns = [...secAiColumns]; // 컬럼이 합쳐지지 않고 AI 컬럼으로만 교체됨
   } else if (Array.isArray(secColumns) && secColumns.length > 0) {
     defaultColumns = [...secColumns];
   }
@@ -34,7 +35,6 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
 
   const extractedRows = details.map((detail) => {
     const rowValues = {};
-    let rowColumns = defaultColumns;
 
     if (detail.values && typeof detail.values === 'object') {
       Object.assign(rowValues, detail.values);
@@ -54,19 +54,8 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
           const colName = match[1].trim();
           const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
           rowValues[colName] = content;
-
-          if (!sessionColumns.includes(colName)) {
-            sessionColumns.push(colName);
-          }
         }
       });
-
-      if (Object.keys(rowValues).length === 0 && targetText) {
-        const col1 = rowColumns[0] || '질문';
-        const col2 = rowColumns[1] || '답변';
-        rowValues[col1] = detail.title || '';
-        rowValues[col2] = targetText.replace(/^[•\-\*\s]+/gm, '').trim();
-      }
     }
 
     return {
@@ -431,15 +420,15 @@ const CoverLetterDetail = () => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
     const currentMode = sectionAiModes[sec.id] || 'STAR';
 
-    // 💡 현재 선택된 모드에 해당하는 컬럼 배열을 가져옵니다. (없으면 기본값 혹은 sec.ai_columns)
+    // 💡 현재 모드에 해당하는 ai_columns 가져오기
     const targetAiColumns = (sec.modeColumnsMap && sec.modeColumnsMap[currentMode]) 
       ? sec.modeColumnsMap[currentMode] 
-      : (sec.ai_columns || []);
+      : [];
     
     const { columns, rows } = parseDetailsToTableSchema(
       sec.details, 
       sec.columns, 
-      targetAiColumns,  // 👈 현재 모드의 정확한 ai_columns 전달
+      targetAiColumns,  // 👈 AI 모드일 때는 오직 이 컬럼들만 렌더링됨
       secVersion
     );
     
@@ -597,6 +586,12 @@ const CoverLetterDetail = () => {
                             <Sparkles className="w-3 h-3 text-amber-400" />
                           )}
                           <span>AI 교정</span>
+                          <div className="flex items-center gap-2 mb-3 bg-indigo-950/50 border border-indigo-500/30 px-3 py-1.5 rounded-xl w-fit">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="text-[11px] font-bold text-indigo-300">
+                              적용된 AI 모드: <strong className="text-amber-400">{sectionAiModes[sec.id] || 'STAR'}</strong>
+                            </span>
+                          </div>
                           <ChevronDown className={`w-3 h-3 transition-transform ${isModeSelectorOpen ? 'rotate-180' : ''}`} />
                         </button>
                       </div>
