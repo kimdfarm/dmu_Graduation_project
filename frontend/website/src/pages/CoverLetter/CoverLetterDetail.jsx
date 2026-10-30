@@ -18,14 +18,11 @@ const generateUniqueId = () => {
 
 // 💡 [수정] secAiColumns를 인자로 받아 AI 버전일 때 동적 열 구조를 우선 적용하도록 개선
 // 💡 [수정] secAiColumns 대신 detail 레벨의 ai_columns 및 dynamicColumns 적용
-const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
+const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
 
-  // 기본 전역 컬럼 백업
   let defaultColumns = ['질문', '답변'];
-  if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
-    defaultColumns = [...secAiColumns];
-  } else if (Array.isArray(secColumns) && secColumns.length > 0) {
+  if (Array.isArray(secColumns) && secColumns.length > 0) {
     defaultColumns = [...secColumns];
   }
 
@@ -33,13 +30,12 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
     return { columns: defaultColumns, rows: [] };
   }
 
-  // 💡 세션 내에서 추출되는 모든 동적 컬럼들을 수집할 집합
   const sessionColumns = [...defaultColumns];
 
   const extractedRows = details.map((detail) => {
     const rowValues = {};
     
-    // 💡 AI 버전이고 개별 detail 객체 안에 ai_columns가 존재하면 사용
+    // 💡 AI 버전이고 개별 detail에 매핑된 ai_columns가 있으면 우선 사용
     let rowColumns = (isAi && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) 
       ? detail.ai_columns 
       : defaultColumns;
@@ -77,7 +73,6 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
       }
     }
 
-    // 💡 rowColumns에 속한 열 이름들도 sessionColumns에 등록
     rowColumns.forEach(col => {
       if (!sessionColumns.includes(col)) sessionColumns.push(col);
     });
@@ -87,7 +82,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
       title: detail.title || '',
       spell_checked_text: detail.spell_checked_text || null,
       ai_proofread_text: detail.ai_proofread_text || null,
-      ai_columns: detail.ai_columns || [], // 💡 개별 항목 ai_columns 보존
+      ai_columns: detail.ai_columns || [],
       selected_version: currentVersion,
       values: rowValues
     };
@@ -163,12 +158,20 @@ const CoverLetterDetail = () => {
     }
 
     const aiTextMap = {};
-    const aiColumnsMap = {}; // 💡 항목별 ai_columns 맵 추가
+    const aiColumnsMap = {}; 
+    
     if (Array.isArray(sec.ai_proofread_text)) {
-      sec.ai_proofread_text.forEach((item) => {
-        if (item && item.id) {
-          aiTextMap[item.id] = item.ai_proofread_text || '';
-          aiColumnsMap[item.id] = item.ai_columns || []; // 💡 개별 ai_columns 추출
+      // 💡 새로운 백엔드 구조: 모드별 그룹 배열 순회 ([ { mode, ai_columns, items: [...] }, ... ])
+      sec.ai_proofread_text.forEach((group) => {
+        if (group && Array.isArray(group.items)) {
+          const groupColumns = group.ai_columns || [];
+          group.items.forEach((item) => {
+            if (item && item.id) {
+              // 각 item(카드의 id)별로 텍스트와 해당 모드의 동적 컬럼 매핑 저장
+              aiTextMap[item.id] = item.ai_proofread_text || '';
+              aiColumnsMap[item.id] = groupColumns; 
+            }
+          });
         }
       });
     }
@@ -433,7 +436,8 @@ const CoverLetterDetail = () => {
   // 💡 [수정] 파싱할 때 sec.ai_columns 정보를 함께 전달하여 버전에 맞는 테이블 스키마 구성
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, sec.ai_columns, secVersion);
+    // 💡 sec.ai_columns 대신 각 detail 내부의 컬럼 정보를 활용하는 파싱 함수 호출
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 
