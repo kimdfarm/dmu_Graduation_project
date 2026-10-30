@@ -17,12 +17,14 @@ const generateUniqueId = () => {
 };
 
 // 💡 [수정] secAiColumns를 인자로 받아 AI 버전일 때 동적 열 구조를 우선 적용하도록 개선
-// 💡 [수정] secAiColumns 대신 detail 레벨의 ai_columns 및 dynamicColumns 적용
-const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'ORIGINAL') => {
+const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
 
+  // 💡 AI 버전일 때는 DB에서 가져온 섹션별 ai_columns(secAiColumns)를 최우선으로 반영합니다.
   let defaultColumns = ['질문', '답변'];
-  if (Array.isArray(secColumns) && secColumns.length > 0) {
+  if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
+    defaultColumns = [...secAiColumns];
+  } else if (Array.isArray(secColumns) && secColumns.length > 0) {
     defaultColumns = [...secColumns];
   }
 
@@ -34,11 +36,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'O
 
   const extractedRows = details.map((detail) => {
     const rowValues = {};
-    
-    // 💡 AI 버전이고 개별 detail에 매핑된 ai_columns가 있으면 우선 사용
-    let rowColumns = (isAi && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) 
-      ? detail.ai_columns 
-      : defaultColumns;
+    let rowColumns = defaultColumns;
 
     if (detail.values && typeof detail.values === 'object') {
       Object.assign(rowValues, detail.values);
@@ -73,16 +71,11 @@ const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'O
       }
     }
 
-    rowColumns.forEach(col => {
-      if (!sessionColumns.includes(col)) sessionColumns.push(col);
-    });
-
     return {
       id: detail.id || generateUniqueId(),
       title: detail.title || '',
       spell_checked_text: detail.spell_checked_text || null,
       ai_proofread_text: detail.ai_proofread_text || null,
-      ai_columns: detail.ai_columns || [],
       selected_version: currentVersion,
       values: rowValues
     };
@@ -130,7 +123,7 @@ const CoverLetterDetail = () => {
 
   // 섹션별 AI 모드 선택 패널 토글 상태 관리
   const [activeModeSelector, setActiveModeSelector] = useState({});
-
+  const [sectionAiModes, setSectionAiModes] = useState({});
   useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
@@ -289,9 +282,11 @@ const CoverLetterDetail = () => {
 
   // 선택한 모드별 AI 교정 실행 함수
   const handleExecuteAIProofread = async (sectionId, selectedMode) => {
+    
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
     setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
 
+    setSectionAiModes((prev) => ({ ...prev, [sectionId]: selectedMode }));
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
 
@@ -436,8 +431,27 @@ const CoverLetterDetail = () => {
   // 💡 [수정] 파싱할 때 sec.ai_columns 정보를 함께 전달하여 버전에 맞는 테이블 스키마 구성
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    // 💡 sec.ai_columns 대신 각 detail 내부의 컬럼 정보를 활용하는 파싱 함수 호출
-    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
+    
+    // 💡 sec.ai_columns (테이블의 ai_columns 컬럼 값)을 파싱 함수에 명시적으로 전달합니다.
+    const { columns, rows } = parseDetailsToTableSchema(
+      sec.details, 
+      sec.columns, 
+      sec.ai_columns,  // 👈 이 부분이 전달되어야 AI 모드에 맞는 열 이름이 렌더링됩니다.
+      secVersion
+    );
+    const modesMap = {};
+if (Array.isArray(sec.ai_proofread_text)) {
+  sec.ai_proofread_text.forEach((group) => {
+    if (group && group.mode && Array.isArray(group.items)) {
+      group.items.forEach((item) => {
+        if (item && item.id) {
+          modesMap[sec.id] = group.mode; // 해당 섹션이 마지막으로 교정된 모드 저장
+        }
+      });
+    }
+  });
+}
+setSectionAiModes(modesMap);
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 
@@ -599,73 +613,112 @@ const CoverLetterDetail = () => {
 
                     {/* AI 교정 모드 선택 패널 */}
                     {isModeSelectorOpen && (
-                      <div className="bg-[#050914] border border-indigo-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3">
-                        <div className="flex items-center justify-between border-b border-indigo-950 pb-2.5">
-                          <span className="text-xs font-extrabold text-indigo-300 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400" /> AI 교정 모드를 선택하세요
-                          </span>
-                          <span className="text-[10px] text-slate-400">문항의 목적에 맞는 최적의 윤문 엔진이 작동합니다</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleExecuteAIProofread(sec.id, 'STAR')}
-                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
-                          >
-                            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition shrink-0 mt-0.5">
-                              <Target className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-white group-hover:text-indigo-300">🎯 STAR 기법 강조 모드</div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">상황-과제-행동-결과 흐름이 선명하게 드러나도록 구조화</div>
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleExecuteAIProofread(sec.id, 'IMPACT')}
-                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
-                          >
-                            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 group-hover:scale-110 transition shrink-0 mt-0.5">
-                              <Zap className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-white group-hover:text-amber-300">📊 성과/수치 중심 (Impact Booster)</div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">효율성 개선율 및 기여도 수치를 강조하여 임팩트 극대화</div>
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleExecuteAIProofread(sec.id, 'TECH')}
-                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
-                          >
-                            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 group-hover:scale-110 transition shrink-0 mt-0.5">
-                              <Cpu className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-white group-hover:text-purple-300">🛠️ 기술 스택 & 트러블슈팅</div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">아키텍처 및 문제 해결 과정을 전문 기술 어휘로 세련되게 윤문</div>
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleExecuteAIProofread(sec.id, 'TONE')}
-                            className="flex items-start gap-3 p-3 rounded-xl bg-[#0a1024] hover:bg-indigo-950/50 border border-indigo-900/60 hover:border-indigo-500/60 transition text-left group"
-                          >
-                            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition shrink-0 mt-0.5">
-                              <Building className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-white group-hover:text-emerald-300">🏢 기업 톤앤매너 (대기업/스타트업)</div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">신뢰감 주는 서술형 문어체 및 비즈니스 매너 어조로 완성</div>
-                            </div>
-                          </button>
-                        </div>
+                    <div className="bg-[#050914] border border-indigo-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3">
+                      <div className="flex items-center justify-between border-b border-indigo-950 pb-2.5">
+                        <span className="text-xs font-extrabold text-indigo-300 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" /> AI 교정 모드를 선택하세요
+                        </span>
+                        <span className="text-[10px] text-slate-400">문항의 목적에 맞는 최적의 윤문 엔진이 작동합니다</span>
                       </div>
-                    )}
+
+                      {/* 현재 이 섹션에 적용되어 있는 모드 확인 (기본값 'STAR') */}
+                      {(() => {
+                        const currentSelectedMode = sectionAiModes[sec.id] || 'STAR';
+
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {/* 1. STAR 모드 버튼 */}
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteAIProofread(sec.id, 'STAR')}
+                              className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                currentSelectedMode === 'STAR' 
+                                  ? 'bg-indigo-950/70 border-indigo-500 shadow-md ring-1 ring-indigo-500' 
+                                  : 'bg-[#0a1024] hover:bg-indigo-950/50 border-indigo-900/60'
+                              }`}
+                            >
+                              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                <Target className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-bold text-white group-hover:text-indigo-300">🎯 STAR 기법 강조 모드</div>
+                                  {currentSelectedMode === 'STAR' && <Check className="w-3.5 h-3.5 text-indigo-400 font-bold" />}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">상황-과제-행동-결과 흐름이 선명하게 드러나도록 구조화</div>
+                              </div>
+                            </button>
+
+                            {/* 2. IMPACT 모드 버튼 */}
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteAIProofread(sec.id, 'IMPACT')}
+                              className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                currentSelectedMode === 'IMPACT' 
+                                  ? 'bg-amber-950/40 border-amber-500 shadow-md ring-1 ring-amber-500' 
+                                  : 'bg-[#0a1024] hover:bg-indigo-950/50 border-indigo-900/60'
+                              }`}
+                            >
+                              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                <Zap className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-bold text-white group-hover:text-amber-300">📊 성과/수치 중심 (Impact Booster)</div>
+                                  {currentSelectedMode === 'IMPACT' && <Check className="w-3.5 h-3.5 text-amber-400 font-bold" />}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">효율성 개선율 및 기여도 수치를 강조하여 임팩트 극대화</div>
+                              </div>
+                            </button>
+
+                            {/* 3. TECH 모드 버튼 */}
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteAIProofread(sec.id, 'TECH')}
+                              className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                currentSelectedMode === 'TECH' 
+                                  ? 'bg-purple-950/40 border-purple-500 shadow-md ring-1 ring-purple-500' 
+                                  : 'bg-[#0a1024] hover:bg-indigo-950/50 border-indigo-900/60'
+                              }`}
+                            >
+                              <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                <Cpu className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-bold text-white group-hover:text-purple-300">🛠️ 기술 스택 & 트러블슈팅</div>
+                                  {currentSelectedMode === 'TECH' && <Check className="w-3.5 h-3.5 text-purple-400 font-bold" />}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">아키텍처 및 문제 해결 과정을 전문 기술 어휘로 세련되게 윤문</div>
+                              </div>
+                            </button>
+
+                            {/* 4. TONE 모드 버튼 */}
+                            <button
+                              type="button"
+                              onClick={() => handleExecuteAIProofread(sec.id, 'TONE')}
+                              className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                currentSelectedMode === 'TONE' 
+                                  ? 'bg-emerald-950/40 border-emerald-500 shadow-md ring-1 ring-emerald-500' 
+                                  : 'bg-[#0a1024] hover:bg-indigo-950/50 border-indigo-900/60'
+                              }`}
+                            >
+                              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                <Building className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-bold text-white group-hover:text-emerald-300">🏢 기업 톤앤매너 (대기업/스타트업)</div>
+                                  {currentSelectedMode === 'TONE' && <Check className="w-3.5 h-3.5 text-emerald-400 font-bold" />}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">신뢰감 주는 서술형 문어체 및 비즈니스 매너 어조로 완성</div>
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
 
                     <div className="space-y-4">
                       {sec.rows && sec.rows.length > 0 ? (

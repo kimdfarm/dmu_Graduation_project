@@ -328,6 +328,7 @@ async def resume_ai_proofread_section(
 # ------------------------------------------------------------------
 # Endpoint 3-2: [자기소개서 전용] 완벽한 모드별 캐싱 & 동적 컬럼 매칭 엔드포인트
 # ------------------------------------------------------------------
+# [자기소개서 전용] AI 교정 엔드포인트 수정 부분
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
     section_id: str,
@@ -336,11 +337,11 @@ async def coverletter_ai_proofread_section(
 ):
     current_mode = payload.mode if payload.mode else "STAR"
 
-    # 1. DB에서 기존 모드 그룹 리스트 조회
+    # 1. DB에서 기존 모드 그룹 리스트 및 섹션 정보 조회
     existing_groups = []
     try:
         db_res = supabase.table("document_sections") \
-            .select("ai_proofread_text") \
+            .select("ai_proofread_text, ai_columns") \
             .eq("id", section_id) \
             .execute()
         
@@ -352,7 +353,6 @@ async def coverletter_ai_proofread_section(
     except Exception as e:
         print(f"Supabase Select Error: {e}")
 
-    # 현재 모드 그룹 탐색
     target_group = None
     for group in existing_groups:
         if isinstance(group, dict) and group.get("mode") == current_mode:
@@ -370,24 +370,16 @@ async def coverletter_ai_proofread_section(
             if isinstance(it, dict) and "id" in it:
                 cached_items_map[it["id"]] = it.get("ai_proofread_text", "")
 
-    # 💡 [핵심 최적화] 요청된 모든 카드 ID가 이미 캐시에 존재한다면 LLM을 전혀 호출하지 않고 즉시 반환!
     all_cached = len(requested_ids) > 0 and all(rid in cached_items_map and cached_items_map[rid].strip() for rid in requested_ids)
 
-    if all_cached and existing_group_columns:
-        response_items = []
-        for rid in requested_ids:
-            response_items.append(AIProofreadResponseItem(
-                id=rid,
-                ai_proofread_text=cached_items_map[rid],
-                ai_columns=existing_group_columns,
-                mode=current_mode
-            ))
-        return response_items
+    # 이미 캐시가 완벽히 존재할 때도, 섹션 테이블의 ai_columns가 최신 상태로 동기화되도록 보장
+    resolved_columns = existing_group_columns
+    if all_cached and resolved_columns:
+        # 캐시 데이터로 바로 응답하더라도 DB의 ai_columns 업데이트를 위해 아래 로직 태우기 혹은 바로 업데이트
+        pass
 
-    # 캐시에 없거나 누락된 항목이 있을 때만 LLM 실행
     new_items_list = []
     has_new_llm_call = False
-    resolved_columns = existing_group_columns
 
     for item in payload.details:
         existing_text = cached_items_map.get(item.id)
@@ -430,11 +422,12 @@ async def coverletter_ai_proofread_section(
             "items": new_items_list
         })
 
-    # DB 업데이트 수행
+    # 💡 [핵심] DB 업데이트 시 ai_proofread_text 뿐만 아니라, 섹션 레벨의 ai_columns 컬럼에 현재 모드의 열 구조를 대입합니다!
     try:
         update_payload = {
             "selected_version": "AI",
             "ai_proofread_text": updated_groups,
+            "ai_columns": resolved_columns  # 👈 이 부분이 빠져있어 프론트가 스타일(컬럼)을 못 읽던 문제를 해결합니다.
         }
         supabase.table("document_sections") \
             .update(update_payload) \
@@ -447,7 +440,6 @@ async def coverletter_ai_proofread_section(
             detail=f"DB 저장 오류: {str(e)}"
         )
 
-    # 프론트엔드 응답 생성
     response_items = []
     for it in new_items_list:
         response_items.append(AIProofreadResponseItem(
@@ -458,3 +450,5 @@ async def coverletter_ai_proofread_section(
         ))
 
     return response_items
+
+
