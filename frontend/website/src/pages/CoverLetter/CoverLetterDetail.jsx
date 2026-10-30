@@ -17,23 +17,32 @@ const generateUniqueId = () => {
 };
 
 // 💡 [수정] secAiColumns를 인자로 받아 AI 버전일 때 동적 열 구조를 우선 적용하도록 개선
+// 💡 [수정] secAiColumns 대신 detail 레벨의 ai_columns 및 dynamicColumns 적용
 const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
-  
-  // AI 버전이고 DB에 ai_columns가 존재하면 그것을 우선 사용, 아니면 기본 secColumns 사용
-  let dynamicColumns = ['질문', '답변'];
+
+  // 기본 전역 컬럼 백업
+  let defaultColumns = ['질문', '답변'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
-    dynamicColumns = [...secAiColumns];
+    defaultColumns = [...secAiColumns];
   } else if (Array.isArray(secColumns) && secColumns.length > 0) {
-    dynamicColumns = [...secColumns];
+    defaultColumns = [...secColumns];
   }
 
   if (!details || details.length === 0) {
-    return { columns: dynamicColumns, rows: [] };
+    return { columns: defaultColumns, rows: [] };
   }
+
+  // 💡 세션 내에서 추출되는 모든 동적 컬럼들을 수집할 집합
+  const sessionColumns = [...defaultColumns];
 
   const extractedRows = details.map((detail) => {
     const rowValues = {};
+    
+    // 💡 AI 버전이고 개별 detail 객체 안에 ai_columns가 존재하면 사용
+    let rowColumns = (isAi && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) 
+      ? detail.ai_columns 
+      : defaultColumns;
 
     if (detail.values && typeof detail.values === 'object') {
       Object.assign(rowValues, detail.values);
@@ -54,31 +63,37 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
           const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
           rowValues[colName] = content;
 
-          if (!dynamicColumns.includes(colName)) {
-            dynamicColumns.push(colName);
+          if (!sessionColumns.includes(colName)) {
+            sessionColumns.push(colName);
           }
         }
       });
 
       if (Object.keys(rowValues).length === 0 && targetText) {
-        const col1 = dynamicColumns[0] || '질문';
-        const col2 = dynamicColumns[1] || '답변';
+        const col1 = rowColumns[0] || '질문';
+        const col2 = rowColumns[1] || '답변';
         rowValues[col1] = detail.title || '';
         rowValues[col2] = targetText.replace(/^[•\-\*\s]+/gm, '').trim();
       }
     }
+
+    // 💡 rowColumns에 속한 열 이름들도 sessionColumns에 등록
+    rowColumns.forEach(col => {
+      if (!sessionColumns.includes(col)) sessionColumns.push(col);
+    });
 
     return {
       id: detail.id || generateUniqueId(),
       title: detail.title || '',
       spell_checked_text: detail.spell_checked_text || null,
       ai_proofread_text: detail.ai_proofread_text || null,
+      ai_columns: detail.ai_columns || [], // 💡 개별 항목 ai_columns 보존
       selected_version: currentVersion,
       values: rowValues
     };
   });
 
-  return { columns: dynamicColumns, rows: extractedRows };
+  return { columns: sessionColumns, rows: extractedRows };
 };
 
 const CoverLetterDetail = () => {
@@ -139,31 +154,36 @@ const CoverLetterDetail = () => {
         setCoverLetter(data);
 
         if (data.sections && Array.isArray(data.sections)) {
-          const parsedSections = data.sections.map((sec) => {
-            const spellMap = {};
-            if (Array.isArray(sec.spell_checked_text)) {
-              sec.spell_checked_text.forEach((item) => {
-                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
-              });
-            }
+  const parsedSections = data.sections.map((sec) => {
+    const spellMap = {};
+    if (Array.isArray(sec.spell_checked_text)) {
+      sec.spell_checked_text.forEach((item) => {
+        if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
+      });
+    }
 
-            const aiMap = {};
-            if (Array.isArray(sec.ai_proofread_text)) {
-              sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || '';
-              });
-            }
+    const aiTextMap = {};
+    const aiColumnsMap = {}; // 💡 항목별 ai_columns 맵 추가
+    if (Array.isArray(sec.ai_proofread_text)) {
+      sec.ai_proofread_text.forEach((item) => {
+        if (item && item.id) {
+          aiTextMap[item.id] = item.ai_proofread_text || '';
+          aiColumnsMap[item.id] = item.ai_columns || []; // 💡 개별 ai_columns 추출
+        }
+      });
+    }
 
-            const updatedDetails = (sec.details || []).map((detail) => ({
-              ...detail,
-              spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
-              ai_proofread_text: aiMap[detail.id] || detail.ai_proofread_text || ''
-            }));
+    const updatedDetails = (sec.details || []).map((detail) => ({
+      ...detail,
+      spell_checked_text: spellMap[detail.id] || detail.spell_checked_text || '',
+      ai_proofread_text: aiTextMap[detail.id] || detail.ai_proofread_text || '',
+      ai_columns: aiColumnsMap[detail.id] || detail.ai_columns || [] // 💡 detail 객체에 할당
+    }));
 
-            return { ...sec, details: updatedDetails };
-          });
+    return { ...sec, details: updatedDetails };
+  });
 
-          setSections(parsedSections);
+  setSections(parsedSections);
 
           const initialVersions = {};
           parsedSections.forEach((sec) => {

@@ -33,6 +33,7 @@ class SpellCheckResponseItem(BaseModel):
 class AIProofreadResponseItem(BaseModel):
     id: str
     ai_proofread_text: str
+    ai_columns: Optional[List[str]] = []
 
 class UpdateVersionRequest(BaseModel):
     selected_version: str  # 'ORIGINAL', 'SPELL', 'AI' 중 하나
@@ -107,56 +108,37 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 # ------------------------------------------------------------------
 # Helper 3: [자기소개서(Cover Letter) 전용] 4가지 모드별 AI 교정 함수 (빈 공간 방지 및 태그 정밀화)
 # ------------------------------------------------------------------
-def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
-    if not text.strip():
-        return ""
+import json
 
-    mode_instructions = {
-        "STAR": """
-        [모드: STAR 기법 강조]
-        - 지원자의 경험을 반드시 아래 4가지 파트로 나누어 각 파트마다 명확한 불렛포인트(•)로 작성하세요.
-        - 마크다운 별표(**)는 절대 쓰지 말고, 정확히 아래 태그 형식만 사용하세요:
-          [Situation] 상황 및 배경 내용
-          [Task] 해결해야 했던 과제 내용
-          [Action] 본인이 취한 구체적 행동 내용
-          [Result] 얻어낸 성과 내용
-        """,
-        "IMPACT": """
-        [모드: 수치/성과 중심 (Impact Booster)]
-        - 지원자의 기여도와 성과가 객관적인 수치, 효율성 개선율을 중심으로 강력하게 어필되도록 재작성하세요.
-        - 모호한 표현은 결과 중심 문장으로 격상시키고, 반드시 아래 태그 형식으로만 출력하세요:
-          [핵심 과제] 내용
-          [개선 및 기여도] 내용
-          [정량적 성과 (Impact)] 내용
-        """,
-        "TECH": """
-        [모드: 기술 스택 & 트러블슈팅 강조]
-        - 사용된 기술 스택, 아키텍처, 그리고 기술적 난관을 극복한 트러블슈팅 과정이 전문가 눈에 띄게 작성하세요.
-        - 반드시 아래 태그 형식으로만 출력하세요:
-          [사용 기술] 내용
-          [기술적 난관 (Troubleshooting)] 내용
-          [해결 및 성능 개선] 내용
-        """,
-        "TONE": """
-        [모드: 톤앤매너 맞춤 (대기업/스타트업)]
-        - 대기업의 신뢰감 또는 스타트업의 실행력이 돋보이는 프로페셔널한 비즈니스 문어체로 윤문하세요.
-        - 반드시 아래 태그 형식으로만 출력하세요:
-          [역할 개요] 내용
-          [주요 업무 및 성과] 내용
-        """
+# ------------------------------------------------------------------
+# Helper 3: [자기소개서(Cover Letter) 전용] AI 동적 교정 및 컬럼 생성 함수
+# ------------------------------------------------------------------
+def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> dict:
+    if not text.strip():
+        return {"ai_proofread_text": "", "ai_columns": []}
+
+    mode_descriptions = {
+        "STAR": "STAR 기법(Situation, Task, Action, Result) 흐름에 맞추어 항목을 나누어 작성",
+        "IMPACT": "핵심 과제, 개선 및 기여도, 정량적 성과(Impact)를 중심으로 강력하게 어필",
+        "TECH": "사용 기술, 기술적 난관(Troubleshooting), 해결 및 성능 개선 과정 위주로 전문성 강조",
+        "TONE": "역할 개요 및 주요 업무와 성과를 중심으로 프로페셔널한 비즈니스 문어체로 윤문"
     }
 
-    selected_instruction = mode_instructions.get(mode, mode_instructions["STAR"])
+    mode_desc = mode_descriptions.get(mode, mode_descriptions["STAR"])
 
     prompt = f"""
-    다음 자기소개서/프로젝트 카드 텍스트를 채용 담당자의 눈길을 사로잡는 매끄러운 문장으로 재작성해 주세요.
+    다음 자기소개서/프로젝트 카드 텍스트를 선택된 교정 모드("{mode}" - {mode_desc})에 맞추어 채용 담당자의 눈길을 사로잡는 매끄러운 문장으로 재작성해 주세요.
 
-    {selected_instruction}
-
-    [공통 작성 지침]
-    1. 이력서와 달리 완성형 경어체(~했습니다, ~구현했습니다 등)를 사용하세요.
-    2. 원문의 핵심 키워드, 수치, 구조는 손실 없이 그대로 유지해야 합니다.
-    3. 설명이나 인삿말 없이 오직 지정된 대괄호 태그 구조의 결과 텍스트만 출력하세요.
+    [작성 지침]
+    1. 완성형 경어체(~했습니다, ~구현했습니다 등)를 사용하세요.
+    2. 원문의 핵심 키워드, 수치, 구조는 손실 없이 유지하세요.
+    3. 이 텍스트의 특성과 내용을 가장 잘 담아낼 수 있는 **맞춤형 분석 컬럼 이름들(예: ['Situation', 'Task', 'Action', 'Result'] 또는 내용에 맞는 커스텀 컬럼명 2~4개)**을 직접 결정해 주세요.
+    
+    반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
+    {{
+      "ai_proofread_text": "교정된 본문 텍스트 내용",
+      "ai_columns": ["컬럼1", "컬럼2", "컬럼3"]
+    }}
 
     [원문]
     {text}
@@ -166,16 +148,28 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
-                {"role": "system", "content": "너는 채용 트렌드를 꿰뚫고 있는 최고 수석 자기소개서 컨설턴트 및 전문 라이터이다."},
+                {"role": "system", "content": "너는 채용 트렌드를 꿰뚫고 있는 수석 자기소개서 컨설턴트이며, 반드시 JSON 형식으로만 응답하는 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
         )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Groq API Call Error (CoverLetter Proofread Mode {mode}): {e}")
-        return text
+        content = response.choices[0].message.content.strip()
+        
+        # 마크다운 코드블록(```json ... ```) 제거 처리
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
 
+        result_data = json.loads(content)
+        return {
+            "ai_proofread_text": result_data.get("ai_proofread_text", text),
+            "ai_columns": result_data.get("ai_columns", [mode, "내용"])
+        }
+    except Exception as e:
+        print(f"Groq API Call Error (CoverLetter Proofread Dynamic Mode {mode}): {e}")
+        return {"ai_proofread_text": text, "ai_columns": [mode, "내용"]}
 
 # ------------------------------------------------------------------
 # Endpoint 1: document_sections의 selected_version 변경
@@ -332,6 +326,7 @@ async def resume_ai_proofread_section(
 # ------------------------------------------------------------------
 # Endpoint 3-2: [자기소개서 전용] 4가지 모드 AI 교정 엔드포인트 (모드별 고정 최적화 ai_columns 생성)
 # ------------------------------------------------------------------
+
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
     section_id: str,
@@ -340,8 +335,11 @@ async def coverletter_ai_proofread_section(
 ):
     current_mode = payload.mode if payload.mode else "STAR"
 
-    # 1. DB에서 기존 ai_proofread_text 캐시 조회
+    # 1. DB에서 기존에 아이디별로 저장되어 있던 데이터 맵(Map) 불러오기
     cached_map = {}
+    cached_mode_map = {}
+    cached_columns_map = {}
+    
     try:
         db_res = supabase.table("document_sections") \
             .select("ai_proofread_text") \
@@ -354,56 +352,58 @@ async def coverletter_ai_proofread_section(
             
             if isinstance(existing_list, list):
                 for item in existing_list:
-                    if isinstance(item, dict) and "id" in item and "ai_proofread_text" in item:
-                        cached_map[item["id"]] = item["ai_proofread_text"]
+                    if isinstance(item, dict) and "id" in item:
+                        cached_map[item["id"]] = item.get("ai_proofread_text", "")
+                        cached_mode_map[item["id"]] = item.get("mode", "")
+                        cached_columns_map[item["id"]] = item.get("ai_columns", [])
     except Exception as e:
-        print(f"Supabase Select Error (section_id: {section_id}): {e}")
-
-    # 💡 2. 모드별 빈 공간 없는 깔끔한 전용 ai_columns 확정
-    if current_mode == "STAR":
-        target_ai_columns = ["Situation", "Task", "Action", "Result"]
-    elif current_mode == "IMPACT":
-        target_ai_columns = ["핵심 과제", "개선 및 기여도", "정량적 성과 (Impact)"]
-    elif current_mode == "TECH":
-        target_ai_columns = ["사용 기술", "기술적 난관 (Troubleshooting)", "해결 및 성능 개선"]
-    else:  # TONE
-        target_ai_columns = ["역할 개요", "주요 업무 및 성과"]
+        print(f"Supabase Select Error: {e}")
 
     proofread_results = []
     has_new_llm_call = False
 
-    # 3. 각 항목별 캐시 확인 후 LLM 호출 제어
+    # 2. 각 항목별로 독립 검사 수행
     for item in payload.details:
         existing_text = cached_map.get(item.id)
+        saved_mode = cached_mode_map.get(item.id)
+        existing_cols = cached_columns_map.get(item.id, [])
         
-        if existing_text and existing_text.strip():
+        # 💡 조건: 기존 텍스트가 있고, **모드도 동일**하다면 기존에 저장된 텍스트와 컬럼을 그대로 사용
+        if existing_text and existing_text.strip() and saved_mode == current_mode:
             ai_text = existing_text
+            ai_cols = existing_cols
         else:
-            ai_text = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
+            # 모드가 바뀌었거나 처음 실행하는 경우: AI가 내용 분석 후 텍스트와 '전용 동적 컬럼'을 함께 생성
+            ai_response = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
+            ai_text = ai_response["ai_proofread_text"]
+            ai_cols = ai_response["ai_columns"]
             has_new_llm_call = True
 
+        # 💡 각 항목(id)마다 본인만의 모드와 컬럼 정보를 개별적으로 가짐
         proofread_results.append({
             "id": item.id,
-            "ai_proofread_text": ai_text
+            "ai_proofread_text": ai_text,
+            "ai_columns": ai_cols,     # 👈 항목별 독립된 ai_columns 저장
+            "mode": current_mode       # 👈 항목별 사용된 모드 저장
         })
 
-    # 4. 새로운 LLM 호출이 발생했을 때만 DB 업데이트 수행 (ai_columns 함께 저장)
-    if has_new_llm_call:
+    # 3. 새로운 LLM 호출이 발생했을 때만 DB 업데이트
+    if has_new_llm_call or cached_map != {}:
         try:
             update_payload = {
                 "selected_version": "AI",
-                "ai_proofread_text": proofread_results,
-                "ai_columns": target_ai_columns  # 💡 빈 공간 없이 매칭되는 모드 전용 최적화 열 구조 저장
+                "ai_proofread_text": proofread_results, # 항목별 객체 리스트 전체 저장
             }
             supabase.table("document_sections") \
                 .update(update_payload) \
                 .eq("id", section_id) \
                 .execute()
         except Exception as e:
-            print(f"Supabase Update Error (CoverLetter AI): {e}")
+            print(f"Supabase Update Error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"DB 저장 오류: {str(e)}"
             )
 
     return [AIProofreadResponseItem(**item) for item in proofread_results]
+
