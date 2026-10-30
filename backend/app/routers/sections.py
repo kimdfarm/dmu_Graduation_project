@@ -71,7 +71,6 @@ def run_spell_check_llm(text: str) -> str:
 
 # ------------------------------------------------------------------
 # Helper 2: [이력서(Resume) 전용] AI 교정 함수
-# 특징: 이력서에 어울리는 간결한 개조식 명사형 종결 어미(~함, ~기여함, ~구현 등) 적용
 # ------------------------------------------------------------------
 def run_resume_ai_proofread_llm(text: str) -> str:
     if not text.strip():
@@ -106,7 +105,7 @@ def run_resume_ai_proofread_llm(text: str) -> str:
 
 
 # ------------------------------------------------------------------
-# Helper 3: [자기소개서(Cover Letter) 전용] 4가지 모드 AI 교정 함수
+# Helper 3: [자기소개서(Cover Letter) 전용] 모드별 AI 교정 함수
 # ------------------------------------------------------------------
 def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
     if not text.strip():
@@ -115,9 +114,12 @@ def run_coverletter_ai_proofread_llm(text: str, mode: str = "STAR") -> str:
     mode_instructions = {
         "STAR": """
         [모드: STAR 기법 강조]
-        - 지원자의 경험을 Situation(상황), Task(과제), Action(행동), Result(결과) 구조가 선명하게 드러나도록 재구성하세요.
-        - 본인이 구체적으로 어떤 행동(Action)을 취해 문제를 해결했는지 인과관계가 돋보이게 다듬어 주세요.
-        - 신뢰감 주는 완성형 경어체(~했습니다, ~기여했습니다 등)를 사용하세요.
+        - 지원자의 경험을 아래 4가지 파트로 나누어 각 파트마다 명확한 불렛포인트(•)로 작성하세요. 
+        - 텍스트 내부에 마크다운 별표(**)는 절대 쓰지 말고, 정확히 아래 태그 형식만 사용하세요:
+          [Situation] 상황 및 배경 내용
+          [Task] 해결해야 했던 과제 내용
+          [Action] 본인이 취한 구체적 행동 내용
+          [Result] 얻어낸 성과 내용
         """,
         "IMPACT": """
         [모드: 수치/성과 중심 (Impact Booster)]
@@ -194,7 +196,7 @@ async def update_section_version(
 
 
 # ------------------------------------------------------------------
-# Endpoint 2: 맞춤법 교정 (공통)
+# Endpoint 2: 맞춤법 교정 (공통, 캐싱 적용)
 # ------------------------------------------------------------------
 @router.post("/{section_id}/spell-check", response_model=List[SpellCheckResponseItem])
 async def spell_check_section(
@@ -255,7 +257,7 @@ async def spell_check_section(
 
 
 # ------------------------------------------------------------------
-# Endpoint 3-1: [이력서 전용] AI 교정 엔드포인트
+# Endpoint 3-1: [이력서 전용] AI 교정 엔드포인트 (캐싱 적용)
 # ------------------------------------------------------------------
 @router.post("/{section_id}/resume-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def resume_ai_proofread_section(
@@ -263,39 +265,68 @@ async def resume_ai_proofread_section(
     payload: SectionTextRequest,
     supabase: Client = Depends(get_supabase)
 ):
+    cached_map = {}
+    existing_columns = []
+    try:
+        db_res = supabase.table("document_sections") \
+            .select("columns, ai_proofread_text") \
+            .eq("id", section_id) \
+            .execute()
+        
+        if db_res.data and len(db_res.data) > 0:
+            section_data = db_res.data[0]
+            existing_columns = section_data.get("columns", [])
+            existing_list = section_data.get("ai_proofread_text")
+            if isinstance(existing_list, list):
+                for item in existing_list:
+                    if isinstance(item, dict) and "id" in item and "ai_proofread_text" in item:
+                        cached_map[item["id"]] = item["ai_proofread_text"]
+    except Exception as e:
+        print(f"Supabase Select Error: {e}")
+
     proofread_results = []
     has_new_llm_call = False
 
     for item in payload.details:
-        ai_text = run_resume_ai_proofread_llm(item.original_text)
-        has_new_llm_call = True
+        existing_text = cached_map.get(item.id)
+        if existing_text and existing_text.strip():
+            ai_text = existing_text
+        else:
+            ai_text = run_resume_ai_proofread_llm(item.original_text)
+            has_new_llm_call = True
 
         proofread_results.append({
             "id": item.id,
             "ai_proofread_text": ai_text
         })
 
-    try:
-        update_payload = {
-            "selected_version": "AI",
-            "ai_proofread_text": proofread_results
-        }
-        supabase.table("document_sections") \
-            .update(update_payload) \
-            .eq("id", section_id) \
-            .execute()
-    except Exception as e:
-        print(f"Supabase Update Error (Resume AI): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DB 저장 오류: {str(e)}"
-        )
+    # 원본 columns를 참고하여 이력서용 ai_columns 구성
+    base_cols = existing_columns if existing_columns else ["항목", "내용"]
+    target_ai_columns = base_cols + ["개선 및 성과"]
+
+    if has_new_llm_call:
+        try:
+            update_payload = {
+                "selected_version": "AI",
+                "ai_proofread_text": proofread_results,
+                "ai_columns": target_ai_columns
+            }
+            supabase.table("document_sections") \
+                .update(update_payload) \
+                .eq("id", section_id) \
+                .execute()
+        except Exception as e:
+            print(f"Supabase Update Error (Resume AI): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"DB 저장 오류: {str(e)}"
+            )
 
     return [AIProofreadResponseItem(**item) for item in proofread_results]
 
 
 # ------------------------------------------------------------------
-# Endpoint 3-2: [자기소개서 전용] 4가지 모드 AI 교정 엔드포인트
+# Endpoint 3-2: [자기소개서 전용] 4가지 모드 AI 교정 엔드포인트 (columns + 모드 결합 ai_columns 생성)
 # ------------------------------------------------------------------
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
@@ -303,35 +334,78 @@ async def coverletter_ai_proofread_section(
     payload: SectionTextRequest,
     supabase: Client = Depends(get_supabase)
 ):
-    # 클라이언트가 전달한 자소서 모드 확인 (기본값: 'STAR')
     current_mode = payload.mode if payload.mode else "STAR"
+
+    # 1. DB에서 기존 columns와 ai_proofread_text 캐시 조회
+    existing_columns = []
+    cached_map = {}
+    try:
+        db_res = supabase.table("document_sections") \
+            .select("columns, ai_proofread_text") \
+            .eq("id", section_id) \
+            .execute()
+        
+        if db_res.data and len(db_res.data) > 0:
+            section_data = db_res.data[0]
+            existing_columns = section_data.get("columns", [])
+            existing_list = section_data.get("ai_proofread_text")
+            
+            if isinstance(existing_list, list):
+                for item in existing_list:
+                    if isinstance(item, dict) and "id" in item and "ai_proofread_text" in item:
+                        cached_map[item["id"]] = item["ai_proofread_text"]
+    except Exception as e:
+        print(f"Supabase Select Error (section_id: {section_id}): {e}")
+
+    # 원본 columns 기본값 확보
+    base_cols = existing_columns if existing_columns else []
+
+    # 💡 2. 원본 columns의 성격과 AI 교정 모드 요구사항을 합쳐서 ai_columns 조합 생성
+    if current_mode == "STAR":
+        prefix_cols = [base_cols[0]] if len(base_cols) > 0 else []
+        target_ai_columns = prefix_cols + ["Situation", "Task", "Action", "Result"]
+    elif current_mode == "IMPACT":
+        target_ai_columns = base_cols + ["개선 및 기여도", "정량적 성과 (Impact)"]
+    elif current_mode == "TECH":
+        target_ai_columns = base_cols + ["기술적 난관 (Troubleshooting)", "해결 및 성능 개선"]
+    else:  # TONE 등 기본
+        target_ai_columns = base_cols if base_cols else ["구분", "교정 내용"]
 
     proofread_results = []
     has_new_llm_call = False
 
+    # 3. 각 항목별 캐시 확인 후 LLM 호출 제어
     for item in payload.details:
-        ai_text = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
-        has_new_llm_call = True
+        existing_text = cached_map.get(item.id)
+        
+        if existing_text and existing_text.strip():
+            ai_text = existing_text
+        else:
+            ai_text = run_coverletter_ai_proofread_llm(item.original_text, mode=current_mode)
+            has_new_llm_call = True
 
         proofread_results.append({
             "id": item.id,
             "ai_proofread_text": ai_text
         })
 
-    try:
-        update_payload = {
-            "selected_version": "AI",
-            "ai_proofread_text": proofread_results
-        }
-        supabase.table("document_sections") \
-            .update(update_payload) \
-            .eq("id", section_id) \
-            .execute()
-    except Exception as e:
-        print(f"Supabase Update Error (CoverLetter AI): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DB 저장 오류: {str(e)}"
-        )
+    # 4. 새로운 LLM 호출이 발생했을 때만 DB 업데이트 수행 (ai_columns 함께 저장)
+    if has_new_llm_call:
+        try:
+            update_payload = {
+                "selected_version": "AI",
+                "ai_proofread_text": proofread_results,
+                "ai_columns": target_ai_columns  # 💡 원본 columns와 모드 요구사항이 자연스럽게 결합된 열 구조 저장
+            }
+            supabase.table("document_sections") \
+                .update(update_payload) \
+                .eq("id", section_id) \
+                .execute()
+        except Exception as e:
+            print(f"Supabase Update Error (CoverLetter AI): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"DB 저장 오류: {str(e)}"
+            )
 
     return [AIProofreadResponseItem(**item) for item in proofread_results]

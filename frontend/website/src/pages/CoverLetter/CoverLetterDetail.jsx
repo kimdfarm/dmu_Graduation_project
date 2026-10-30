@@ -16,10 +16,17 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-const parseDetailsToTableSchema = (details, secColumns = [], currentVersion = 'ORIGINAL') => {
-  const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
-    ? [...secColumns]
-    : ['질문', '답변'];
+// 💡 [수정] secAiColumns를 인자로 받아 AI 버전일 때 동적 열 구조를 우선 적용하도록 개선
+const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
+  const isAi = currentVersion === 'AI';
+  
+  // AI 버전이고 DB에 ai_columns가 존재하면 그것을 우선 사용, 아니면 기본 secColumns 사용
+  let dynamicColumns = ['질문', '답변'];
+  if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
+    dynamicColumns = [...secAiColumns];
+  } else if (Array.isArray(secColumns) && secColumns.length > 0) {
+    dynamicColumns = [...secColumns];
+  }
 
   if (!details || details.length === 0) {
     return { columns: dynamicColumns, rows: [] };
@@ -111,7 +118,7 @@ const CoverLetterDetail = () => {
 
   const userId = localStorage.getItem('userId');
 
-  // 💡 [추가] 섹션별 AI 모드 선택 패널 토글 상태 관리 (sectionId: boolean)
+  // 섹션별 AI 모드 선택 패널 토글 상태 관리
   const [activeModeSelector, setActiveModeSelector] = useState({});
 
   useEffect(() => {
@@ -215,7 +222,7 @@ const CoverLetterDetail = () => {
 
   const handleSpellCheckSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
-    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false })); // 모드 패널 닫기
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
@@ -257,10 +264,10 @@ const CoverLetterDetail = () => {
     }
   };
 
-  // 💡 선택한 모드별 AI 교정 실행 함수
+  // 선택한 모드별 AI 교정 실행 함수
   const handleExecuteAIProofread = async (sectionId, selectedMode) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
-    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false })); // 패널 닫기
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
@@ -272,7 +279,7 @@ const CoverLetterDetail = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode: selectedMode, // 'STAR' | 'IMPACT' | 'TECH' | 'TONE'
+          mode: selectedMode,
           details: targetSection.details.map((d) => ({
             id: d.id,
             original_text: d.original_text || d.values?.답변 || d.title || ''
@@ -282,20 +289,15 @@ const CoverLetterDetail = () => {
 
       if (response.ok) {
         const result = await response.json();
-        setSections((prevSections) =>
-          prevSections.map((sec) => {
-            if (sec.id !== sectionId) return sec;
-            const updatedDetails = sec.details.map((detail) => {
-              const proofreadItem = Array.isArray(result)
-                ? result.find((item) => item.id === detail.id)
-                : null;
-              return proofreadItem
-                ? { ...detail, ai_proofread_text: proofreadItem.ai_proofread_text }
-                : detail;
-            });
-            return { ...sec, details: updatedDetails };
-          })
-        );
+        
+        // 💡 백엔드에서 응답과 함께 ai_columns가 갱신되었을 수 있으므로 전체 문서를 재조회하거나 상태를 업데이트합니다.
+        const updatedRes = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}`);
+        if (updatedRes.ok) {
+          const updatedData = await updatedRes.json();
+          if (updatedData.sections) {
+            setSections(updatedData.sections);
+          }
+        }
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);
@@ -408,9 +410,10 @@ const CoverLetterDetail = () => {
     return 'flex-[1.5] min-w-[180px]';
   };
 
+  // 💡 [수정] 파싱할 때 sec.ai_columns 정보를 함께 전달하여 버전에 맞는 테이블 스키마 구성
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, sec.ai_columns, secVersion);
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 
@@ -548,7 +551,7 @@ const CoverLetterDetail = () => {
                           {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
                         </button>
 
-                        {/* 💡 AI 교정 버튼 (클릭 시 하단에 모드 선택 카드 패널 토글) */}
+                        {/* AI 교정 버튼 */}
                         <button
                           type="button"
                           onClick={() => setActiveModeSelector((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
@@ -570,7 +573,7 @@ const CoverLetterDetail = () => {
                       </div>
                     </div>
 
-                    {/* 💡 [NEW] AI 교정 버튼을 눌렀을 때만 아래에 세련된 디자인으로 나타나는 4가지 모드 선택 패널 */}
+                    {/* AI 교정 모드 선택 패널 */}
                     {isModeSelectorOpen && (
                       <div className="bg-[#050914] border border-indigo-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3">
                         <div className="flex items-center justify-between border-b border-indigo-950 pb-2.5">
@@ -581,7 +584,6 @@ const CoverLetterDetail = () => {
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          {/* 모드 1: STAR 기법 */}
                           <button
                             type="button"
                             onClick={() => handleExecuteAIProofread(sec.id, 'STAR')}
@@ -596,7 +598,6 @@ const CoverLetterDetail = () => {
                             </div>
                           </button>
 
-                          {/* 모드 2: 수치/성과 중심 */}
                           <button
                             type="button"
                             onClick={() => handleExecuteAIProofread(sec.id, 'IMPACT')}
@@ -611,7 +612,6 @@ const CoverLetterDetail = () => {
                             </div>
                           </button>
 
-                          {/* 모드 3: 기술 스택 & 트러블슈팅 */}
                           <button
                             type="button"
                             onClick={() => handleExecuteAIProofread(sec.id, 'TECH')}
@@ -626,7 +626,6 @@ const CoverLetterDetail = () => {
                             </div>
                           </button>
 
-                          {/* 모드 4: 톤앤매너 맞춤 */}
                           <button
                             type="button"
                             onClick={() => handleExecuteAIProofread(sec.id, 'TONE')}
