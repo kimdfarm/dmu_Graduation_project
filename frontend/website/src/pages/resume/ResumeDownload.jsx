@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
 import { 
@@ -118,11 +118,23 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
 const ResumeDownload = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const printRef = useRef(null);
 
   const [resume, setResume] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
   const [selectedStyle, setSelectedStyle] = useState('KR');
+  const [accentColor, setAccentColor] = useState('emerald');
+  
+  const colorThemes = {
+    emerald: { name: '에메랄드 그린', hex: '#059669' },
+    indigo: { name: '모던 인디고', hex: '#4f46e5' },
+    slate: { name: '프로페셔널 블랙', hex: '#0f172a' },
+    blue: { name: '클래식 블루', hex: '#2563eb' },
+    burgundy: { name: '와인 버건디', hex: '#9f1239' },
+  };
+
+  const currentTheme = colorThemes[accentColor] || colorThemes.emerald;
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -142,42 +154,10 @@ const ResumeDownload = () => {
   const userId = localStorage.getItem('userId');
 
   const mainStyleOptions = [
-    {
-      id: 'KR',
-      country: '대한민국',
-      flag: '🇰🇷',
-      name: '한국 모던 이력서',
-      desc: '깔끔한 구분선과 구조화된 프로페셔널 서식',
-      icon: Globe2,
-      badge: '표준'
-    },
-    {
-      id: 'US',
-      country: '미국 / 북미',
-      flag: '🇺🇸',
-      name: '미국 ATS 최적화 Resume',
-      desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식',
-      icon: FileText,
-      badge: 'ATS'
-    },
-    {
-      id: 'EU',
-      country: '유럽 연합',
-      flag: '🇪🇺',
-      name: '유럽형 2단 Curriculum Vitae',
-      desc: '좌측 프로필 사이드바와 우측 경력 분리 2단 레이아웃',
-      icon: Layout,
-      badge: 'CV'
-    },
-    {
-      id: 'JP',
-      country: '일본',
-      flag: '🇯🇵',
-      name: '일본 정규 履歴書 (리레키쇼)',
-      desc: '격자 그리드 형태의 규격화된 테이블 레이아웃',
-      icon: Award,
-      badge: '정규'
-    }
+    { id: 'KR', country: '대한민국', flag: '🇰🇷', name: '한국 모던 이력서', desc: '깔끔한 구분선과 구조화된 프로페셔널 서식', icon: Globe2, badge: '표준' },
+    { id: 'US', country: '미국 / 북미', flag: '🇺🇸', name: '미국 ATS 최적화 Resume', desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식', icon: FileText, badge: 'ATS' },
+    { id: 'EU', country: '유럽 연합', flag: '🇪🇺', name: '유럽형 2단 Curriculum Vitae', desc: '좌측 프로필 사이드바와 우측 경력 분리 2단 레이아웃', icon: Layout, badge: 'CV' },
+    { id: 'JP', country: '일본', flag: '🇯🇵', name: '일본 정규 履歴書 (리레키쇼)', desc: '격자 그리드 형태의 규격화된 테이블 레이아웃', icon: Award, badge: '정규' }
   ];
 
   useEffect(() => {
@@ -225,9 +205,13 @@ const ResumeDownload = () => {
         const resumeData = await resumeRes.json();
         setResume(resumeData);
 
+        const queryParams = new URLSearchParams(location.search);
+
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
           const parsedSections = resumeData.sections.map((sec) => {
-            const secVersion = sec.selected_version || 'ORIGINAL';
+            const queryVer = queryParams.get(`ver_${sec.id}`);
+            const queryMode = queryParams.get(`mode_${sec.id}`) || sec.ai_style || 'STAR';
+            const secVersion = queryVer || sec.selected_version || 'ORIGINAL';
 
             const spellMap = {};
             if (Array.isArray(sec.spell_checked_text)) {
@@ -236,19 +220,28 @@ const ResumeDownload = () => {
               });
             }
 
-            const aiMap = {};
+            const modeItemMap = {};
             if (Array.isArray(sec.ai_proofread_text)) {
-              sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || item.text || '';
+              sec.ai_proofread_text.forEach((group) => {
+                if (group && group.mode === queryMode && Array.isArray(group.items)) {
+                  group.items.forEach((it) => {
+                    if (it && it.id !== undefined) {
+                      modeItemMap[String(it.id)] = it.ai_proofread_text || '';
+                    }
+                  });
+                }
               });
             }
 
-            const updatedDetails = (sec.details || []).map((detail) => ({
-              ...detail,
-              selected_version: detail.selected_version || secVersion,
-              spell_checked_text: detail.spell_checked_text || spellMap[detail.id] || (typeof sec.spell_checked_text === 'string' ? sec.spell_checked_text : ''),
-              ai_proofread_text: detail.ai_proofread_text || aiMap[detail.id] || (typeof sec.ai_proofread_text === 'string' ? sec.ai_proofread_text : '')
-            }));
+            const updatedDetails = (sec.details || []).map((detail) => {
+              const detailIdStr = detail.id !== undefined ? String(detail.id) : '';
+              return {
+                ...detail,
+                selected_version: secVersion,
+                spell_checked_text: detail.spell_checked_text || spellMap[detailIdStr] || '',
+                ai_proofread_text: modeItemMap[detailIdStr] || detail.ai_proofread_text || ''
+              };
+            });
 
             return {
               ...sec,
@@ -267,7 +260,7 @@ const ResumeDownload = () => {
     };
 
     if (resumeId) fetchAllData();
-  }, [resumeId, userId, navigate]);
+  }, [resumeId, userId, navigate, location.search]);
 
   const handleOnDragEnd = (result) => {
     if (!result.destination) return;
@@ -389,37 +382,15 @@ const ResumeDownload = () => {
     <div className="min-h-screen bg-[#070b19] text-slate-100 p-6 md:p-10 font-sans">
       
       <style>{`
-        @page {
-          size: A4 portrait;
-          margin: 8mm;
-        }
-
+        @page { size: A4 portrait; margin: 8mm; }
         @media print {
           body { background: #ffffff !important; }
           .no-print { display: none !important; }
-          .print-area { 
-            width: 100% !important; 
-            padding: 0 !important; 
-            margin: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-          }
+          .print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
         }
-
-        .resume-paper {
-          background-color: #ffffff !important;
-          color: #111827 !important;
-        }
-
-        .resume-section {
-          page-break-inside: avoid !important;
-          break-inside: avoid !important;
-        }
-        
-        .resume-paper td, .resume-paper div, .resume-paper p {
-          word-break: keep-all !important;
-          word-wrap: break-word !important;
-        }
+        .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
+        .resume-section { page-break-inside: avoid !important; break-inside: avoid !important; }
+        .resume-paper td, .resume-paper div, .resume-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
       `}</style>
 
       {/* 상단 헤더 */}
@@ -450,7 +421,6 @@ const ResumeDownload = () => {
               </h2>
             </div>
 
-            {/* 빠른 선택 드롭다운 */}
             <div className="relative">
               <label className="block text-xs font-bold text-slate-300 mb-2">템플릿 빠른 선택</label>
               <div className="relative">
@@ -469,7 +439,6 @@ const ResumeDownload = () => {
               </div>
             </div>
             
-            {/* 카드 선택 리스트 */}
             <div className="grid grid-cols-1 gap-2.5 pt-1">
               {mainStyleOptions.map((style) => {
                 const IconComponent = style.icon;
@@ -485,37 +454,50 @@ const ResumeDownload = () => {
                     }`}
                   >
                     <div className={`p-2.5 rounded-xl border mt-0.5 shrink-0 ${
-                      isSelected 
-                        ? 'bg-emerald-600 border-emerald-400 text-white shadow-md' 
-                        : 'bg-[#070b19] border-emerald-950 text-emerald-400'
+                      isSelected ? 'bg-emerald-600 border-emerald-400 text-white shadow-md' : 'bg-[#070b19] border-emerald-950 text-emerald-400'
                     }`}>
                       <IconComponent className="w-4 h-4" />
                     </div>
-
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <span className={`text-xs font-extrabold truncate flex items-center gap-1.5 ${isSelected ? 'text-white' : 'text-slate-200'}`}>
                           <span className="text-base">{style.flag}</span> {style.name}
                         </span>
                         <span className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold shrink-0 ${
-                          isSelected
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                            : 'bg-[#070b19] text-slate-400 border-emerald-950'
+                          isSelected ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-[#070b19] text-slate-400 border-emerald-950'
                         }`}>
                           {style.badge}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        {style.desc}
-                      </p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">{style.desc}</p>
                     </div>
-
-                    {isSelected && (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-1" />
-                    )}
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-1" />}
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* 문서 강조 색상 선택 패널 */}
+          <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 shadow-xl space-y-4">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>🎨 문서 강조 색상 선택 (제출용)</span>
+            </h2>
+            <p className="text-[11px] text-slate-400">회사 제출용 문서의 포인트 색상을 설정할 수 있습니다.</p>
+            <div className="grid grid-cols-5 gap-2 pt-1">
+              {Object.entries(colorThemes).map(([key, theme]) => (
+                <button
+                  key={key}
+                  onClick={() => setAccentColor(key)}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-2xl border transition-all ${
+                    accentColor === key ? 'bg-[#0a1024] border-white shadow-md ring-2 ring-white/50' : 'bg-[#0a1024]/50 border-emerald-950 hover:border-emerald-800'
+                  }`}
+                  title={theme.name}
+                >
+                  <div className="w-6 h-6 rounded-full shadow-inner" style={{ backgroundColor: theme.hex }} />
+                  <span className="text-[10px] text-slate-300 font-medium truncate w-full text-center">{theme.name.split(' ')[0]}</span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -531,7 +513,6 @@ const ResumeDownload = () => {
                 {downloadingFormat === 'png' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4 text-emerald-400" />}
                 <span>PNG 이미지</span>
               </button>
-
               <button
                 onClick={downloadHTML}
                 disabled={downloadingFormat !== null}
@@ -540,7 +521,6 @@ const ResumeDownload = () => {
                 {downloadingFormat === 'html' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Code className="w-4 h-4 text-emerald-400" />}
                 <span>HTML 코드</span>
               </button>
-
               <button
                 onClick={handlePrint}
                 className="flex flex-col items-center justify-center gap-1.5 p-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl text-xs font-bold transition-all shadow-lg shadow-emerald-600/30"
@@ -565,9 +545,7 @@ const ResumeDownload = () => {
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
-                              snapshot.isDragging 
-                                ? 'bg-emerald-950 border-emerald-500 shadow-xl' 
-                                : 'bg-[#0a1024] border-emerald-950/80 hover:border-emerald-800/60'
+                              snapshot.isDragging ? 'bg-emerald-950 border-emerald-500 shadow-xl' : 'bg-[#0a1024] border-emerald-950/80 hover:border-emerald-800/60'
                             }`}
                           >
                             <div className="flex items-center gap-3 overflow-hidden">
@@ -578,20 +556,11 @@ const ResumeDownload = () => {
                                 {sec.section_title || `섹션 ${index + 1}`}
                               </span>
                             </div>
-
                             <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => moveUp(index)}
-                                disabled={index === 0}
-                                className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded-lg hover:bg-emerald-950/30 transition"
-                              >
+                              <button onClick={() => moveUp(index)} disabled={index === 0} className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded-lg hover:bg-emerald-950/30 transition">
                                 <ChevronUp className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={() => moveDown(index)}
-                                disabled={index === activeSections.length - 1}
-                                className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded-lg hover:bg-emerald-950/30 transition"
-                              >
+                              <button onClick={() => moveDown(index)} disabled={index === activeSections.length - 1} className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded-lg hover:bg-emerald-950/30 transition">
                                 <ChevronDown className="w-4 h-4" />
                               </button>
                             </div>
@@ -608,7 +577,7 @@ const ResumeDownload = () => {
 
         </div>
 
-        {/* 💡 실시간 이력서 뷰어 영역 (4종 템플릿) */}
+        {/* 뷰어 영역 (4종 템플릿에 동적 색상 테마 및 조건부 렌더링 적용) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
           {/* 1. 한국 모던 이력서 (KR) */}
@@ -617,10 +586,10 @@ const ResumeDownload = () => {
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-relaxed flex flex-col space-y-6 font-sans"
             >
-              <div className="border-b-2 border-emerald-900 pb-5 flex justify-between items-start gap-4">
+              <div className="pb-5 flex justify-between items-start gap-4" style={{ borderBottom: `2px solid ${currentTheme.hex}` }}>
                 <div className="space-y-2 flex-1">
                   <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name || '김동혁'}</h1>
-                  <p className="text-sm font-bold text-emerald-800">{resume?.category || 'SW 개발자 이력서'}</p>
+                  <p className="text-sm font-bold" style={{ color: currentTheme.hex }}>{resume?.category || 'SW 개발자 이력서'}</p>
                   
                   <div className="text-xs text-gray-600 space-y-1 pt-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -641,51 +610,49 @@ const ResumeDownload = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6 pb-2 resume-section">
-                <div>
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-900 border-b border-emerald-900/30 pb-1 mb-2">학력 사항</h2>
-                  <div className="space-y-1.5 text-xs">
-                    {educations.length > 0 ? (
-                      educations.map((edu) => (
-                        <div key={edu.id} className="flex justify-between items-baseline">
-                          <span className="font-semibold text-gray-800">{edu.school_name} <span className="font-normal text-gray-600">({edu.major})</span></span>
-                          <span className="text-gray-500 text-[11px]">{edu.status}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-gray-400 italic">등록된 학력이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
+              {(educations.length > 0 || certificates.length > 0) && (
+                <div className="grid grid-cols-2 gap-6 pb-2 resume-section">
+                  {educations.length > 0 && (
+                    <div>
+                      <h2 className="text-xs font-bold uppercase tracking-wider pb-1 mb-2" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>학력 사항</h2>
+                      <div className="space-y-1.5 text-xs">
+                        {educations.map((edu) => (
+                          <div key={edu.id} className="flex justify-between items-baseline">
+                            <span className="font-semibold text-gray-800">{edu.school_name} <span className="font-normal text-gray-600">({edu.major})</span></span>
+                            <span className="text-gray-500 text-[11px]">{edu.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                <div>
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-900 border-b border-emerald-900/30 pb-1 mb-2">자격증 및 면허</h2>
-                  <div className="space-y-1.5 text-xs">
-                    {certificates.length > 0 ? (
-                      certificates.map((cert) => (
-                        <div key={cert.id} className="flex justify-between items-baseline">
-                          <span className="font-semibold text-gray-800">{cert.certificate_name}</span>
-                          <span className="text-gray-500 text-[11px]">{cert.acquisition_date}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-gray-400 italic">등록된 자격증이 없습니다.</p>
-                    )}
-                  </div>
+                  {certificates.length > 0 && (
+                    <div>
+                      <h2 className="text-xs font-bold uppercase tracking-wider pb-1 mb-2" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>자격증 및 면허</h2>
+                      <div className="space-y-1.5 text-xs">
+                        {certificates.map((cert) => (
+                          <div key={cert.id} className="flex justify-between items-baseline">
+                            <span className="font-semibold text-gray-800">{cert.certificate_name}</span>
+                            <span className="text-gray-500 text-[11px]">{cert.acquisition_date}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div className="space-y-5">
-                <h2 className="text-sm font-bold text-emerald-950 border-b-2 border-emerald-900/20 pb-1 uppercase tracking-wider">주요 경력 및 프로젝트</h2>
+                <h2 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>주요 경력 및 프로젝트</h2>
                 
                 {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-3 resume-section">
-                    <h3 className="text-xs font-bold text-emerald-900 bg-emerald-50/80 px-2.5 py-1 rounded border-l-4 border-emerald-600">
+                    <h3 className="text-xs font-bold px-2.5 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
                       {sec.section_title || '세부 정보'}
                     </h3>
 
                     {sec.rows && sec.rows.map((row) => (
-                      <div key={row.id} className="pl-3 border-l-2 border-emerald-100 space-y-2 mb-4">
+                      <div key={row.id} className="pl-3 space-y-2 mb-4" style={{ borderLeft: `2px solid ${currentTheme.hex}30` }}>
                         {(sec.columns || []).map((col) => {
                           const val = row.values[col] || '';
                           if (!val) return null;
@@ -698,7 +665,7 @@ const ResumeDownload = () => {
                               <div className="text-xs text-gray-700 space-y-0.5 pl-2">
                                 {lines.map((line, idx) => (
                                   <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
-                                    <span className="text-emerald-600 shrink-0">•</span>
+                                    <span className="shrink-0" style={{ color: currentTheme.hex }}>•</span>
                                     <span>{line.replace(/^•\s*/, '')}</span>
                                   </div>
                                 ))}
@@ -720,7 +687,7 @@ const ResumeDownload = () => {
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-4 font-serif"
             >
-              <div className="text-center border-b-2 border-black pb-3 space-y-1">
+              <div className="text-center pb-3 space-y-1" style={{ borderBottom: `2px solid ${currentTheme.hex}` }}>
                 <h1 className="text-2xl font-bold uppercase tracking-widest text-black">{profile.name || 'DONGOO KIM'}</h1>
                 <p className="text-xs text-gray-800 font-sans tracking-tight">
                   {[profile.email, profile.phone_number, `${profile.address || ''} ${profile.detail_address || ''}`.trim()].filter(Boolean).join(' • ')}
@@ -729,7 +696,7 @@ const ResumeDownload = () => {
 
               {certificates.length > 0 && (
                 <div className="space-y-1.5 resume-section">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                  <h2 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
                     TECHNICAL SKILLS & CERTIFICATIONS
                   </h2>
                   <div className="text-xs font-sans text-gray-900 pt-0.5 space-y-0.5">
@@ -744,13 +711,13 @@ const ResumeDownload = () => {
               )}
 
               <div className="space-y-3.5">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                <h2 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
                   PROFESSIONAL EXPERIENCE & PROJECTS
                 </h2>
                 
                 {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-2.5 font-sans resume-section">
-                    <h3 className="text-xs font-bold text-black uppercase tracking-wide border-b border-gray-200 pb-0.5">
+                    <h3 className="text-xs font-bold uppercase tracking-wide border-b border-gray-200 pb-0.5" style={{ color: currentTheme.hex }}>
                       {sec.section_title || 'Projects & Achievements'}
                     </h3>
 
@@ -781,7 +748,7 @@ const ResumeDownload = () => {
                                 <div key={col} className="space-y-0.5">
                                   {lines.map((line, idx) => (
                                     <p key={idx} className="text-gray-800 text-[11px] leading-relaxed flex items-start gap-1.5">
-                                      <span className="shrink-0">•</span>
+                                      <span className="shrink-0" style={{ color: currentTheme.hex }}>•</span>
                                       <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
                                     </p>
                                   ))}
@@ -798,7 +765,7 @@ const ResumeDownload = () => {
 
               {educations.length > 0 && (
                 <div className="space-y-1.5 resume-section">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-black border-b border-black pb-0.5">
+                  <h2 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
                     EDUCATION
                   </h2>
                   {educations.map((edu) => (
@@ -821,21 +788,21 @@ const ResumeDownload = () => {
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
             >
-              <div className="bg-slate-900 text-white p-5 rounded-xl flex justify-between items-center shadow-sm">
+              <div className="text-white p-5 rounded-xl flex justify-between items-center shadow-sm" style={{ backgroundColor: currentTheme.hex }}>
                 <div className="space-y-1.5">
                   <h1 className="text-2xl font-bold tracking-tight text-white">{profile.name || '김동혁'}</h1>
-                  <div className="text-xs text-slate-300 space-y-1">
-                    {profile.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-emerald-400"/> {profile.email}</p>}
-                    {profile.phone_number && <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-emerald-400"/> {profile.phone_number}</p>}
-                    {profile.address && <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5 text-emerald-400"/> {profile.address} {profile.detail_address}</p>}
+                  <div className="text-xs text-white/90 space-y-1">
+                    {profile.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5"/> {profile.email}</p>}
+                    {profile.phone_number && <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5"/> {profile.phone_number}</p>}
+                    {profile.address && <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5"/> {profile.address} {profile.detail_address}</p>}
                   </div>
                 </div>
 
-                <div className="w-20 h-24 bg-slate-800 rounded-xl border border-slate-700 shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
+                <div className="w-20 h-24 bg-black/20 rounded-xl border border-white/20 shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
                   {profile.avatar_url ? (
                     <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
                   ) : (
-                    <User className="w-8 h-8 text-slate-500" />
+                    <User className="w-8 h-8 text-white/60" />
                   )}
                 </div>
               </div>
@@ -843,40 +810,44 @@ const ResumeDownload = () => {
               <div className="grid grid-cols-12 gap-6">
                 <div className="col-span-4 space-y-4 border-r border-slate-200 pr-4">
                   <div className="space-y-1.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 border-b border-emerald-200 pb-0.5">Profile</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Profile</h3>
                     <div className="text-xs text-slate-600 space-y-1">
                       {profile.birth_date && <p><span className="font-semibold text-slate-800">DOB:</span> {profile.birth_date}</p>}
                       <p><span className="font-semibold text-slate-800">Gender:</span> {profile.gender === 'M' ? 'Male' : 'Female'}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 border-b border-emerald-200 pb-0.5">Education</h3>
-                    {educations.map((edu) => (
-                      <div key={edu.id} className="text-xs space-y-0.5 mb-2">
-                        <p className="font-bold text-slate-900">{edu.school_name}</p>
-                        <p className="text-slate-700">{edu.major}</p>
-                        <p className="text-slate-400 text-[10px]">{edu.status}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {educations.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Education</h3>
+                      {educations.map((edu) => (
+                        <div key={edu.id} className="text-xs space-y-0.5 mb-2">
+                          <p className="font-bold text-slate-900">{edu.school_name}</p>
+                          <p className="text-slate-700">{edu.major}</p>
+                          <p className="text-slate-400 text-[10px]">{edu.status}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                  <div className="space-y-1.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 border-b border-emerald-200 pb-0.5">Certificates</h3>
-                    {certificates.map((cert) => (
-                      <div key={cert.id} className="text-xs text-slate-700 space-y-0.5 mb-1.5">
-                        <p className="font-semibold text-slate-900">{cert.certificate_name}</p>
-                        <p className="text-slate-500 text-[10px]">{cert.issuer || '-'} | {cert.acquisition_date}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {certificates.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Certificates</h3>
+                      {certificates.map((cert) => (
+                        <div key={cert.id} className="text-xs text-slate-700 space-y-0.5 mb-1.5">
+                          <p className="font-semibold text-slate-900">{cert.certificate_name}</p>
+                          <p className="text-slate-500 text-[10px]">{cert.issuer || '-'} | {cert.acquisition_date}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-span-8 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 border-b border-emerald-200 pb-0.5">Projects & Work Experience</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Projects & Work Experience</h3>
                   {activeSections.map((sec) => (
-                    <div key={sec.id} className="space-y-2 bg-emerald-50/30 p-3 rounded-xl border border-emerald-100 resume-section">
-                      <h4 className="text-xs font-bold text-emerald-950">{sec.section_title || 'Section Title'}</h4>
+                    <div key={sec.id} className="space-y-2 p-3 rounded-xl border resume-section" style={{ backgroundColor: `${currentTheme.hex}08`, borderColor: `${currentTheme.hex}30` }}>
+                      <h4 className="text-xs font-bold" style={{ color: currentTheme.hex }}>{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
                         <div key={row.id} className="text-xs space-y-1.5 pl-1">
                           {(sec.columns || []).map((col) => {
@@ -886,8 +857,8 @@ const ResumeDownload = () => {
 
                             return (
                               <div key={col} className="space-y-0.5">
-                                <span className="font-bold text-emerald-900 text-[11px]">[{col}]</span>
-                                <div className="text-slate-700 pl-2 border-l-2 border-emerald-300 leading-relaxed text-[11px] space-y-0.5">
+                                <span className="font-bold text-[11px]" style={{ color: currentTheme.hex }}>[{col}]</span>
+                                <div className="text-slate-700 pl-2 leading-relaxed text-[11px] space-y-0.5" style={{ borderLeft: `2px solid ${currentTheme.hex}60` }}>
                                   {lines.map((line, idx) => (
                                     <p key={idx}>• {line.replace(/^•\s*/, '')}</p>
                                   ))}
@@ -948,7 +919,7 @@ const ResumeDownload = () => {
               </div>
 
               <div className="space-y-1 resume-section">
-                <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">学歴・免許・資格 (학력 및 자격사항)</h2>
+                <h2 className="text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>학력 및 자격사항 (学歴・免許・資格)</h2>
                 <table className="w-full border-collapse border border-black text-xs text-center !bg-white" style={{ tableLayout: 'fixed' }}>
                   <thead>
                     <tr className="bg-gray-100 font-bold border-b border-black">
@@ -977,7 +948,7 @@ const ResumeDownload = () => {
               </div>
 
               <div className="space-y-2">
-                <h2 className="text-xs font-bold text-black border-l-2 border-black pl-1.5 py-0.5">職歴・プロジェクト (경력 및 프로젝트)</h2>
+                <h2 className="text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>경력 및 프로젝트 (職歴・プロジェクト)</h2>
                 {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-1 resume-section">
                     <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
