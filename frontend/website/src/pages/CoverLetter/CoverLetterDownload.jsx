@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
 import { 
@@ -122,6 +122,7 @@ const CoverLetterDownload = () => {
   const { coverLetterId } = useParams();
   const navigate = useNavigate();
   const printRef = useRef(null);
+  const location = useLocation(); // 💡 쿼리 파라미터 읽기용 추가
 
   const [coverLetter, setCoverLetter] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
@@ -181,7 +182,7 @@ const CoverLetterDownload = () => {
     }
   ];
 
-  useEffect(() => {
+useEffect(() => {
     if (!userId) {
       alert('로그인이 필요합니다.');
       navigate('/login');
@@ -214,9 +215,15 @@ const CoverLetterDownload = () => {
         const coverData = await coverRes.json();
         setCoverLetter(coverData);
 
+        // 💡 URL 쿼리 파라미터에서 상세 화면이 넘겨준 버전 및 모드 상태 추출
+        const queryParams = new URLSearchParams(location.search);
+
         if (coverData.sections && Array.isArray(coverData.sections)) {
           const parsedSections = coverData.sections.map((sec) => {
-            const secVersion = sec.selected_version || 'ORIGINAL';
+            // 상세 화면에서 넘겨받은 버전이 있다면 우선 적용, 없으면 기본값 'ORIGINAL'
+            const queryVer = queryParams.get(`ver_${sec.id}`);
+            const queryMode = queryParams.get(`mode_${sec.id}`) || sec.ai_style || 'STAR';
+            const secVersion = queryVer || sec.selected_version || 'ORIGINAL';
 
             const spellMap = {};
             if (Array.isArray(sec.spell_checked_text)) {
@@ -225,19 +232,29 @@ const CoverLetterDownload = () => {
               });
             }
 
-            const aiMap = {};
+            // 💡 AI 모드별 데이터 매핑 구조 지원
+            const modeItemMap = {};
             if (Array.isArray(sec.ai_proofread_text)) {
-              sec.ai_proofread_text.forEach((item) => {
-                if (item && item.id) aiMap[item.id] = item.ai_proofread_text || item.text || '';
+              sec.ai_proofread_text.forEach((group) => {
+                if (group && group.mode === queryMode && Array.isArray(group.items)) {
+                  group.items.forEach((it) => {
+                    if (it && it.id !== undefined) {
+                      modeItemMap[String(it.id)] = it.ai_proofread_text || '';
+                    }
+                  });
+                }
               });
             }
 
-            const updatedDetails = (sec.details || []).map((detail) => ({
-              ...detail,
-              selected_version: detail.selected_version || secVersion,
-              spell_checked_text: detail.spell_checked_text || spellMap[detail.id] || (typeof sec.spell_checked_text === 'string' ? sec.spell_checked_text : ''),
-              ai_proofread_text: detail.ai_proofread_text || aiMap[detail.id] || (typeof sec.ai_proofread_text === 'string' ? sec.ai_proofread_text : '')
-            }));
+            const updatedDetails = (sec.details || []).map((detail) => {
+              const detailIdStr = detail.id !== undefined ? String(detail.id) : '';
+              return {
+                ...detail,
+                selected_version: secVersion,
+                spell_checked_text: detail.spell_checked_text || spellMap[detailIdStr] || '',
+                ai_proofread_text: modeItemMap[detailIdStr] || detail.ai_proofread_text || ''
+              };
+            });
 
             return {
               ...sec,
@@ -256,7 +273,7 @@ const CoverLetterDownload = () => {
     };
 
     if (coverLetterId) fetchAllData();
-  }, [coverLetterId, userId, navigate]);
+  }, [coverLetterId, userId, navigate, location.search]); // 💡 location.search 의존성 추가
 
   const handleOnDragEnd = (result) => {
     if (!result.destination) return;

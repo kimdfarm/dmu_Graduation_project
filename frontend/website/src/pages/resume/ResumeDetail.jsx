@@ -4,7 +4,7 @@ import {
   ArrowLeft, Edit3, Loader2, Download, User, Mail, Phone, Calendar, 
   MapPin, GraduationCap, Award, Briefcase, CheckCircle2, ChevronDown, ChevronUp, Sparkles,
   FileText, Cpu, Search, Building2, ExternalLink, CheckCircle, AlertTriangle, Lightbulb,
-  BarChart3, Tag, Check, Info, RefreshCw
+  BarChart3, Tag, Check, Info, RefreshCw, Zap, Target
 } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -16,17 +16,18 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGINAL') => {
-  let targetColumns = Array.isArray(secColumns) && secColumns.length > 0 
-    ? [...secColumns] 
-    : [
-        "Project Name (프로젝트명 & 역할)",
-        "Timeline (기간)",
-        "Tech Stack (사용 기술)",
-        "Architecture & Impact (아키텍처 및 기술적 성과)"
-      ];
+const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
+  const isAi = currentVersion === 'AI';
+  const isSpell = currentVersion === 'SPELL';
 
-  if (!details) {
+  let targetColumns = ['프로젝트명', '기간 및 인원', '서비스 개요', '담당 역할', '기술 스택'];
+  if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
+    targetColumns = [...secAiColumns];
+  } else if (!isAi && Array.isArray(secColumns) && secColumns.length > 0) {
+    targetColumns = [...secColumns];
+  }
+
+  if (!details || details.length === 0) {
     return { columns: targetColumns, rows: [] };
   }
 
@@ -35,92 +36,82 @@ const parseDetailsToTableSchema = (details, secColumns = [], secVersion = 'ORIGI
 
   rawList.forEach((cardObj) => {
     const rowValues = {};
+    let cardColumns = [...targetColumns];
 
-    // 💡 AI 교정 버전이고 column_values가 존재하는 경우 직접 매핑
-    if (secVersion === 'AI' && cardObj.column_values && typeof cardObj.column_values === 'object') {
-      const aiCols = cardObj.ai_columns || Object.keys(cardObj.column_values);
-      
-      // 동적으로 생성된 AI 컬럼들을 targetColumns에 반영
-      aiCols.forEach(col => {
-        if (!targetColumns.includes(col)) {
-          targetColumns.push(col);
+    if ((isAi || isSpell) && cardObj.ai_columns && Array.isArray(cardObj.ai_columns) && cardObj.ai_columns.length > 0) {
+      cardColumns = [...cardObj.ai_columns];
+    }
+
+    if (isAi) {
+      const colVals = cardObj.column_values || {};
+      Object.keys(colVals).forEach((k) => {
+        if (!cardColumns.includes(k)) {
+          cardColumns.push(k);
         }
       });
 
-      targetColumns.forEach(col => {
-        rowValues[col] = cardObj.column_values[col] || '';
+      cardColumns.forEach((col) => {
+        rowValues[col] = colVals[col] || '';
       });
+
+      const targetText = cardObj.ai_proofread_text || '';
+      if (Object.keys(rowValues).length === 0 && targetText) {
+        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+        let match;
+        while ((match = regex.exec(targetText)) !== null) {
+          const colName = match[1].trim();
+          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+          if (!cardColumns.includes(colName)) cardColumns.push(colName);
+          rowValues[colName] = content;
+        }
+      }
     } else {
-      // 기존 원본 / 맞춤법 / \n\n 블록 파싱 방식
-      targetColumns.forEach(col => {
+      cardColumns.forEach((col) => {
         rowValues[col] = '';
       });
 
       let textToParse = cardObj.original_text || '';
-      if (secVersion === 'SPELL' && cardObj.spell_checked_text) {
+      if (isSpell && cardObj.spell_checked_text) {
         textToParse = cardObj.spell_checked_text;
-      } else if (secVersion === 'AI' && cardObj.ai_proofread_text) {
-        textToParse = cardObj.ai_proofread_text;
       }
 
       if (textToParse) {
-        const blocks = textToParse.split(/\n\s*\n/);
-        blocks.forEach((block) => {
-          const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-          if (lines.length === 0) return;
+        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+        let match;
+        let hasTags = false;
 
-          if (lines[0].startsWith('[') && lines[0].endsWith(']')) {
-            const rawKeyName = lines[0].slice(1, -1).trim();
-            
-            let matchedCol = targetColumns.find(c => 
-              c === rawKeyName || 
-              c.toLowerCase().includes(rawKeyName.toLowerCase()) || 
-              rawKeyName.toLowerCase().includes(c.toLowerCase().split(' ')[0])
-            );
-            
-            if (!matchedCol) {
-              if (rawKeyName.includes('프로젝트') || rawKeyName.includes('역할') || rawKeyName.includes('Name')) {
-                matchedCol = targetColumns[0];
-              } else if (rawKeyName.includes('기간') || rawKeyName.includes('Timeline')) {
-                matchedCol = targetColumns[1];
-              } else if (rawKeyName.includes('기술') || rawKeyName.includes('Stack')) {
-                matchedCol = targetColumns[2];
-              } else {
-                matchedCol = targetColumns[3] || targetColumns[0];
-              }
-            }
+        while ((match = regex.exec(textToParse)) !== null) {
+          hasTags = true;
+          const colName = match[1].trim();
+          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+          if (!cardColumns.includes(colName)) cardColumns.push(colName);
+          rowValues[colName] = content;
+        }
 
-            const cleanContent = lines
-              .slice(1)
-              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
-              .join('\n');
-
-            if (matchedCol) {
-              rowValues[matchedCol] = rowValues[matchedCol] 
-                ? `${rowValues[matchedCol]}\n${cleanContent}` 
-                : cleanContent;
-            }
-          } else {
-            const defaultCol = targetColumns[3] || targetColumns[0];
-            const cleanLines = lines.map((l) => l.replace(/^[•\-\*\s]+/, '')).join('\n');
-            rowValues[defaultCol] = rowValues[defaultCol] ? `${rowValues[defaultCol]}\n${cleanLines}` : cleanLines;
-          }
-        });
+        if (!hasTags) {
+          cardColumns.forEach((col, idx) => {
+            rowValues[col] = idx === 1 ? textToParse : (cardObj.title || '');
+          });
+        }
       }
     }
 
-    if (cardObj.title && cardObj.title !== '세부 항목' && !rowValues[targetColumns[0]]) {
-      rowValues[targetColumns[0]] = cardObj.title;
+    if (cardObj.title && cardObj.title !== '세부 항목' && !rowValues[cardColumns[0]]) {
+      rowValues[cardColumns[0]] = cardObj.title;
     }
 
     extractedRows.push({
       id: cardObj.id || generateUniqueId(),
       rawObj: cardObj,
+      columns: cardColumns,
       values: rowValues
     });
   });
 
-  return { columns: targetColumns, rows: extractedRows };
+  const allColumnsSet = new Set(targetColumns);
+  extractedRows.forEach(r => r.columns.forEach(c => allColumnsSet.add(c)));
+
+  return { columns: Array.from(allColumnsSet), rows: extractedRows };
 };
 
 const ResumeDetail = () => {
@@ -134,6 +125,10 @@ const ResumeDetail = () => {
   
   const [sectionVersions, setSectionVersions] = useState({});
   const [processingSections, setProcessingSections] = useState({});
+
+  // 💡 누락되었던 모드 셀렉터 및 AI 모드 상태 추가
+  const [activeModeSelector, setActiveModeSelector] = useState({});
+  const [sectionAiModes, setSectionAiModes] = useState({});
 
   const [profile, setProfile] = useState({
     name: '',
@@ -198,10 +193,7 @@ const ResumeDetail = () => {
   };
 
   const handleSectionVersionChange = async (sectionId, version) => {
-    setSectionVersions((prev) => ({
-      ...prev,
-      [sectionId]: version
-    }));
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: version }));
 
     try {
       await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
@@ -216,6 +208,7 @@ const ResumeDetail = () => {
 
   const handleSpellCheckSection = async (sectionId) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
@@ -236,28 +229,20 @@ const ResumeDetail = () => {
 
       if (response.ok) {
         const result = await response.json();
-
-        const updatedDetails = targetSection.details.map((detail) => {
-          const checkedItem = result.find((item) => item.id === detail.id);
-          return {
-            ...detail,
-            selected_version: 'SPELL',
-            spell_checked_text: checkedItem ? checkedItem.spell_checked_text : detail.spell_checked_text
-          };
-        });
-
         setSections((prevSections) =>
-          prevSections.map((sec) => (sec.id === sectionId ? { ...sec, details: updatedDetails } : sec))
-        );
-
-        await fetch(`${BASE_URL}/api/resumes/sections/${sectionId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            selected_version: 'SPELL',
-            details: updatedDetails
+          prevSections.map((sec) => {
+            if (sec.id !== sectionId) return sec;
+            const updatedDetails = sec.details.map((detail) => {
+              const checkedItem = Array.isArray(result) 
+                ? result.find((item) => String(item.id) === String(detail.id))
+                : null;
+              return checkedItem
+                ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
+                : detail;
+            });
+            return { ...sec, details: updatedDetails };
           })
-        });
+        );
       }
     } catch (err) {
       console.error('맞춤법 교정 API 오류:', err);
@@ -266,8 +251,10 @@ const ResumeDetail = () => {
     }
   };
 
-  const handleAIProofreadSection = async (sectionId) => {
+  const handleExecuteAIProofread = async (sectionId, selectedMode) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
+    setSectionAiModes((prev) => ({ ...prev, [sectionId]: selectedMode }));
 
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
@@ -279,6 +266,7 @@ const ResumeDetail = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mode: selectedMode,
           details: targetSection.details.map((d) => ({
             id: d.id,
             original_text: d.original_text || ''
@@ -287,36 +275,41 @@ const ResumeDetail = () => {
       });
 
       if (response.ok) {
-        const result = await response.json();
-
-        const updatedDetails = targetSection.details.map((detail) => {
-          const proofreadItem = result.find((item) => item.id === detail.id);
-          return {
-            ...detail,
-            selected_version: 'AI',
-            ai_proofread_text: proofreadItem ? proofreadItem.ai_proofread_text : detail.ai_proofread_text,
-            ai_columns: proofreadItem ? proofreadItem.ai_columns : detail.ai_columns,
-            column_values: proofreadItem ? proofreadItem.column_values : detail.column_values
-          };
-        });
-
-        setSections((prevSections) =>
-          prevSections.map((sec) => (sec.id === sectionId ? { ...sec, details: updatedDetails } : sec))
-        );
-
-        await fetch(`${BASE_URL}/api/resumes/sections/${sectionId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            selected_version: 'AI',
-            details: updatedDetails
-          })
-        });
+        window.location.reload(); // 최신 데이터 반영을 위해 새로고침 또는 데이터 리패치
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);
     } finally {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+    }
+  };
+
+  const handleSelectOrExecuteResumeAiMode = async (sectionId, modeName) => {
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
+    setSectionAiModes((prev) => ({ ...prev, [sectionId]: modeName }));
+
+    const targetSection = sections.find((s) => s.id === sectionId);
+    if (!targetSection) return;
+
+    const hasExistingData = targetSection.modeColumnsMap && targetSection.modeColumnsMap[modeName] && targetSection.modeColumnsMap[modeName].length > 0;
+
+    if (hasExistingData) {
+      try {
+        await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            selected_version: 'AI',
+            ai_style: modeName 
+          })
+        });
+        window.location.reload();
+      } catch (err) {
+        console.error('버전 및 모드 변경 실패:', err);
+      }
+    } else {
+      await handleExecuteAIProofread(sectionId, modeName);
     }
   };
 
@@ -329,7 +322,6 @@ const ResumeDetail = () => {
       setSelectedJob(null);
 
       let currentResumeText = "";
-      
       if (profile.name) currentResumeText += `[이름] ${profile.name}\n`;
       if (educations.length > 0) {
         currentResumeText += `[학력]\n` + educations.map(e => `${e.school_name} ${e.major} (${e.status})`).join('\n') + '\n';
@@ -464,13 +456,62 @@ const ResumeDetail = () => {
         setResume(resumeData);
 
         if (resumeData.sections && Array.isArray(resumeData.sections)) {
-          setSections(resumeData.sections);
+          const parsedSections = resumeData.sections.map((sec) => {
+            const modeColumnsMap = {}; 
+            const modeGroupsMap = {};
+            const modeOrderedItemMapsMap = {};
+
+            const rawAiProofread = sec.ai_proofread_text;
+
+            if (Array.isArray(rawAiProofread)) {
+              rawAiProofread.forEach((group) => {
+                if (group && typeof group === 'object' && group.mode) {
+                  modeColumnsMap[group.mode] = group.ai_columns || [];
+                  modeGroupsMap[group.mode] = group;
+
+                  const itemMap = {};
+                  if (Array.isArray(group.items)) {
+                    group.items.forEach((it) => {
+                      if (it && it.id !== undefined && it.id !== null) {
+                        itemMap[String(it.id)] = it;
+                      }
+                    });
+                  }
+                  modeOrderedItemMapsMap[group.mode] = itemMap;
+                }
+              });
+            }
+
+            const currentMode = sec.ai_style || 'PROJECT';
+            const targetGroup = modeGroupsMap[currentMode];
+            const currentItemMap = modeOrderedItemMapsMap[currentMode] || {};
+            const currentAiColumns = modeColumnsMap[currentMode] || (targetGroup ? targetGroup.ai_columns : []);
+
+            const updatedDetails = (sec.details || []).map((detail) => {
+              const detailIdStr = detail.id !== undefined && detail.id !== null ? String(detail.id) : '';
+              const matchedItem = currentItemMap[detailIdStr] || null;
+
+              return {
+                ...detail,
+                ai_proofread_text: matchedItem?.ai_proofread_text || detail.ai_proofread_text || '',
+                ai_columns: matchedItem?.ai_columns || currentAiColumns || detail.ai_columns || [],
+                column_values: matchedItem?.column_values || detail.column_values || {}
+              };
+            });
+
+            return { ...sec, details: updatedDetails, modeColumnsMap };
+          });
+
+          setSections(parsedSections);
 
           const initialVersions = {};
-          resumeData.sections.forEach((sec) => {
+          const initialModes = {};
+          parsedSections.forEach((sec) => {
             initialVersions[sec.id] = sec.selected_version || 'ORIGINAL';
+            initialModes[sec.id] = sec.ai_style || 'PROJECT';
           });
           setSectionVersions(initialVersions);
+          setSectionAiModes(initialModes);
         }
 
       } catch (err) {
@@ -499,7 +540,13 @@ const ResumeDetail = () => {
 
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, secVersion);
+    const currentMode = sectionAiModes[sec.id] || 'PROJECT';
+
+    const targetAiColumns = (sec.modeColumnsMap && sec.modeColumnsMap[currentMode]) 
+      ? sec.modeColumnsMap[currentMode] 
+      : [];
+
+    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, targetAiColumns, secVersion);
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 
@@ -748,150 +795,249 @@ const ResumeDetail = () => {
                   </div>
 
                   <div className="space-y-8">
-                    {formattedSections.map((sec) => (
-                      <div key={sec.id} className="bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-6 space-y-5 shadow-inner">
-                        
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-950 pb-4">
-                          <div className="flex items-center gap-2.5">
-                            <Briefcase className="w-4 h-4 text-emerald-400" />
-                            <h3 className="text-sm font-black text-white">{sec.section_title || '세부 정보'}</h3>
-                            <span className="text-[10px] text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                              {sec.rows ? sec.rows.length : 0}개 항목
-                            </span>
+                    {formattedSections.map((sec) => {
+                      const isModeSelectorOpen = !!activeModeSelector[sec.id];
+                      const currentSelectedMode = sectionAiModes[sec.id] || 'PROJECT';
+
+                      return (
+                        <div key={sec.id} className="bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-6 space-y-5 shadow-inner">
+                          
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-950 pb-4">
+                            <div className="flex items-center gap-2.5">
+                              <Briefcase className="w-4 h-4 text-emerald-400" />
+                              <h3 className="text-sm font-black text-white">{sec.section_title || '세부 정보'}</h3>
+                              <span className="text-[10px] text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                {sec.rows ? sec.rows.length : 0}개 항목
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 bg-[#070b19] p-1 rounded-xl border border-emerald-950/80">
+                              <button
+                                type="button"
+                                onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                                  sec.currentVersion === 'ORIGINAL'
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-emerald-200'
+                                }`}
+                              >
+                                원본
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSpellCheckSection(sec.id)}
+                                disabled={processingSections[sec.id] === 'SPELL'}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+                                  sec.currentVersion === 'SPELL'
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-emerald-200'
+                                }`}
+                              >
+                                {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin"/> : '맞춤법'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setActiveModeSelector((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
+                                disabled={processingSections[sec.id] === 'AI'}
+                                className={`px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1.5 ${
+                                  sec.currentVersion === 'AI' || isModeSelectorOpen
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
+                                    : 'text-slate-300 hover:text-emerald-200 bg-emerald-950/40'
+                                }`}
+                              >
+                                {processingSections[sec.id] === 'AI' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-amber-400"/>
+                                ) : (
+                                  <Sparkles className="w-3 h-3 text-amber-400"/>
+                                )}
+                                <span>AI 교정</span>
+                                <ChevronDown className={`w-3 h-3 transition-transform ${isModeSelectorOpen ? 'rotate-180' : ''}`} />
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-1 bg-[#070b19] p-1 rounded-xl border border-emerald-950/80">
-                            <button
-                              type="button"
-                              onClick={() => handleSectionVersionChange(sec.id, 'ORIGINAL')}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-                                sec.currentVersion === 'ORIGINAL'
-                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
-                                  : 'text-slate-400 hover:text-emerald-200'
-                              }`}
-                            >
-                              원본
-                            </button>
+                          {sec.currentVersion === 'AI' && (
+                            <div className="flex items-center gap-2 bg-emerald-950/40 border border-emerald-500/30 px-4 py-2 rounded-xl w-fit">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="text-xs font-medium text-slate-300">
+                                현재 적용된 AI 스타일: <strong className="text-amber-400 font-bold">{currentSelectedMode} 모드</strong>
+                              </span>
+                            </div>
+                          )}
 
-                            <button
-                              type="button"
-                              onClick={() => handleSpellCheckSection(sec.id)}
-                              disabled={processingSections[sec.id] === 'SPELL'}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                                sec.currentVersion === 'SPELL'
-                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
-                                  : 'text-slate-400 hover:text-emerald-200'
-                              }`}
-                            >
-                              {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
-                            </button>
+                          {/* 💡 AI 모드 선택 셀렉터 박스 (정상 렌더링되도록 수정됨) */}
+                          {isModeSelectorOpen && (
+                            <div className="bg-[#050914] border border-emerald-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3 mt-3">
+                              <div className="flex items-center justify-between border-b border-emerald-950 pb-2.5">
+                                <span className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-400"/> 이력서 AI 교정 모드를 선택하세요
+                                </span>
+                                <span className="text-[10px] text-slate-400">프로젝트 및 경력 성격에 맞는 최적의 엔진이 작동합니다</span>
+                              </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleAIProofreadSection(sec.id)}
-                              disabled={processingSections[sec.id] === 'AI'}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                                sec.currentVersion === 'AI'
-                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
-                                  : 'text-slate-400 hover:text-emerald-200'
-                              }`}
-                            >
-                              {processingSections[sec.id] === 'AI' ? (
-                                <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
-                              ) : (
-                                <>
-                                  <Sparkles className="w-3 h-3 text-amber-400" />
-                                  AI 교정
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectOrExecuteResumeAiMode(sec.id, 'PROJECT')}
+                                  className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                    currentSelectedMode === 'PROJECT' 
+                                      ? 'bg-emerald-950/70 border-emerald-500 shadow-md ring-1 ring-emerald-500' 
+                                      : 'bg-[#0a1024] hover:bg-emerald-950/50 border-emerald-900/60'
+                                  }`}
+                                >
+                                  <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                    <Briefcase className="w-4 h-4"/>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-xs font-bold text-white group-hover:text-emerald-300">🚀 프로젝트 중심형 (Project)</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">프로젝트 개요, 담당 역할, 기술 스택 중심으로 명확히 구조화</div>
+                                  </div>
+                                </button>
 
-                        <div className="space-y-4">
-                          {sec.rows && sec.rows.length > 0 && (
-                            sec.rows.map((row, rIdx) => (
-                              <div key={row.id} className="bg-[#070b19] border border-emerald-950 rounded-xl p-4 space-y-3 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                                    <CheckCircle2 className="w-3.5 h-3.5" /> 항목 #{rIdx + 1}
-                                  </span>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectOrExecuteResumeAiMode(sec.id, 'IMPACT')}
+                                  className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                    currentSelectedMode === 'IMPACT' 
+                                      ? 'bg-amber-950/40 border-amber-500 shadow-md ring-1 ring-amber-500' 
+                                      : 'bg-[#0a1024] hover:bg-emerald-950/50 border-emerald-900/60'
+                                  }`}
+                                >
+                                  <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                    <Zap className="w-4 h-4"/>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-xs font-bold text-white group-hover:text-amber-300">📊 성과/지표 중심형 (Impact)</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">핵심 과제, 해결 방법, 정량적 수치 성과(Metrics) 중심으로 부각</div>
+                                  </div>
+                                </button>
 
-                                <div className="overflow-x-auto pb-1">
-                                  <div className="flex gap-3 min-w-full items-start">
-                                    {(sec.columns || []).map((col) => {
-                                      const val = row.values[col] || '';
-                                      const cellKey = `${sec.id}-${row.id}-${col}`;
-                                      const isExpanded = !!expandedCells[cellKey];
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectOrExecuteResumeAiMode(sec.id, 'TECH')}
+                                  className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                    currentSelectedMode === 'TECH' 
+                                      ? 'bg-purple-950/40 border-purple-500 shadow-md ring-1 ring-purple-500' 
+                                      : 'bg-[#0a1024] hover:bg-emerald-950/50 border-emerald-900/60'
+                                  }`}
+                                >
+                                  <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                    <Cpu className="w-4 h-4"/>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-xs font-bold text-white group-hover:text-purple-300">🛠️ 기술 심층형 (Technical Depth)</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">기술적 난관, 트러블슈팅, 아키텍처 구현 방식을 깊이 있게 윤문</div>
+                                  </div>
+                                </button>
 
-                                      const lines = val ? val.split('\n').filter((l) => l.trim()) : [];
-                                      const isLongContent = lines.length > 2 || val.length > 45;
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectOrExecuteResumeAiMode(sec.id, 'COMP')}
+                                  className={`flex items-start gap-3 p-3 rounded-xl border transition text-left group ${
+                                    currentSelectedMode === 'COMP' 
+                                      ? 'bg-cyan-950/40 border-cyan-500 shadow-md ring-1 ring-cyan-500' 
+                                      : 'bg-[#0a1024] hover:bg-emerald-950/50 border-emerald-900/60'
+                                  }`}
+                                >
+                                  <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition shrink-0 mt-0.5">
+                                    <Target className="w-4 h-4"/>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-xs font-bold text-white group-hover:text-cyan-300">🧩 직무 역량 매칭형 (Competency)</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">보유 기술, 핵심 경험, 문제 해결 및 협업 능력으로 요약 정리</div>
+                                  </div>
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
-                                      const widthClass = getColumnWidthClass(col, val);
+                          <div className="space-y-4">
+                            {sec.rows && sec.rows.length > 0 && (
+                              sec.rows.map((row, rIdx) => (
+                                <div key={row.id} className="bg-[#070b19] border border-emerald-950 rounded-xl p-4 space-y-3 shadow-sm">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5" /> 항목 #{rIdx + 1}
+                                    </span>
+                                  </div>
 
-                                      return (
-                                        <div
-                                          key={col}
-                                          className={`${widthClass} bg-[#040711] p-3 rounded-xl border border-emerald-950/80 flex flex-col transition-all ${
-                                            isExpanded ? 'h-auto' : 'h-28'
-                                          }`}
-                                        >
-                                          <span className="text-[11px] font-bold text-emerald-300 border-b border-emerald-950 pb-1.5 mb-1.5 truncate shrink-0">
-                                            {col}
-                                          </span>
+                                  <div className="overflow-x-auto pb-1">
+                                    <div className="flex gap-3 min-w-full items-start">
+                                      {(sec.columns || []).map((col) => {
+                                        const val = row.values[col] || '';
+                                        const cellKey = `${sec.id}-${row.id}-${col}`;
+                                        const isExpanded = !!expandedCells[cellKey];
 
-                                          <div className="relative flex-1 overflow-hidden">
-                                            <div
-                                              className={`text-xs text-slate-200 leading-relaxed font-sans ${
-                                                !isExpanded && isLongContent ? 'max-h-10 overflow-hidden' : ''
-                                              }`}
-                                            >
-                                              {val ? (
-                                                lines.map((line, lIdx) => {
-                                                  const clean = line.replace(/^[•\-\*\s]+/, '').trim();
-                                                  if (!clean) return null;
-                                                  return (
-                                                    <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
-                                                      <span className="text-emerald-400 shrink-0">•</span>
-                                                      <span className="break-all">{clean}</span>
-                                                    </div>
-                                                  );
-                                                })
-                                              ) : (
-                                                <span className="text-slate-600 italic text-[10px]">내용 없음</span>
+                                        const lines = val ? val.split('\n').filter((l) => l.trim()) : [];
+                                        const isLongContent = lines.length > 2 || val.length > 45;
+
+                                        const widthClass = getColumnWidthClass(col, val);
+
+                                        return (
+                                          <div
+                                            key={col}
+                                            className={`${widthClass} bg-[#040711] p-3 rounded-xl border border-emerald-950/80 flex flex-col transition-all ${
+                                              isExpanded ? 'h-auto' : 'h-28'
+                                            }`}
+                                          >
+                                            <span className="text-[11px] font-bold text-emerald-300 border-b border-emerald-950 pb-1.5 mb-1.5 truncate shrink-0">
+                                              {col}
+                                            </span>
+
+                                            <div className="relative flex-1 overflow-hidden">
+                                              <div
+                                                className={`text-xs text-slate-200 leading-relaxed font-sans ${
+                                                  !isExpanded && isLongContent ? 'max-h-10 overflow-hidden' : ''
+                                                }`}
+                                              >
+                                                {val ? (
+                                                  lines.map((line, lIdx) => {
+                                                    const clean = line.replace(/^[•\-\*\s]+/, '').trim();
+                                                    if (!clean) return null;
+                                                    return (
+                                                      <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
+                                                        <span className="text-emerald-400 shrink-0">•</span>
+                                                        <span className="break-all">{clean}</span>
+                                                      </div>
+                                                    );
+                                                  })
+                                                ) : (
+                                                  <span className="text-slate-600 italic text-[10px]">내용 없음</span>
+                                                )}
+                                              </div>
+
+                                              {!isExpanded && isLongContent && (
+                                                <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
                                               )}
                                             </div>
 
-                                            {!isExpanded && isLongContent && (
-                                              <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
+                                            {isLongContent && (
+                                              <button
+                                                onClick={() => toggleCellExpand(cellKey)}
+                                                className="mt-1.5 pt-1.5 border-t border-emerald-950 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
+                                              >
+                                                {isExpanded ? (
+                                                  <><span>접기</span><ChevronUp className="w-3 h-3" /></>
+                                                ) : (
+                                                  <><span>자세히 보기</span><ChevronDown className="w-3 h-3" /></>
+                                                )}
+                                              </button>
                                             )}
                                           </div>
-
-                                          {isLongContent && (
-                                            <button
-                                              onClick={() => toggleCellExpand(cellKey)}
-                                              className="mt-1.5 pt-1.5 border-t border-emerald-950 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
-                                            >
-                                              {isExpanded ? (
-                                                <><span>접기</span><ChevronUp className="w-3 h-3" /></>
-                                              ) : (
-                                                <><span>자세히 보기</span><ChevronDown className="w-3 h-3" /></>
-                                              )}
-                                            </button>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      })}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
+                              ))
+                            )}
+                          </div>
 
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </section>
               )}

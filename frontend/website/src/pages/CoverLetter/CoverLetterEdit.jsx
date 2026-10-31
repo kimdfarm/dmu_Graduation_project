@@ -28,7 +28,7 @@ const CoverLetterEdit = () => {
   // 삭제된 섹션 ID 추적
   const [deletedSectionIds, setDeletedSectionIds] = useState([]);
 
-  // 변경사항 유무 추적 (저장 안 함 / 저장 후 이동 처리용)
+  // 변경사항 유무 추적
   const [isDirty, setIsDirty] = useState(false);
 
   // 인라인 속성 추가 전용 상태
@@ -36,9 +36,9 @@ const CoverLetterEdit = () => {
   const [newColName, setNewColName] = useState('');
 
   // 모달 상태 관리
-  const [activeModal, setActiveModal] = useState(null); // 큰 화면 편집 모달
-  const [pendingConfirm, setPendingConfirm] = useState(null); // 커스텀 삭제/확인 모달
-  const [showNavigationModal, setShowNavigationModal] = useState(false); // 미저장 이탈 확인 모달
+  const [activeModal, setActiveModal] = useState(null); 
+  const [pendingConfirm, setPendingConfirm] = useState(null); 
+  const [showNavigationModal, setShowNavigationModal] = useState(false); 
 
   // 드래그 중인 항목 인덱스 저장 Ref
   const draggedColIdx = useRef(null);
@@ -51,9 +51,7 @@ const CoverLetterEdit = () => {
     }, 3000);
   };
 
-  // ------------------------------------------------------------------
-  // 브라우저 탭 닫기 / 새로고침 시 이탈 방지
-  // ------------------------------------------------------------------
+  // 브라우저 이탈 방지
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (isDirty) {
@@ -66,10 +64,10 @@ const CoverLetterEdit = () => {
   }, [isDirty]);
 
   // ------------------------------------------------------------------
-  // 1. DB 데이터를 Edit 화면 스키마로 1:1 변환
+  // 1. struct.txt 구조(ai_columns, column_values)를 완벽히 파싱하는 함수
   // ------------------------------------------------------------------
   const parseDetailsToTableSchema = (details, secColumns = []) => {
-    const dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
+    let dynamicColumns = Array.isArray(secColumns) && secColumns.length > 0
       ? [...secColumns]
       : ['질문', '답변'];
 
@@ -80,13 +78,25 @@ const CoverLetterEdit = () => {
     const extractedRows = details.map((detail) => {
       const rowValues = {};
 
-      if (detail.values && typeof detail.values === 'object') {
+      // 💡 struct.txt의 column_values & ai_columns 구조 우선 반영
+      if (detail.column_values && typeof detail.column_values === 'object') {
+        const itemAiCols = detail.ai_columns || Object.keys(detail.column_values);
+        itemAiCols.forEach((col) => {
+          if (!dynamicColumns.includes(col)) {
+            dynamicColumns.push(col);
+          }
+        });
+
+        dynamicColumns.forEach((col) => {
+          rowValues[col] = detail.column_values[col] || '';
+        });
+      } else if (detail.values && typeof detail.values === 'object') {
         Object.assign(rowValues, detail.values);
       } else {
+        // 기존 텍스트 폴백 파싱
         const text = detail.original_text || '';
         if (text.includes('[')) {
           const blocks = text.split(/\n\n(?=\[)/);
-
           blocks.forEach((block) => {
             const match = block.match(/^\[(.*?)\]\n?([\s\S]*)$/);
             if (match) {
@@ -123,32 +133,29 @@ const CoverLetterEdit = () => {
   };
 
   // ------------------------------------------------------------------
-  // 2. Edit 화면에서 수정된 동적 컬럼/행 데이터를 DB 저장 형식으로 변환
+  // 2. struct.txt 구조 그대로 직렬화하여 저장하는 함수
   // ------------------------------------------------------------------
   const serializeTableToDetails = (columns, rows) => {
     return rows.map((row) => {
-      const titleCol = columns.find((col) => col.includes('질문') || col.includes('항목')) || columns[0];
+      const titleCol = columns.find((col) => col.includes('질문') || col.includes('프로젝트') || col.includes('항목')) || columns[0];
       const mainTitle = row.values[titleCol] || row.title || '자기소개서 항목';
 
-      const contentLines = [];
+      const columnValues = {};
+      const originalTextBlocks = [];
+
       columns.forEach((col) => {
         const val = (row.values[col] || '').trim();
-        if (!val) return;
-
-        const formattedVal = val
-          .split('\n')
-          .map((line) => line.replace(/^[•\-\*\s]+/, '').trim())
-          .filter(Boolean)
-          .map((line) => `• ${line}`)
-          .join('\n');
-
-        contentLines.push(`[${col}]\n${formattedVal}`);
+        columnValues[col] = val;
+        // struct.txt 규격에 맞는 original_text 조합 생성[cite: 11]
+        originalTextBlocks.push(`[${col}]\n${val}`);
       });
 
       return {
         id: row.id || generateUniqueId(),
         title: mainTitle,
-        original_text: contentLines.join('\n\n'),
+        ai_columns: [...columns],       // struct.txt 규격 준수[cite: 11]
+        column_values: columnValues,     // struct.txt 규격 준수[cite: 11]
+        original_text: originalTextBlocks.join('\n\n'),
         spell_checked_text: null,
         ai_proofread_text: null,
         selected_version: 'ORIGINAL'
@@ -189,11 +196,11 @@ const CoverLetterEdit = () => {
     if (coverLetterId) fetchCoverLetterDetail();
   }, [coverLetterId]);
 
-  // 섹션 전체 삭제
+  // 섹션 삭제
   const handleDeleteSection = (secId) => {
     setPendingConfirm({
       title: '섹션 삭제 확인',
-      message: '이 섹션과 포함된 모든 항목을 삭제하시겠습니까? (저장 시 DB에 최종 반영됩니다)',
+      message: '이 섹션과 포함된 모든 항목을 삭제하시겠습니까?',
       onConfirm: () => {
         setDeletedSectionIds((prev) => [...prev, secId]);
         setSections((prev) => prev.filter((sec) => sec.id !== secId));
@@ -204,11 +211,11 @@ const CoverLetterEdit = () => {
     });
   };
 
-  // 속성(열) 삭제
+  // 속성 삭제
   const handleDeleteColumn = (sectionId, colToDelete) => {
     setPendingConfirm({
       title: '속성 삭제 확인',
-      message: `'${colToDelete}' 속성을 삭제하시겠습니까? 관련 작성 내용이 함께 지워집니다.`,
+      message: `'${colToDelete}' 속성을 삭제하시겠습니까?`,
       onConfirm: () => {
         setSections((prev) =>
           prev.map((sec) => {
@@ -238,18 +245,14 @@ const CoverLetterEdit = () => {
       setIsSaving(true);
       setErrorMessage('');
 
-      // A. 삭제할 섹션 DB API 호출
       const deletePromises = deletedSectionIds.map(async (secId) => {
         const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${secId}`, {
           method: 'DELETE',
         });
-        if (!res.ok) {
-          throw new Error(`섹션 삭제 중 오류가 발생했습니다. (ID: ${secId})`);
-        }
+        if (!res.ok) throw new Error(`섹션 삭제 중 오류 발생 (ID: ${secId})`);
         return res.json();
       });
 
-      // B. 섹션 수정 및 데이터 DB API 호출
       const updatePromises = sections.map(async (sec) => {
         const cleanDetails = serializeTableToDetails(sec.columns, sec.rows);
         const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${sec.id}`, {
@@ -265,17 +268,16 @@ const CoverLetterEdit = () => {
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `섹션 저장 중 오류가 발생했습니다. (${sec.section_title})`);
+          throw new Error(errData.detail || `섹션 저장 중 오류 발생 (${sec.section_title})`);
         }
         return res.json();
       });
 
-      // 삭제 및 업데이트 동시 병렬 처리
       await Promise.all([...deletePromises, ...updatePromises]);
 
       setDeletedSectionIds([]);
       setIsDirty(false);
-      showToast('모든 변경사항이 성공적으로 DB에 저장되었습니다!');
+      showToast('모든 변경사항이 성공적으로 저장되었습니다!');
 
       if (redirectAfter) {
         navigate(`/cover-letter/${coverLetterId}`);
@@ -287,7 +289,6 @@ const CoverLetterEdit = () => {
     }
   };
 
-  // 상세 보기로 돌아가기 버튼 클릭 시
   const handleBackToDetail = () => {
     if (isDirty) {
       setShowNavigationModal(true);
@@ -296,7 +297,7 @@ const CoverLetterEdit = () => {
     }
   };
 
-  // 드래그 앤 드롭: 컬럼 순서 변경
+  // 드래그 앤 드롭 핸들러들
   const handleColDragStart = (e, index) => {
     draggedColIdx.current = index;
     e.dataTransfer.effectAllowed = 'move';
@@ -322,7 +323,6 @@ const CoverLetterEdit = () => {
     draggedColIdx.current = null;
   };
 
-  // 드래그 앤 드롭: 행(카드) 순서 변경
   const handleRowDragStart = (e, index) => {
     draggedRowIdx.current = index;
     e.dataTransfer.effectAllowed = 'move';
@@ -348,7 +348,6 @@ const CoverLetterEdit = () => {
     draggedRowIdx.current = null;
   };
 
-  // 속성(열) 추가
   const handleConfirmAddColumn = (sectionId) => {
     const trimmed = newColName.trim();
     if (!trimmed) {
@@ -363,10 +362,7 @@ const CoverLetterEdit = () => {
             showToast('이미 존재하는 속성명입니다.');
             return sec;
           }
-          return {
-            ...sec,
-            columns: [...sec.columns, trimmed]
-          };
+          return { ...sec, columns: [...sec.columns, trimmed] };
         }
         return sec;
       })
@@ -400,7 +396,6 @@ const CoverLetterEdit = () => {
     setIsDirty(true);
   };
 
-  // 행(Row) 및 셀 제어
   const handleAddRow = (sectionId) => {
     setSections((prev) =>
       prev.map((sec) => {
@@ -457,7 +452,6 @@ const CoverLetterEdit = () => {
     setIsDirty(true);
   };
 
-  // 섹션(그룹) 추가 핸들러
   const handleAddSection = async () => {
     try {
       setIsSaving(true);
@@ -476,32 +470,23 @@ const CoverLetterEdit = () => {
             {
               id: generateUniqueId(),
               title: '새 항목',
-              original_text: '[질문]\n• 질문 내용을 입력하세요.\n\n[답변]\n• 상세 내용을 입력하세요.',
+              ai_columns: defaultColumns,
+              column_values: {
+                '질문': '질문 내용을 입력하세요.',
+                '답변': '상세 내용을 입력하세요.'
+              },
               selected_version: 'ORIGINAL'
             }
           ]
         })
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || '새 섹션을 추가하지 못했습니다.');
-      }
+      if (!res.ok) throw new Error('새 섹션을 추가하지 못했습니다.');
 
       const createdSection = await res.json();
+      const { columns, rows } = parseDetailsToTableSchema(createdSection.details, createdSection.columns);
 
-      const { columns, rows } = parseDetailsToTableSchema(
-        createdSection.details, 
-        createdSection.columns
-      );
-
-      const formattedNewSec = {
-        ...createdSection,
-        columns,
-        rows
-      };
-
-      setSections((prev) => [...prev, formattedNewSec]);
+      setSections((prev) => [...prev, { ...createdSection, columns, rows }]);
       showToast('새 자기소개서 섹션이 추가되었습니다!');
     } catch (err) {
       setErrorMessage(err.message);
@@ -522,7 +507,6 @@ const CoverLetterEdit = () => {
   return (
     <div className="min-h-screen bg-[#07051E] text-slate-100 p-6 md:p-10 font-sans relative pb-28">
       
-      {/* 커스텀 토스트 알림 */}
       {toastMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-indigo-600/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-indigo-400/40 animate-bounce">
           <CheckCircle2 className="w-5 h-5 text-emerald-300" />
@@ -532,14 +516,13 @@ const CoverLetterEdit = () => {
 
       <div className="max-w-[95%] mx-auto space-y-8">
         
-        {/* 상단 헤더 영역 */}
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-indigo-950 pb-6 gap-4">
           <div className="flex items-center gap-4">
             <button
               onClick={handleBackToDetail}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900/60 hover:bg-indigo-600/90 text-indigo-100 hover:text-white border border-indigo-500/50 rounded-xl text-xs font-bold transition-all shadow-lg hover:shadow-indigo-500/20 active:scale-95 group shrink-0"
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900/60 hover:bg-indigo-600/95 text-indigo-100 hover:text-white border border-indigo-500/50 rounded-xl text-xs font-bold transition-all shadow-lg group shrink-0"
             >
-              <ArrowLeft className="w-4 h-4 text-indigo-300 group-hover:text-white group-hover:-translate-x-0.5 transition-transform" />
+              <ArrowLeft className="w-4 h-4 text-indigo-300 group-hover:text-white transition-transform" />
               <span>상세 보기로 돌아가기</span>
             </button>
 
@@ -586,7 +569,6 @@ const CoverLetterEdit = () => {
                 <button
                   onClick={() => handleDeleteSection(sec.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 hover:text-rose-100 border border-rose-800/50 rounded-xl text-xs font-semibold transition-all shadow-sm"
-                  title="섹션과 포함된 모든 항목을 삭제합니다"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>섹션 전체 삭제</span>
@@ -608,12 +590,12 @@ const CoverLetterEdit = () => {
                         value={newColName}
                         onChange={(e) => setNewColName(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddColumn(sec.id)}
-                        placeholder="속성명 (예: 질문 항목, 작성 내용)"
+                        placeholder="속성명 입력"
                         className="bg-[#130E3D] text-xs text-indigo-100 border border-indigo-500 rounded px-2 py-1 focus:outline-none w-40"
                       />
                       <button
                         onClick={() => handleConfirmAddColumn(sec.id)}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded transition-colors"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded"
                       >
                         <Check className="w-3.5 h-3.5" />
                       </button>
@@ -657,7 +639,6 @@ const CoverLetterEdit = () => {
                       <button
                         onClick={() => handleDeleteColumn(sec.id, col)}
                         className="text-slate-500 hover:text-rose-400 transition-colors p-0.5"
-                        title="속성 삭제"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -681,7 +662,7 @@ const CoverLetterEdit = () => {
                       <div className="flex items-center justify-between border-b border-indigo-950 pb-2">
                         <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 select-none cursor-grab active:cursor-grabbing">
                           <GripVertical className="w-4 h-4 text-indigo-400/70 group-hover:text-indigo-300 transition-colors" />
-                          문항 #{rIdx + 1} <span className="text-[11px] font-normal text-slate-500">(드래그하여 위치 이동)</span>
+                          문항 #{rIdx + 1}
                         </span>
 
                         <button
@@ -696,7 +677,7 @@ const CoverLetterEdit = () => {
                         <div className="flex gap-4 min-w-max">
                           {sec.columns.map((col) => {
                             const val = row.values[col] || '';
-                            const isMultiLine = col.includes('내용') || col.includes('작성') || col.includes('답변') || val.includes('\n');
+                            const isMultiLine = col.includes('내용') || col.includes('작성') || col.includes('답변') || col.includes('임팩트') || val.includes('\n');
 
                             return (
                               <div
@@ -763,6 +744,7 @@ const CoverLetterEdit = () => {
 
             </div>
           ))}
+
           <button
             onClick={handleAddSection}
             disabled={isSaving}
@@ -796,7 +778,7 @@ const CoverLetterEdit = () => {
         </button>
       </div>
 
-      {/* 1. 항목 상세 편집 모달 */}
+      {/* 모달 창들 */}
       {activeModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 md:p-8 animate-fadeIn">
           <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
@@ -811,7 +793,7 @@ const CoverLetterEdit = () => {
               </div>
               <button
                 onClick={() => setActiveModal(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-indigo-950 transition-all"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-indigo-950"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -832,7 +814,7 @@ const CoverLetterEdit = () => {
             <div className="flex items-center justify-end px-6 py-4 border-t border-indigo-900/60 bg-[#07051E]">
               <button
                 onClick={() => setActiveModal(null)}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-xl flex items-center gap-1.5 transition-all shadow-lg"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-xl flex items-center gap-1.5 shadow-lg"
               >
                 <Check className="w-4 h-4" /> 적용 및 닫기
               </button>
@@ -841,10 +823,9 @@ const CoverLetterEdit = () => {
         </div>
       )}
 
-      {/* 2. 커스텀 삭제 / 확인 모달 */}
       {pendingConfirm && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
+          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
             <div className="flex items-center gap-3 text-rose-400">
               <AlertTriangle className="w-6 h-6" />
               <h3 className="text-base font-bold text-white">{pendingConfirm.title}</h3>
@@ -853,13 +834,13 @@ const CoverLetterEdit = () => {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setPendingConfirm(null)}
-                className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-300 text-xs font-semibold rounded-xl transition-all"
+                className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-300 text-xs font-semibold rounded-xl"
               >
                 취소
               </button>
               <button
                 onClick={pendingConfirm.onConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-lg"
               >
                 삭제 진행
               </button>
@@ -868,10 +849,9 @@ const CoverLetterEdit = () => {
         </div>
       )}
 
-      {/* 3. 미저장 이탈 확인 모달 */}
       {showNavigationModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-fadeIn">
+          <div className="bg-[#0E0B2D] border border-indigo-800/80 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
             <div className="flex items-center gap-3 text-amber-400">
               <AlertTriangle className="w-6 h-6 shrink-0" />
               <h3 className="text-base font-bold text-white">저장되지 않은 변경사항</h3>
@@ -883,7 +863,7 @@ const CoverLetterEdit = () => {
             <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowNavigationModal(false)}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-400 text-xs font-semibold rounded-xl transition-all order-3 sm:order-1"
+                className="w-full sm:w-auto px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-slate-400 text-xs font-semibold rounded-xl order-3 sm:order-1"
               >
                 취소 (페이지 유지)
               </button>
@@ -894,7 +874,7 @@ const CoverLetterEdit = () => {
                   setShowNavigationModal(false);
                   navigate(`/cover-letter/${coverLetterId}`);
                 }}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/40 text-xs font-bold rounded-xl transition-all order-2"
+                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-900/40 text-xs font-bold rounded-xl order-2"
               >
                 아니오 (저장 안 함)
               </button>
@@ -904,7 +884,7 @@ const CoverLetterEdit = () => {
                   setShowNavigationModal(false);
                   await handleSaveAll(true);
                 }}
-                className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg order-1 sm:order-3"
+                className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg order-1 sm:order-3"
               >
                 예 (저장 후 이동)
               </button>

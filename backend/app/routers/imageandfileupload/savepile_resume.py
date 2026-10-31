@@ -68,7 +68,7 @@ def safe_json_parse(json_str: str) -> dict:
 
 
 def get_available_groq_models(client) -> list:
-    PRIMARY_MODEL = "allam-2-7b"
+    PRIMARY_MODEL = "openai/gpt-oss-120b"
     active_models = [PRIMARY_MODEL]
 
     try:
@@ -128,7 +128,6 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
                 item_title = str(item.get("title") or item.get("name") or "항목").strip()
                 
-                # 새로운 구조 수용: ai_columns와 column_values 처리
                 ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["컬럼1", "컬럼2"]
                 column_values = item.get("column_values") or {}
 
@@ -136,7 +135,6 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                     if col not in global_ai_columns:
                         global_ai_columns.append(col)
 
-                # 기존 호환용 ai_proofread_text(문자열 조합) 생성
                 formatted_text_parts = []
                 for col in ai_columns:
                     val = column_values.get(col, "")
@@ -185,16 +183,17 @@ def parse_resume_with_groq(raw_text: str, mode: str = "RESUME") -> dict:
     truncated_text = cleaned_text[:]
     safe_raw_text = truncated_text.replace("{", "{{").replace("}", "}}")
 
-    # 사용자 요구사항에 맞춘 새로운 JSON Output Schema 프롬프트 적용
-    SYSTEM_PROMPT = f"""You are an ultra-comprehensive document parsing engine.
+    # 💡 이력서 항목별 컬럼 분할 및 중복 복사 방지 프롬프트 고도화
+    SYSTEM_PROMPT = """You are an expert resume parsing engine and career consultant.
 
-[작성 지침]
-1. 이 텍스트에 가장 잘 어울리는 분석 컬럼들(예: 프로젝트명, 기간, 역할, 사용 기술, 상세 내용 등)을 선정하세요.
-2. 각 컬럼별로 작성된 내용을 아래의 **JSON 딕셔너리 형식**으로만 매핑하여 응답하세요.
-3. 절대 오타나 원문을 임의로 요약·누락하지 말고 충실히 반영하세요.
+CRITICAL GOALS:
+1. Analyze the uploaded resume text and structure it logically by sections (e.g., 경력 및 프로젝트, 기술 스택, 학력 등).
+2. For each item/card, define appropriate custom column headers (`ai_columns`, e.g., ["프로젝트명", "주요 역할", "사용 기술", "상세 내용"]).
+3. **DO NOT duplicate the entire text across all columns.** Distribute and summarize the text into its corresponding specific column keys in `column_values`.
+4. Ensure the output strictly follows the requested JSON format without any markdown code block issues.
 
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
-{{
+{
   "doc_type": "RESUME",
   "sections": [
     {
@@ -205,16 +204,17 @@ def parse_resume_with_groq(raw_text: str, mode: str = "RESUME") -> dict:
         {
           "id": "card_1",
           "title": "프로젝트 제목",
-          "ai_columns": ["컬럼1", "컬럼2", "컬럼3"],
-          "column_values": {{
-            "컬럼1": "해당 컬럼에 들어갈 내용...",
-            "컬럼2": "해당 컬럼에 들어갈 내용..."
-          }}
+          "ai_columns": ["프로젝트명", "역할 및 기술", "상세 내용"],
+          "column_values": {
+            "프로젝트명": "프로젝트 이름...",
+            "역할 및 기술": "맡은 역할 및 사용 기술...",
+            "상세 내용": "구체적인 구현 내용 및 성과..."
+          }
         }
       ]
     }
   ]
-}}"""
+}"""
 
     target_models = get_available_groq_models(groq_client)
     last_error = None

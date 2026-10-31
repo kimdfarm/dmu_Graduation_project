@@ -16,9 +16,10 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-// CoverLetterDetail.jsx 내의 parseDetailsToTableSchema 함수를 아래와 같이 수정하세요.
+// 💡 [수정] SPELL 버전일 때 원문과 섞이지 않고 spell_checked_text가 독립적으로 완벽히 렌더링되도록 파싱 로직 분리
 const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
+  const isSpell = currentVersion === 'SPELL';
 
   let defaultColumns = ['질문', '답변'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
@@ -31,30 +32,76 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
     return { columns: defaultColumns, rows: [] };
   }
 
-  const sessionColumns = [...defaultColumns];
-
   const extractedRows = details.map((detail) => {
-    const rowValues = {};
+    let rowValues = {};
+    let cardColumns = [...defaultColumns];
 
-    let targetText = detail.original_text || '';
-    if (currentVersion === 'SPELL' && detail.spell_checked_text) {
-      targetText = detail.spell_checked_text;
-    } else if (currentVersion === 'AI' && detail.ai_proofread_text) {
-      targetText = detail.ai_proofread_text;
+    if ((isAi || isSpell) && detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
+      cardColumns = [...detail.ai_columns];
     }
 
-    if (targetText) {
-      // 💡 \n\n 의존도를 없애고 대괄호 태그([컬럼명])를 완벽하게 찾아내는 정규표현식 적용
-      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-      let match;
+    if (isAi) {
+      const colVals = detail.column_values || {};
+      
+      Object.keys(colVals).forEach((k) => {
+        if (!cardColumns.includes(k)) {
+          cardColumns.push(k);
+        }
+      });
 
-      while ((match = regex.exec(targetText)) !== null) {
-        const colName = match[1].trim();
-        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-        
-        if (sessionColumns.includes(colName)) {
+      cardColumns.forEach((col) => {
+        rowValues[col] = colVals[col] || '';
+      });
+
+      const targetText = detail.ai_proofread_text || '';
+      if (Object.keys(rowValues).length === 0 && targetText) {
+        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+        let match;
+        while ((match = regex.exec(targetText)) !== null) {
+          const colName = match[1].trim();
+          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+          if (!cardColumns.includes(colName)) cardColumns.push(colName);
           rowValues[colName] = content;
         }
+      }
+    } else if (isSpell) {
+      // 💡 [독립 처리] 맞춤법 교정 데이터는 원문 컬럼 구조를 그대로 유지하되 텍스트만 독립적으로 적용
+      const spellText = detail.spell_checked_text || detail.original_text || '';
+      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+      let match;
+      let hasTags = false;
+
+      while ((match = regex.exec(spellText)) !== null) {
+        hasTags = true;
+        const colName = match[1].trim();
+        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+        if (!cardColumns.includes(colName)) cardColumns.push(colName);
+        rowValues[colName] = content;
+      }
+
+      if (!hasTags) {
+        cardColumns.forEach((col, idx) => {
+          rowValues[col] = idx === 1 ? spellText : (detail.title || '');
+        });
+      }
+    } else {
+      const targetText = detail.original_text || '';
+      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+      let match;
+      let hasTags = false;
+
+      while ((match = regex.exec(targetText)) !== null) {
+        hasTags = true;
+        const colName = match[1].trim();
+        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+        if (!cardColumns.includes(colName)) cardColumns.push(colName);
+        rowValues[colName] = content;
+      }
+
+      if (!hasTags) {
+        cardColumns.forEach((col, idx) => {
+          rowValues[col] = idx === 1 ? targetText : (detail.title || '');
+        });
       }
     }
 
@@ -64,11 +111,15 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
       spell_checked_text: detail.spell_checked_text || null,
       ai_proofread_text: detail.ai_proofread_text || null,
       selected_version: currentVersion,
+      columns: cardColumns,
       values: rowValues
     };
   });
 
-  return { columns: sessionColumns, rows: extractedRows };
+  const allColumnsSet = new Set(defaultColumns);
+  extractedRows.forEach(r => r.columns.forEach(c => allColumnsSet.add(c)));
+
+  return { columns: Array.from(allColumnsSet), rows: extractedRows };
 };
 
 const CoverLetterDetail = () => {
@@ -113,80 +164,79 @@ const CoverLetterDetail = () => {
       const data = await res.json();
       setCoverLetter(data);
 
-      // fetchCoverLetterData 내부의 파싱 부분을 아래 코드로 완전히 교체하세요.
-if (data.sections && Array.isArray(data.sections)) {
-    const parsedSections = data.sections.map((sec) => {
-            const spellMap = {};
-            if (Array.isArray(sec.spell_checked_text)) {
-              sec.spell_checked_text.forEach((item) => {
-                if (item && item.id) spellMap[item.id] = item.spell_checked_text || '';
-              });
-            }
-
-            const modeColumnsMap = {}; 
-            const modeGroupsMap = {};
-            const modeOrderedItemMapsMap = {}; // 💡 id("card_4" 등)를 키로 하는 맵
-
-            const rawAiProofread = sec.ai_proofread_text;
-
-            if (Array.isArray(rawAiProofread)) {
-              rawAiProofread.forEach((group) => {
-                if (group && typeof group === 'object' && group.mode) {
-                  modeColumnsMap[group.mode] = group.ai_columns || [];
-                  modeGroupsMap[group.mode] = group;
-
-                  const itemMap = {};
-                  if (Array.isArray(group.items)) {
-                    group.items.forEach((it) => {
-                      // 💡 "card_4" 같은 문자열 id를 그대로 키로 매핑
-                      if (it && it.id !== undefined && it.id !== null) {
-                        itemMap[String(it.id)] = it;
-                      }
-                    });
-                  }
-                  modeOrderedItemMapsMap[group.mode] = itemMap;
-                }
-              });
-            }
-
-            const currentMode = sec.ai_style || 'STAR';
-            const targetGroup = modeGroupsMap[currentMode];
-            const currentItemMap = modeOrderedItemMapsMap[currentMode] || {};
-            const currentAiColumns = modeColumnsMap[currentMode] || (targetGroup ? targetGroup.ai_columns : []);
-
-            const updatedDetails = (sec.details || []).map((detail) => {
-              // 💡 detail.id (예: "card_4")와 일치하는 항목을 맵에서 안전하게 탐색
-              const detailIdStr = detail.id !== undefined && detail.id !== null ? String(detail.id) : '';
-              const matchedItem = currentItemMap[detailIdStr] || null;
-
-              return {
-                ...detail,
-                spell_checked_text: spellMap[detailIdStr] || detail.spell_checked_text || '',
-                ai_proofread_text: matchedItem?.ai_proofread_text || detail.ai_proofread_text || '',
-                ai_columns: matchedItem?.ai_columns || currentAiColumns || detail.ai_columns || [],
-                column_values: matchedItem?.column_values || detail.column_values || {}
-              };
+      if (data.sections && Array.isArray(data.sections)) {
+        const parsedSections = data.sections.map((sec) => {
+          const spellMap = {};
+          if (Array.isArray(sec.spell_checked_text)) {
+            sec.spell_checked_text.forEach((item) => {
+              if (item && item.id !== undefined) {
+                spellMap[String(item.id)] = item.spell_checked_text || '';
+              }
             });
+          }
 
-            return { 
-              ...sec, 
-              details: updatedDetails, 
-              modeColumnsMap 
+          const modeColumnsMap = {}; 
+          const modeGroupsMap = {};
+          const modeOrderedItemMapsMap = {};
+
+          const rawAiProofread = sec.ai_proofread_text;
+
+          if (Array.isArray(rawAiProofread)) {
+            rawAiProofread.forEach((group) => {
+              if (group && typeof group === 'object' && group.mode) {
+                modeColumnsMap[group.mode] = group.ai_columns || [];
+                modeGroupsMap[group.mode] = group;
+
+                const itemMap = {};
+                if (Array.isArray(group.items)) {
+                  group.items.forEach((it) => {
+                    if (it && it.id !== undefined && it.id !== null) {
+                      itemMap[String(it.id)] = it;
+                    }
+                  });
+                }
+                modeOrderedItemMapsMap[group.mode] = itemMap;
+              }
+            });
+          }
+
+          const currentMode = sec.ai_style || 'STAR';
+          const targetGroup = modeGroupsMap[currentMode];
+          const currentItemMap = modeOrderedItemMapsMap[currentMode] || {};
+          const currentAiColumns = modeColumnsMap[currentMode] || (targetGroup ? targetGroup.ai_columns : []);
+
+          const updatedDetails = (sec.details || []).map((detail) => {
+            const detailIdStr = detail.id !== undefined && detail.id !== null ? String(detail.id) : '';
+            const matchedItem = currentItemMap[detailIdStr] || null;
+
+            return {
+              ...detail,
+              spell_checked_text: spellMap[detailIdStr] || detail.spell_checked_text || '',
+              ai_proofread_text: matchedItem?.ai_proofread_text || detail.ai_proofread_text || '',
+              ai_columns: matchedItem?.ai_columns || currentAiColumns || detail.ai_columns || [],
+              column_values: matchedItem?.column_values || detail.column_values || {}
             };
           });
-    setSections(parsedSections);
 
-    const initialVersions = {};
-    const initialModes = {};
+          return { 
+            ...sec, 
+            details: updatedDetails, 
+            modeColumnsMap 
+          };
+        });
+        setSections(parsedSections);
 
-    parsedSections.forEach((sec) => {
-      initialVersions[sec.id] = sec.selected_version || 'AI';
-      initialModes[sec.id] = sec.ai_style || 'STAR';
-    });
+        const initialVersions = {};
+        const initialModes = {};
 
-    setSectionVersions(initialVersions);
-    setSectionAiModes(initialModes);
-}
+        parsedSections.forEach((sec) => {
+          initialVersions[sec.id] = sec.selected_version || 'AI';
+          initialModes[sec.id] = sec.ai_style || 'STAR';
+        });
+
+        setSectionVersions(initialVersions);
+        setSectionAiModes(initialModes);
+      }
     } catch (err) {
       console.error('데이터 로딩 에러:', err);
       setErrorMessage(err.message);
@@ -274,7 +324,7 @@ if (data.sections && Array.isArray(data.sections)) {
             if (sec.id !== sectionId) return sec;
             const updatedDetails = sec.details.map((detail) => {
               const checkedItem = Array.isArray(result) 
-                ? result.find((item) => item.id === detail.id)
+                ? result.find((item) => String(item.id) === String(detail.id))
                 : null;
               return checkedItem
                 ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
@@ -291,7 +341,6 @@ if (data.sections && Array.isArray(data.sections)) {
     }
   };
 
-  // 💡 [핵심 수정] F5를 누르지 않아도 즉시 화면에 반영되도록 fetchCoverLetterData 직후 상태 동기화 보장
   const handleExecuteAIProofread = async (sectionId, selectedMode) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
     setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
@@ -316,13 +365,41 @@ if (data.sections && Array.isArray(data.sections)) {
       });
 
       if (response.ok) {
-        // 즉시 데이터를 다시 불러와서 화면 상태를 갱신합니다.
         await fetchCoverLetterData();
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);
     } finally {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: null }));
+    }
+  };
+
+  const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
+    setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
+    setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
+    setSectionAiModes((prev) => ({ ...prev, [sectionId]: modeName }));
+
+    const targetSection = sections.find((s) => s.id === sectionId);
+    if (!targetSection) return;
+
+    const hasExistingData = targetSection.modeColumnsMap && targetSection.modeColumnsMap[modeName] && targetSection.modeColumnsMap[modeName].length > 0;
+
+    if (hasExistingData) {
+      try {
+        await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            selected_version: 'AI',
+            ai_style: modeName 
+          })
+        });
+        await fetchCoverLetterData();
+      } catch (err) {
+        console.error('버전 및 모드 변경 실패:', err);
+      }
+    } else {
+      await handleExecuteAIProofread(sectionId, modeName);
     }
   };
 
@@ -422,12 +499,12 @@ if (data.sections && Array.isArray(data.sections)) {
   };
 
   const getColumnWidthClass = (colName, textValue = '') => {
-    const isDetail = colName.includes('내용') || colName.includes('답변') || colName.includes('작성') || colName.includes('경험');
-    const isShort = colName.includes('제목') || colName.includes('문항') || colName.includes('항목');
+    const isDetail = colName.includes('내용') || colName.includes('답변') || colName.includes('작성') || colName.includes('경험') || colName.includes('Result') || colName.includes('Action');
+    const isShort = colName.includes('제목') || colName.includes('문항') || colName.includes('항목') || colName.includes('Role');
 
-    if (isDetail || textValue.length > 80) return 'flex-[3] min-w-[350px]';
-    if (isShort || textValue.length < 20) return 'flex-[1] min-w-[140px] max-w-[200px]';
-    return 'flex-[1.5] min-w-[180px]';
+    if (isDetail || textValue.length > 80) return 'w-[650px] md:w-[750px] shrink-0';
+    if (isShort || textValue.length < 20) return 'w-[300px] md:w-[360px] shrink-0';
+    return 'w-[450px] md:w-[550px] shrink-0';
   };
 
   const formattedSections = sections.map((sec) => {
@@ -447,45 +524,6 @@ if (data.sections && Array.isArray(data.sections)) {
     
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
-  // 💡 모드를 클릭했을 때 해당 데이터가 있으면 즉시 전환, 없으면 자동으로 AI 교정 API 가동!
-  // CoverLetterDetail.jsx 의 handleSelectOrExecuteAiMode 함수를 아래와 같이 수정하세요.
-
-const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
-  // 1. 버전 상태를 AI로 변경하고 모드 선택창을 닫습니다.
-  setSectionVersions((prev) => ({ ...prev, [sectionId]: 'AI' }));
-  setActiveModeSelector((prev) => ({ ...prev, [sectionId]: false }));
-  setSectionAiModes((prev) => ({ ...prev, [sectionId]: modeName }));
-
-  // 2. 현재 섹션 찾기
-  const targetSection = sections.find((s) => s.id === sectionId);
-  if (!targetSection) return;
-
-  // 3. 해당 모드의 데이터가 이미 존재하는지 체크
-  const hasExistingData = targetSection.modeColumnsMap && targetSection.modeColumnsMap[modeName] && targetSection.modeColumnsMap[modeName].length > 0;
-
-  if (hasExistingData) {
-    // 이미 데이터가 존재한다면 API를 통해 selected_version과 ai_style을 동시에 DB에 반영합니다.
-    try {
-      await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          selected_version: 'AI',
-          ai_style: modeName // 💡 DB의 ai_style도 현재 선택한 모드로 정확히 동기화!
-        })
-      });
-      
-      // 상태 동기화를 위해 최신 데이터를 다시 불러옵니다.
-      await fetchCoverLetterData();
-    } catch (err) {
-      console.error('버전 및 모드 변경 실패:', err);
-    }
-  } else {
-    // 💡 데이터가 없다면 자동으로 AI 교정 API를 가동합니다 (이 안에서 ai_style과 데이터가 함께 저장됨)
-    await handleExecuteAIProofread(sectionId, modeName);
-  }
-};
-
 
   if (isLoading) {
     return (
@@ -498,9 +536,28 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
 
   return (
     <div className="min-h-screen bg-[#070b1a] text-slate-100 p-6 md:p-12 font-sans overflow-y-auto">
-      <div className="w-full max-w-5xl mx-auto space-y-6">
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          height: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.9);
+          border-radius: 9999px;
+          margin: 0 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(129, 140, 248, 0.7);
+          border-radius: 9999px;
+          border: 2px solid rgba(15, 23, 42, 0.9);
+          transition: background 0.2s ease;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(165, 180, 252, 1);
+        }
+      `}</style>
+
+      <div className="w-full max-w-7xl mx-auto space-y-6">
         
-        {/* [1] 최상단 제어 컨트롤 바 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0a1024] px-6 py-4 rounded-2xl border border-indigo-950/80 shadow-lg">
           <div className="flex items-center gap-3">
             <button
@@ -531,7 +588,16 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
             </button>
 
             <button
-              onClick={() => navigate(`/cover-letter/${coverLetterId}/download`)}
+              onClick={() => {
+                const versionParams = new URLSearchParams();
+                Object.entries(sectionVersions).forEach(([secId, ver]) => {
+                  versionParams.set(`ver_${secId}`, ver);
+                });
+                Object.entries(sectionAiModes).forEach(([secId, mode]) => {
+                  versionParams.set(`mode_${secId}`, mode);
+                });
+                navigate(`/cover-letter/${coverLetterId}/download?${versionParams.toString()}`);
+              }}
               className="flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/30 transition"
             >
               <Download className="w-3.5 h-3.5" />
@@ -546,7 +612,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
           </div>
         )}
 
-        {/* 상단 메인 탭 메뉴 */}
         <div className="flex items-center gap-2 border-b border-indigo-950/80 pb-1">
           <button
             onClick={() => setActiveMainTab('document')}
@@ -573,12 +638,10 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
           </button>
         </div>
 
-        {/* [마스터 문서 컨테이너] */}
         <div className="bg-[#0f152d] border border-indigo-950/60 rounded-3xl p-6 md:p-10 shadow-2xl space-y-10 relative overflow-hidden">
           
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
-          {/* TAB 1: 자기소개서 문항 및 작성본 */}
           {activeMainTab === 'document' && (
             <div className="space-y-8">
               {formattedSections.map((sec) => {
@@ -596,7 +659,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                         </span>
                       </div>
 
-                      {/* [버튼 그룹 영역 정돈] */}
                       <div className="flex items-center gap-1.5 bg-[#07051a] p-1 rounded-xl border border-indigo-950/85">
                         <button
                           type="button"
@@ -623,7 +685,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                           {processingSections[sec.id] === 'SPELL' ? <Loader2 className="w-3 h-3 animate-spin" /> : '맞춤법'}
                         </button>
 
-                        {/* AI 교정 버튼 (깔끔한 구조로 수정됨) */}
                         <button
                           type="button"
                           onClick={() => setActiveModeSelector((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))}
@@ -645,7 +706,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                       </div>
                     </div>
 
-                    {/* 💡 AI 모드일 때 현재 적용된 모드를 보여주는 깔끔한 상단 배지 바 */}
                     {sec.currentVersion === 'AI' && (
                       <div className="flex items-center gap-2 bg-indigo-950/40 border border-indigo-500/30 px-4 py-2 rounded-xl w-fit">
                         <Sparkles className="w-3.5 h-3.5 text-amber-400" />
@@ -655,7 +715,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                       </div>
                     )}
 
-                    {/* AI 교정 모드 선택 패널 (2x2 그리드) */}
                     {isModeSelectorOpen && (
                       <div className="bg-[#050914] border border-indigo-500/40 rounded-2xl p-4 shadow-xl animate-fadeIn space-y-3">
                         <div className="flex items-center justify-between border-b border-indigo-950 pb-2.5">
@@ -666,7 +725,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          {/* 1. STAR 모드 버튼 */}
                           <button
                             type="button"
                             onClick={() => handleSelectOrExecuteAiMode(sec.id, 'STAR')}
@@ -688,7 +746,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                             </div>
                           </button>
 
-                          {/* 2. IMPACT 모드 버튼 */}
                           <button
                             type="button"
                             onClick={() => handleSelectOrExecuteAiMode(sec.id, 'IMPACT')}
@@ -710,7 +767,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                             </div>
                           </button>
 
-                          {/* 3. TECH 모드 버튼 */}
                           <button
                             type="button"
                             onClick={() => handleSelectOrExecuteAiMode(sec.id, 'TECH')}
@@ -732,7 +788,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                             </div>
                           </button>
 
-                          {/* 4. TONE 모드 버튼 */}
                           <button
                             type="button"
                             onClick={() => handleSelectOrExecuteAiMode(sec.id, 'TONE')}
@@ -767,8 +822,8 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                               </span>
                             </div>
 
-                            <div className="overflow-x-auto pb-1">
-                              <div className="flex gap-3 min-w-full items-start">
+                            <div className="w-full overflow-x-auto pb-4 pt-1 custom-scrollbar">
+                              <div className="inline-flex gap-5 items-start min-w-max">
                                 {(sec.columns || []).map((col) => {
                                   const val = row.values[col] || '';
                                   const cellKey = `${sec.id}-${row.id}-${col}`;
@@ -781,46 +836,46 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                                   return (
                                     <div
                                       key={col}
-                                      className={`${widthClass} bg-[#040711] p-3 rounded-xl border border-indigo-950/80 flex flex-col transition-all ${
-                                        isExpanded ? 'h-auto' : 'h-28'
+                                      className={`${widthClass} bg-[#040711] p-5 rounded-2xl border border-indigo-950/80 flex flex-col transition-all shadow-md ${
+                                        isExpanded ? 'h-auto' : 'h-40'
                                       }`}
                                     >
-                                      <span className="text-[11px] font-bold text-indigo-300 border-b border-indigo-950 pb-1.5 mb-1.5 truncate shrink-0">
+                                      <span className="text-xs font-extrabold text-indigo-300 border-b border-indigo-950 pb-2 mb-2 truncate shrink-0">
                                         {col}
                                       </span>
 
                                       <div className="relative flex-1 overflow-hidden">
-                                        <div className={`text-xs text-slate-200 leading-relaxed font-sans ${!isExpanded && isLongContent ? 'max-h-10 overflow-hidden' : ''}`}>
+                                        <div className={`text-xs sm:text-sm text-slate-200 leading-relaxed font-sans ${!isExpanded && isLongContent ? 'max-h-16 overflow-hidden' : ''}`}>
                                           {val ? (
                                             lines.map((line, lIdx) => {
                                               const clean = line.replace(/^[•\-\*\s]+/, '').trim();
                                               if (!clean) return null;
                                               return (
-                                                <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
+                                                <div key={lIdx} className="flex items-start gap-1.5 my-1">
                                                   <span className="text-indigo-400 shrink-0">•</span>
-                                                  <span className="break-all">{clean}</span>
+                                                  <span className="break-words">{clean}</span>
                                                 </div>
                                               );
                                             })
                                           ) : (
-                                            <span className="text-slate-600 italic text-[10px]">내용 없음</span>
+                                            <span className="text-slate-600 italic text-xs">내용 없음</span>
                                           )}
                                         </div>
 
                                         {!isExpanded && isLongContent && (
-                                          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
+                                          <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[#040711] to-transparent pointer-events-none" />
                                         )}
                                       </div>
 
                                       {isLongContent && (
                                         <button
                                           onClick={() => toggleCellExpand(cellKey)}
-                                          className="mt-1.5 pt-1.5 border-t border-indigo-950 text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
+                                          className="mt-2.5 pt-2 border-t border-indigo-950 text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1 w-full shrink-0 transition"
                                         >
                                           {isExpanded ? (
-                                            <><span>접기</span><ChevronUp className="w-3 h-3" /></>
+                                            <><span>접기</span><ChevronUp className="w-3.5 h-3.5" /></>
                                           ) : (
-                                            <><span>자세히 보기</span><ChevronDown className="w-3 h-3" /></>
+                                            <><span>자세히 보기</span><ChevronDown className="w-3.5 h-3.5" /></>
                                           )}
                                         </button>
                                       )}
@@ -841,7 +896,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
             </div>
           )}
 
-          {/* TAB 2: AI 공고 추천 & 역량 피드백 분석 */}
           {activeMainTab === 'analysis' && (
             <div className="space-y-6">
               
@@ -885,7 +939,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
               {recommendations.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
-                  {/* 좌측: 추천 공고 목록 */}
                   <div className="lg:col-span-6 space-y-4">
                     <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
                       <Building2 className="w-4 h-4" /> 추천 공고 Top {recommendations.length}
@@ -991,7 +1044,6 @@ const handleSelectOrExecuteAiMode = async (sectionId, modeName) => {
                     )}
                   </div>
 
-                  {/* 우측: 피드백 분석 영역 */}
                   <div className="lg:col-span-6 space-y-4">
                     <div className="bg-[#0a1024] border border-indigo-950/80 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
                       <div>

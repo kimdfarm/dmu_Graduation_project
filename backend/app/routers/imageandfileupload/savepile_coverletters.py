@@ -94,40 +94,47 @@ def normalize_cover_letter_data(parsed_dict: dict) -> dict:
 
 # 💡 3. 요청하신 출력 구조 프롬프트 및 JSON Output Schema를 적용한 Groq 파싱 함수
 # 💡 3. 파일의 원본 구조 및 문항 형태를 자율적으로 분석해 파싱하는 Groq 함수
+# 💡 3. 파일의 원본 구조 및 문항 형태를 자율적으로 분석해 파싱하는 Groq 함수 (출력 구조 최적화 반영)
 def parse_cover_letter_with_groq(raw_text: str) -> dict:
     if not groq_client:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY가 설정되지 않았습니다.")
 
-    # ✅ STAR 같은 고정 모드 대신, 파일의 실제 구조를 자율적으로 분석하도록 프롬프트 변경
-    SYSTEM_PROMPT = """You are an ultra-flexible document parsing engine and expert cover letter consultant specialized in professional Korean resumes and cover letters.
+    # ✅ 자기소개서 문항 구조(질문, 답변, 핵심 역량 등)에 맞게 명확히 파싱하도록 시스템 프롬프트 고도화
+    # savepile_coverletters.py 내 SYSTEM_PROMPT 교체
 
-    CRITICAL GOALS:
-    1. DYNAMIC COLUMNS: Do NOT limit columns to generic headers like ["질문/항목", "내용"]. Analyze the text content and define custom, professional column headers matching the text's natural structure (e.g., ["핵심 경험", "문제 해결", "성과 및 임팩트"] or ["Situation", "Task", "Action", "Result"] or any relevant custom headers).
-    2. TAG FORMAT: Wrap each distinct extracted section/field in `ai_proofread_text` using matching bracket tags like `[Column Name]\nContent...`.
-    3. PROFESSIONAL REWRITE: Rewrite the text into smooth, professional, and impactful business prose matching the requested style/mode ("{mode}"). Keep all key numbers, keywords, and technical terms intact.
+    SYSTEM_PROMPT = """You are an ultra-comprehensive document parsing engine and expert cover letter consultant.
+
+[작성 지침]
+1. 원문의 내용을 분석하여 단순히 '질문', '답변' 2개 컬럼으로 묶지 말고, 내용의 흐름에 맞춰 유연하고 전문적인 3~4개의 동적 분석 컬럼을 정의하세요.
+   - 예시 A (일반 문항): ["지원 동기", "주요 기술 역량 및 경험", "입사 후 포부 및 기여"]
+   - 예시 B (문제 해결 문항): ["핵심 과제 및 배경", "해결 방법 및 기술", "정량적 성과 및 배운 점"]
+   - 예시 C (경험 윤문): ["Situation", "Task", "Action", "Result"]
+2. 각 컬럼별로 원문 텍스트 내용을 분할/배분하여 `column_values`의 키-값으로 매핑하세요.
+3. 절대 원문 내용을 누락하거나 통째로 한 컬럼에 몰아 넣지 마세요.
+
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {
   "doc_type": "COVER_LETTER",
   "sections": [
     {
-      "section_type": "CUSTOM_SECTION",
-      "section_title": "문항 또는 섹션 제목",
+      "section_type": "COVER_LETTER_SECTION",
+      "section_title": "자기소개서 문항 1",
       "display_order": 1,
       "details": [
         {
           "id": "card_1",
-          "title": "세부 항목 제목 또는 소제목",
-          "ai_columns": ["컬럼1", "컬럼2", "컬럼3"],
+          "title": "지원동기 및 포부",
+          "ai_columns": ["지원 동기", "핵심 기술 역량", "입사 후 포부"],
           "column_values": {
-            "컬럼1": "해당 컬럼에 대응하는 내용...",
-            "컬럼2": "해당 컬럼에 대응하는 내용..."
+            "지원 동기": "사용자 관점의 서비스 편의성과 백엔드 시스템 구축에 높은 열정을 가지고 있어 지원하게 되었습니다...",
+            "핵심 기술 역량": "동양미래대학교 소프트웨어 전공 중 FastAPI 기반 AI 백엔드 구축 및 Android 앱 개발을 주도적으로 수행하였습니다...",
+            "입사 후 포부": "입사 후에는 지속적으로 기술 역량을 고도화하여 확장성과 안정성을 보장하는 핵심 개발자로 성장하겠습니다."
           }
         }
       ]
     }
   ]
 }"""
-
     target_models = get_available_groq_models(groq_client)
     last_error = None
 
@@ -137,7 +144,7 @@ def parse_cover_letter_with_groq(raw_text: str) -> dict:
                 model=model_name,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Analyze this document's natural structure and parse it into JSON:\n\n{raw_text}"}
+                    {"role": "user", "content": f"Parse this cover letter text into the required JSON schema accurately:\n\n{raw_text}"}
                 ],
                 temperature=0.1,
                 max_tokens=4096,
