@@ -156,8 +156,6 @@ const CoverLetterEdit = () => {
         ai_columns: [...columns],       // struct.txt 규격 준수[cite: 11]
         column_values: columnValues,     // struct.txt 규격 준수[cite: 11]
         original_text: originalTextBlocks.join('\n\n'),
-        spell_checked_text: null,
-        ai_proofread_text: null,
         selected_version: 'ORIGINAL'
       };
     });

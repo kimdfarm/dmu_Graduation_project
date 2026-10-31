@@ -85,6 +85,9 @@ class DetailItem(BaseModel):
     spell_checked_text: Optional[str] = None
     ai_proofread_text: Optional[str] = None
     selected_version: Optional[str] = "ORIGINAL"  # ORIGINAL, SPELL, AI
+    # 💡 컬럼 구조 보존을 위한 필드 추가
+    ai_columns: Optional[List[str]] = Field(default_factory=list)
+    column_values: Optional[dict] = Field(default_factory=dict)
 
 # 프론트엔드에서 넘겨주는 동적 문항/섹션 구조
 class SectionInput(BaseModel):
@@ -144,30 +147,27 @@ async def create_cover_letter(payload: CoverLetterCreateRequest):
         sections_to_insert = []
 
         # B-1. 프론트엔드에서 전달한 맞춤 프레임/문항 구조가 있는 경우
+        # B-1. 프론트엔드에서 전달한 맞춤 프레임/문항 구조가 있는 경우
         if payload.custom_sections and len(payload.custom_sections) > 0:
             for idx, sec in enumerate(payload.custom_sections):
                 cols = sec.columns if sec.columns and len(sec.columns) > 0 else ["질문 항목", "작성 내용"]
                 
+                # 💡 초기 column_values 빈 맵 생성 및 original_text 포맷 정렬
+                empty_column_values = {col: "" for col in cols}
+                init_original_text = f"[{cols[0]}]\n내용을 입력해주세요."
+
                 init_details = [
                     {
                         "id": f"init-cl-sec-{idx+1}-1",
                         "title": f"{sec.section_title} 세부 내용",
-                        "original_text": "내용을 입력해주세요.",
+                        "original_text": init_original_text,
                         "spell_checked_text": None,
                         "ai_proofread_text": None,
+                        "ai_columns": cols,                   # ← 추가: 컬럼 구조 보존
+                        "column_values": empty_column_values, # ← 추가: 컬럼 값 매핑 보존
                         "selected_version": "ORIGINAL"
                     }
                 ] if not sec.details else [d.model_dump() for d in sec.details]
-
-                sections_to_insert.append({
-                    "document_id": doc_id,
-                    "section_type": sec.section_type,
-                    "section_title": sec.section_title,
-                    "display_order": sec.display_order or (idx + 1),
-                    "columns": cols,
-                    "details": init_details
-                })
-
         # B-2. custom_sections가 없는 경우 기본 자기소개서 항목(4종)으로 Fallback
         else:
             default_cols = ["질문 항목", "작성 내용"]

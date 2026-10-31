@@ -531,11 +531,12 @@ const ResumeNew = () => {
           </button>
           
           <div className="flex items-center gap-3">
+            {/*
             {creditBalance !== null && (
               <span className="text-[11px] font-bold px-3 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-full">
                 ⚡ 잔여 에너지: {creditBalance}회
               </span>
-            )}
+            )}*/}
             <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
               Resume Builder
             </span>
@@ -929,6 +930,7 @@ const ResumeNew = () => {
               )}
 
               {/* 💡 [핵심] 분석량 및 에너지 사전 계산 버튼 및 결과 영역 */}
+              {/*
               {selectedRepos.length > 0 && (
                 <div className="p-5 bg-[#0a1024] border border-emerald-900 rounded-2xl space-y-4 shadow-lg">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -963,6 +965,7 @@ const ResumeNew = () => {
                   )}
                 </div>
               )}
+              */}
             </div>
           )}
 

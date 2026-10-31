@@ -23,7 +23,9 @@ class DetailItem(BaseModel):
     spell_checked_text: Optional[str] = None
     ai_proofread_text: Optional[str] = None
     selected_version: Optional[str] = "ORIGINAL"  # ORIGINAL, SPELL, AI
-
+    # 💡 컬럼 구조 보존을 위한 필드 추가
+    ai_columns: Optional[List[str]] = Field(default_factory=list)
+    column_values: Optional[dict] = Field(default_factory=dict)
 # 프론트엔드에서 넘겨주는 동적 섹션 구조
 class SectionInput(BaseModel):
     section_type: str = "GENERAL"
@@ -82,17 +84,21 @@ async def create_resume(payload: ResumeCreateRequest):
         sections_to_insert = []
 
         # B-1. 프론트엔드에서 전달한 맞춤 프레임/컬럼 구조가 있는 경우
+        # B-1. 프론트엔드에서 전달한 맞춤 프레임/컬럼 구조가 있는 경우
         if payload.custom_sections and len(payload.custom_sections) > 0:
             for idx, sec in enumerate(payload.custom_sections):
-                # 프론트엔드가 보낸 컬럼이 없으면 기본 2컬럼 제공
                 cols = sec.columns if sec.columns and len(sec.columns) > 0 else ["항목", "내용"]
                 
-                # 기본 안내문 생성
+                # 💡 초기 column_values 빈 맵 생성
+                empty_column_values = {col: "" for col in cols}
+
                 init_details = [
                     {
                         "id": f"init-sec-{idx+1}-1",
                         "title": f"{sec.section_title} 입력",
-                        "original_text": "내용을 입력해주세요.",
+                        "original_text": f"[{cols[0]}]\n내용을 입력해주세요.",
+                        "ai_columns": cols,                  # ← 추가
+                        "column_values": empty_column_values, # ← 추가
                         "spell_checked_text": None,
                         "ai_proofread_text": None,
                         "selected_version": "ORIGINAL"
@@ -107,7 +113,6 @@ async def create_resume(payload: ResumeCreateRequest):
                     "columns": cols,
                     "details": init_details
                 })
-
         # B-2. 프론트엔드에서 custom_sections를 안 보낸 경우 fallback (한국 표준 6종)
         else:
             default_cols = ["제목/역할", "참여 기간", "상세 업무 및 성과"]
