@@ -207,6 +207,7 @@ export default function ProfileSettings() {
       setIsGithubConnected(false);
     }
 
+
     fetchProfile();
     fetchEducations();
     fetchCertificates();
@@ -760,6 +761,7 @@ export default function ProfileSettings() {
           >
             <Award size={16} /> <span>자격증 및 면허</span>
           </button>
+          {/*
           <button
             type="button"
             onClick={() => setActiveTab('subscription')}
@@ -769,6 +771,7 @@ export default function ProfileSettings() {
           >
             <CreditCard size={16} /> <span>구독 및 에너지</span>
           </button>
+           */}
         </div>
 
         {/* [탭 1] 기본 정보 */}
@@ -996,6 +999,7 @@ export default function ProfileSettings() {
         )}
 
         {/* [탭 4] 구독 및 에너지 관리 */}
+        
         {activeTab === 'subscription' && (
           <div className="bg-[#0f1423] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
             <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
@@ -1005,7 +1009,7 @@ export default function ProfileSettings() {
               <div>
                 <h2 className="text-base font-bold text-slate-100">구독 및 에너지 관리</h2>
                 <p className="text-xs text-slate-400">현재 이용 중인 플랜과 남은 에너지를 관리합니다.</p>
-              </div>
+              </div> 
             </div>
 
             {/* 잔여 에너지 상태 카드 및 테스트 버튼 (+10 / -10) */}
@@ -1049,6 +1053,8 @@ export default function ProfileSettings() {
             </div>
 
             {/* 요금제 선택 / 즉시 변경 버튼 영역 */}
+
+            <div>
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-semibold text-slate-300">플랜 즉시 변경 (테스트용 간편 전환)</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1090,10 +1096,10 @@ export default function ProfileSettings() {
 
               </div>
             </div>
-
+                </div>
           </div>
         )}
-
+        
         {/* 회원 탈퇴 */}
         <div className="pt-4 border-t border-rose-900/40">
           <div className="bg-rose-950/15 border border-rose-900/40 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

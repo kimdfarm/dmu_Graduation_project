@@ -10,40 +10,8 @@ from datetime import datetime, timedelta, timezone, time
 from app.core.config import get_supabase, GROQ_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
 import requests
 import traceback
-
-def deduct_user_energy(db: Client, member_id: str, amount: int, description: str = "AI 기능 사용"):
-    """사용자의 에너지를 확인하고 차감하는 헬퍼 함수"""
-    credit_res = db.table("user_credits").select("balance").eq("member_id", member_id).execute()
-    
-    if not credit_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="유저 크레딧 정보를 찾을 수 없습니다."
-        )
-    
-    current_balance = credit_res.data[0]["balance"]
-    
-    if current_balance < amount:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED, 
-            detail=f"에너지가 부족합니다. (필요 에너지: {amount}회, 잔여 에너지: {current_balance}회)"
-        )
-    
-    new_balance = current_balance - amount
-    
-    db.table("user_credits").update({
-        "balance": new_balance, 
-        "updated_at": datetime.utcnow().isoformat()
-    }).eq("member_id", member_id).execute()
-    
-    db.table("credit_transactions").insert({
-        "member_id": member_id,
-        "amount": -amount,
-        "transaction_type": "AI_GENERATION",
-        "description": description
-    }).execute()
-    
-    return new_balance
+import re
+import ast
 
 router = APIRouter(
     prefix="/api",
@@ -201,6 +169,134 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+try:
+    from json_repair import repair_json
+except ImportError:
+    repair_json = None
+
+
+def extract_and_clean_json(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", text.strip())
+    cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+    
+    start_idx = cleaned.find('{')
+    end_idx = cleaned.rfind('}')
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        return cleaned[start_idx:end_idx + 1]
+    return cleaned
+
+
+def safe_json_parse(json_str: str) -> dict:
+    cleaned_str = extract_and_clean_json(json_str)
+
+    if repair_json:
+        try:
+            return json.loads(repair_json(cleaned_str))
+        except Exception:
+            pass
+
+    try:
+        return json.loads(cleaned_str, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned_str)
+        cleaned = re.sub(r'(?<!\\)[\r\n]+', r'\\n', cleaned)
+        return json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        evaluated = ast.literal_eval(cleaned_str)
+        if isinstance(evaluated, dict):
+            return evaluated
+    except (ValueError, SyntaxError):
+        pass
+
+    raise ValueError("LLM 응답 JSON 파싱 실패")
+
+
+def normalize_github_resume_data(parsed_dict: dict) -> dict:
+    if not isinstance(parsed_dict, dict):
+        return {"doc_type": "RESUME", "sections": []}
+
+    raw_sections = parsed_dict.get("sections") or parsed_dict.get("data") or []
+    if isinstance(raw_sections, dict):
+        raw_sections = [raw_sections]
+
+    normalized_sections = []
+
+    for idx, sec in enumerate(raw_sections):
+        if not isinstance(sec, dict):
+            continue
+
+        section_title = (
+            sec.get("section_title") or 
+            sec.get("category") or 
+            sec.get("title") or 
+            "세부 정보"
+        )
+        section_type = sec.get("section_type") or "PROJECTS"
+        
+        raw_details = (
+            sec.get("details") or 
+            sec.get("items") or 
+            sec.get("contents") or 
+            []
+        )
+        if isinstance(raw_details, dict):
+            raw_details = [raw_details]
+
+        normalized_details = []
+        global_ai_columns = []
+
+        for d_idx, item in enumerate(raw_details):
+            if isinstance(item, dict):
+                card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
+                item_title = str(item.get("title") or item.get("name") or "항목").strip()
+                
+                ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["항목", "내용"]
+                column_values = item.get("column_values") or {}
+
+                for col in ai_columns:
+                    if col not in global_ai_columns:
+                        global_ai_columns.append(col)
+
+                formatted_text_parts = []
+                for col in ai_columns:
+                    val = column_values.get(col, "")
+                    formatted_text_parts.append(f"[{col}]\n{val}")
+                
+                structured_text = "\n\n".join(formatted_text_parts)
+
+                if structured_text.strip():
+                    normalized_details.append({
+                        "id": card_id,
+                        "title": item_title,
+                        "original_text": structured_text.strip(),
+                        "ai_columns": ai_columns,
+                        "column_values": column_values,
+                        "selected_version": "ORIGINAL"
+                    })
+
+        if normalized_details:
+            normalized_sections.append({
+                "section_type": str(section_type),
+                "section_title": str(section_title).strip(),
+                "display_order": idx + 1,
+                "columns": global_ai_columns if global_ai_columns else ["항목", "내용"],
+                "details": normalized_details
+            })
+
+    return {
+        "doc_type": parsed_dict.get("doc_type", "RESUME"),
+        "sections": normalized_sections
+    }
+
+
 GRAPHQL_REPO_QUERY = """
 query GetRepoAnalytics($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -288,7 +384,7 @@ class GithubResumeGenerateRequest(BaseModel):
     category: str
     repo_name: str
     template_columns: Optional[List[str]] = None
-    template_structure: Optional[Dict[str, Any]] = None  # 💡 템플릿 전체 구조 객체
+    template_structure: Optional[Dict[str, Any]] = None  
     language: Optional[str] = "ko"
     analysis_data: Optional[Dict[str, Any]] = None
 
@@ -412,15 +508,6 @@ async def generate_github_resume(
                 detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
             )
 
-        estimated_tokens, required_energy = estimate_tokens_and_cost_v2(projects_data)
-
-        deduct_user_energy(
-            db=db, 
-            member_id=payload.member_id, 
-            amount=required_energy, 
-            description=f"GitHub 템플릿 기반 다중 섹션 일괄 생성 (사용 에너지: {required_energy}회)"
-        )
-
         # 1. 상위 documents 문서 생성
         doc_payload = {
             "member_id": payload.member_id,
@@ -450,98 +537,115 @@ async def generate_github_resume(
 
         lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if payload.language == "ko" else "Please write everything in professional **English**."
 
-        all_sections_list = []
+        model2_system_prompt = f"""You are an expert resume formatting and database structuring engine.
 
-        # =========================================================================
-        # 💡 [핵심] 템플릿 섹션별 반복 루프 (요청하신 JSON 출력 구조 프롬프트 적용)
-        # =========================================================================
-        for s_idx, tpl_sec in enumerate(template_sections, start=1):
-            sec_title = tpl_sec.get("title", f"섹션 {s_idx}")
-            sec_type = tpl_sec.get("type", "EXPERIENCE")
-            sec_columns = tpl_sec.get("columns", ["항목", "내용"])
-
-            model2_system_prompt = f"""You are a professional resume formatting and database structuring engine.
-다음 자기소개서/프로젝트 카드 텍스트를 현재 템플릿 섹션("{sec_title}")에 맞추어 전문적인 문장으로 재작성해 주세요.
-
-[작성 지침]
-1. 이 텍스트에 가장 잘 어울리는 분석 컬럼들(예: {json.dumps(sec_columns, ensure_ascii=False)} 등)을 선정하세요.
-2. 각 컬럼별로 작성된 내용을 아래의 **JSON 딕셔너리 형식**으로만 매핑하여 응답하세요.
-3. Language rule: {lang_instruction}
+CRITICAL GOALS:
+1. Analyze the provided GitHub repository analysis data.
+2. Structure the data logically according to the requested template sections.
+3. For each section and card/item, define appropriate custom column headers (`ai_columns`, e.g., ["프로젝트명", "주요 역할", "사용 기술", "상세 내용"]).
+4. **DO NOT duplicate the entire text across all columns.** Distribute and summarize the text into its corresponding specific column keys in `column_values`.
+5. Language rule: {lang_instruction}
 
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {{
-  "ai_columns": ["컬럼1", "컬럼2", "컬럼3"],
-  "column_values": {{
-    "컬럼1": "해당 컬럼에 들어갈 내용...",
-    "컬럼2": "해당 컬럼에 들어갈 내용..."
-  }}
+  "doc_type": "RESUME",
+  "sections": [
+    {{
+      "section_type": "PROJECTS",
+      "section_title": "섹션 제목",
+      "display_order": 1,
+      "details": [
+        {{
+          "id": "card_1_1",
+          "title": "프로젝트/항목 제목",
+          "ai_columns": ["컬럼1", "컬럼2"],
+          "column_values": {{
+            "컬럼1": "내용...",
+            "컬럼2": "내용..."
+          }}
+        }}
+      ]
+    }}
+  ]
 }}"""
 
-            model2_user_prompt = f"""
+        model2_user_prompt = f"""
+[템플릿 섹션 정의 목록]
+{json.dumps(template_sections, ensure_ascii=False)}
+
 [깃허브 원본 프로젝트 분석 데이터]
 {json.dumps(projects_data, ensure_ascii=False)}
 
-위 데이터를 바탕으로 현재 템플릿 섹션인 '{sec_title}'에 알맞은 내용을 지정된 JSON 스키마 형태로 생성해 주세요.
+위 데이터를 바탕으로 지정된 템플릿 섹션들에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
 """
 
-            try:
-                model2_res = groq_client.chat.completions.create(
-                    model=GROQ_MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": model2_system_prompt},
-                        {"role": "user", "content": model2_user_prompt}
-                    ],
-                    temperature=0.1,  # 💡 온도 0.1로 고정하여 환각 및 포맷 이탈 방지
-                    response_format={"type": "json_object"}
-                )
+        try:
+            model2_res = groq_client.chat.completions.create(
+                model=GROQ_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": model2_system_prompt},
+                    {"role": "user", "content": model2_user_prompt}
+                ],
+                temperature=0.1,  
+                max_tokens=4096,
+                response_format={"type": "json_object"}
+            )
 
-                content = model2_res.choices[0].message.content if model2_res.choices else None
-                res_json = json.loads(content) if content else {}
+            raw_content = model2_res.choices[0].message.content or ""
+            clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
 
-                ai_columns = res_json.get("ai_columns", sec_columns)
-                column_values = res_json.get("column_values", {})
+            parsed_result = {}
+            if clean_json_str:
+                parsed = safe_json_parse(clean_json_str)
+                parsed_result = normalize_github_resume_data(parsed)
 
-                # column_values를 바탕으로 기존 호환용 original_text 생성
-                formatted_text_parts = []
-                for col in ai_columns:
-                    val = column_values.get(col, "")
-                    formatted_text_parts.append(f"[{col}]\n{val}")
+            sections_data = parsed_result.get("sections", [])
+            
+            if not sections_data:
+                sections_data = [
+                    {
+                        "section_type": "PROJECTS",
+                        "section_title": "주요 프로젝트",
+                        "display_order": 1,
+                        "columns": ["프로젝트명", "주요 내용"],
+                        "details": [{
+                            "id": "card_1_1",
+                            "title": payload.repo_name or "GitHub Project",
+                            "original_text": "[프로젝트명]\nGitHub 프로젝트\n\n[주요 내용]\n분석 데이터 기반 자동 생성",
+                            "ai_columns": ["프로젝트명", "주요 내용"],
+                            "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"},
+                            "selected_version": "ORIGINAL"
+                        }]
+                    }
+                ]
+
+        except RateLimitError as rle:
+            print(f"Groq 토큰 한도 초과(Rate Limit): {rle}")
+            raise HTTPException(
+                status_code=429,
+                detail="Groq API 분당 토큰/요청 한도(Rate Limit)를 초과했습니다. 잠시 후 다시 시도해 주세요."
+            )
+        except Exception as sec_err:
+            print(f"섹션 생성 중 오류 발생: {sec_err}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"섹션 AI 생성 중 오류 발생: {str(sec_err)}"
+            )
+
+        all_sections_list = []
+        for idx, sec in enumerate(sections_data):
+            if not isinstance(sec, dict):
+                continue
                 
-                orig_text = "\n\n".join(formatted_text_parts) if formatted_text_parts else f"[{sec_columns[0]}]\n• 내용 없음"
-
-                section_details = [{
-                    "id": f"card_{s_idx}_1",
-                    "title": sec_title,
-                    "columns": ai_columns,
-                    "original_text": orig_text,
-                    "ai_columns": ai_columns,
-                    "column_values": column_values,
-                    "selected_version": "ORIGINAL"
-                }]
-
-            except RateLimitError as rle:
-                print(f"[{sec_title}] Groq 토큰 한도 초과(Rate Limit): {rle}")
-                raise HTTPException(
-                    status_code=429,
-                    detail="Groq API 분당 토큰/요청 한도(Rate Limit)를 초과했습니다. 잠시 후 다시 시도해 주세요."
-                )
-            except Exception as sec_err:
-                print(f"[{sec_title}] 섹션 생성 중 오류 발생: {sec_err}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"[{sec_title}] 섹션 AI 생성 중 오류 발생: {str(sec_err)}"
-                )
-
             all_sections_list.append({
                 "document_id": created_document_id,
-                "section_type": sec_type,
-                "section_title": sec_title,
-                "display_order": s_idx,
-                "columns": ai_columns,
-                "details": section_details
+                "section_type": sec.get("section_type", "PROJECTS"),
+                "section_title": sec.get("section_title", "세부 정보"),
+                "display_order": sec.get("display_order", idx + 1),
+                "columns": sec.get("columns", ["항목", "내용"]),
+                "details": sec.get("details", [])
             })
 
-        # 3. 💡 완성된 모든 템플릿 섹션 리스트를 Supabase `document_sections`에 한 번에 Bulk Insert!
         if all_sections_list:
             sec_res = db.table("document_sections").insert(all_sections_list).execute()
             if not sec_res.data:
@@ -552,9 +656,7 @@ async def generate_github_resume(
             "id": created_document_id,
             "title": payload.title,
             "category": payload.category,
-            "total_sections": len(all_sections_list),
-            "estimated_tokens": estimated_tokens,
-            "deducted_energy": required_energy
+            "total_sections": len(all_sections_list)
         }
 
     except HTTPException as he:
@@ -567,7 +669,7 @@ async def generate_github_resume(
                 print(f"Rollback failed: {rollback_err}")
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR if hasattr(status, 'HTTP_500_INTERNAL_SERVER_ERROR') else 500,
             detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
         )
 
@@ -584,9 +686,7 @@ def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
     output_tokens = input_tokens * 2 
     total_tokens = input_tokens * 2 + output_tokens
     
-    energy_cost = max(1, total_tokens // 5000)
-    
-    return total_tokens, energy_cost
+    return total_tokens, 0
 
 @router.get("/develop/github/repositories")
 def get_github_repositories(
@@ -691,7 +791,7 @@ def estimate_github_cost(payload: EstimateCostRequest):
         projects_data = [analysis_data]
         
     if not projects_data:
-        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "energy_cost": 1}
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         
     total_chars = 0
     for repo in projects_data:
@@ -704,29 +804,9 @@ def estimate_github_cost(payload: EstimateCostRequest):
     output_tokens = input_tokens 
     total_tokens = input_tokens + output_tokens
     
-    energy_cost = max(1, total_tokens // 5000)
-    
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
-        "energy_cost": energy_cost,
         "message": f"입력: {input_tokens:,}개 / 출력: {output_tokens:,}개 / 총 토큰: {total_tokens:,}개"
     }
-
-
-def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
-    total_chars = 0
-    for repo in projects_data:
-        target_author = repo.get("target_author", "")
-        cleaned = preprocess_github_data(repo, target_author=target_author)
-        text_blob = json.dumps(cleaned, ensure_ascii=False)
-        total_chars += len(text_blob)
-    
-    input_tokens = total_chars // 3
-    output_tokens = input_tokens * 2 
-    total_tokens = input_tokens * 2 + output_tokens
-    
-    energy_cost = max(1, total_tokens // 5000)
-    
-    return total_tokens, energy_cost

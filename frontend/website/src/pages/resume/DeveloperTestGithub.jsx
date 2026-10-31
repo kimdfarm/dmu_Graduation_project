@@ -26,7 +26,7 @@ const DeveloperTestGithub = () => {
 
   const [title, setTitle] = useState('GitHub 테스트 이력서');
   const [category, setCategory] = useState('신입 개발자');
-  const [selectedFrame, setSelectedFrame] = useState(''); // 💡 초기값 비워둠 (선택 강제화)
+  const [selectedFrame, setSelectedFrame] = useState(''); 
   const [errorMessage, setErrorMessage] = useState('');
   const [language, setLanguage] = useState('ko');
 
@@ -42,7 +42,6 @@ const DeveloperTestGithub = () => {
   const [isEstimating, setIsEstimating] = useState(false);
   const [estimationProgress, setEstimationProgress] = useState({ current: 0, total: 0, currentRepo: '' });
   const [estimationResult, setEstimationResult] = useState(null); 
-  const [creditBalance, setCreditBalance] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
@@ -65,21 +64,6 @@ const DeveloperTestGithub = () => {
   const [startDate, setStartDate] = useState(initialDates.start);
   const [endDate, setEndDate] = useState(initialDates.end);
   const [activeFilterText, setActiveFilterText] = useState('최근 6개월 기준 탐색 결과');
-
-  // 💡 처음 접속할 때 자동으로 fetchUserRepositories가 실행되지 않도록 수정함 (구독 정보만 조회)
-  useEffect(() => {
-    const userId = localStorage.getItem('userId');
-    if (userId) {
-      fetch(`${BASE_URL}/api/subscription/${userId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && typeof data.credit_balance === 'number') {
-            setCreditBalance(data.credit_balance);
-          }
-        })
-        .catch(err => console.error("구독 정보 조회 실패:", err));
-    }
-  }, []);
 
   useEffect(() => {
     setEstimationResult(null);
@@ -230,7 +214,6 @@ const DeveloperTestGithub = () => {
         input_tokens: estimateData.input_tokens,
         output_tokens: estimateData.output_tokens,
         total_tokens: estimateData.total_tokens,
-        energy: estimateData.energy_cost,
         projects_data: projectsData
       });
 
@@ -250,15 +233,9 @@ const DeveloperTestGithub = () => {
     }
 
     if (!estimationResult || !estimationResult.projects_data) {
-      alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
+      alert("먼저 '분석량 계산하기'를 진행해 주세요.");
       return;
     }
-
-    const requiredEnergy = estimationResult.energy;
-if (creditBalance !== null && creditBalance < requiredEnergy) {
-  alert(`에너지가 부족합니다. (필요: ${requiredEnergy}회, 잔여: ${creditBalance}회)`);
-  return;
-}
 
     const userId = localStorage.getItem('userId');
     if (!userId) {
@@ -289,12 +266,7 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
 
       if (!generateRes.ok) {
         const errorData = await generateRes.json();
-        // 에너지가 부족한 경우 특별히 안내
-        if (generateRes.status === 402) {
-          alert(`⚡ 에너지가 부족하여 이력서를 생성할 수 없습니다.\n\n${errorData.detail}`);
-        } else {
-          alert(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
-        }
+        alert(errorData.detail || 'GitHub 이력서 자동 생성에 실패했습니다.');
         return;
       }
 
@@ -355,11 +327,6 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
           </button>
           
           <div className="flex items-center gap-3">
-            {creditBalance !== null && (
-              <span className="text-[11px] font-bold px-3 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-full">
-                ⚡ 잔여 에너지: {creditBalance}회
-              </span>
-            )}
             <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
               GitHub Token Test Mode
             </span>
@@ -370,10 +337,10 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
         <div className="space-y-2">
           <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2.5 tracking-tight">
             <GithubIcon className="w-7 h-7 text-emerald-400" />
-            GitHub ID별 토큰 및 에너지 비교 테스트
+            GitHub ID별 토큰 분석 테스트
           </h1>
           <p className="text-xs md:text-sm text-slate-400">
-            다른 사용자의 GitHub ID를 입력하고 저장소별 정보량(토큰 수)과 소모 에너지를 비교해 보세요.
+            다른 사용자의 GitHub ID를 입력하고 저장소별 정보량(토큰 수)을 비교해 보세요.
           </p>
         </div>
 
@@ -464,7 +431,7 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
                   onClick={() => setSelectedFrame(key)}
                   className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
                     selectedFrame === key
-                      ? 'bg-emerald-950/30 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                      ? 'bg-emerald-950/40 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
                       : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
                   }`}
                 >
@@ -482,10 +449,9 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
             </div>
           </div>
 
-          {/* GITHUB 활동 분석 및 에너지 계산 영역 */}
+          {/* GITHUB 활동 분석 영역 */}
           <div className="space-y-6 pt-4 border-t border-emerald-950/60">
             
-              {/* 기간 설정 컴포넌트 */}
               <div className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-2xl p-5 md:p-6 space-y-4 text-white shadow-md">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-950/60 pb-4">
                   <div className="flex items-center gap-2">
@@ -601,7 +567,7 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
                 </div>
               )}
 
-              {/* 분석량 및 에너지 사전 계산 결과 영역 */}
+              {/* 분석량 계산 결과 영역 */}
               {selectedRepos.length > 0 && (
                 <div className="p-5 bg-[#0a1024] border border-emerald-900 rounded-2xl space-y-4 shadow-lg">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -618,7 +584,7 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
                       <span>
                         {isEstimating 
                           ? `분석 중... (${estimationProgress.current}/${estimationProgress.total})` 
-                          : '분석량 및 에너지 계산하기 (5,000토큰당 1에너지)'}
+                          : '분석량 계산하기'}
                       </span>
                     </button>
                   </div>
@@ -642,36 +608,21 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
                   )}
 
                   {estimationResult && (
-  <div className={`p-4 rounded-xl text-xs space-y-2 border ${
-    creditBalance !== null && creditBalance < estimationResult.energy 
-      ? 'bg-rose-950/40 border-rose-500/50 text-rose-300' 
-      : 'bg-[#070b19] border-emerald-500/40 text-emerald-300'
-  }`}>
-    <p className="flex items-center justify-between">
-      <span>📥 입력 토큰 (소스 정제 데이터):</span>
-      <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between">
-      <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
-      <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
-      <span>📊 총 토큰 (Input + Output):</span>
-      <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
-    </p>
-    <p className="flex items-center justify-between">
-      <span>⚡ 소모될 에너지 비용:</span>
-      <strong className="text-amber-400 font-bold">{estimationResult.energy ?? 1} 에너지</strong>
-    </p>
-    
-    {creditBalance !== null && creditBalance < estimationResult.energy && (
-      <div className="pt-2 border-t border-rose-900/50 text-rose-300 font-bold flex items-center gap-1.5">
-        <span>🚨</span>
-        <span>보유 중인 에너지(잔여: {creditBalance}회)가 부족합니다! 충전이 필요합니다.</span>
-      </div>
-    )}
-  </div>
-)}
+                    <div className="p-4 rounded-xl text-xs space-y-2 border bg-[#070b19] border-emerald-500/40 text-emerald-300">
+                      <p className="flex items-center justify-between">
+                        <span>📥 입력 토큰 (소스 정제 데이터):</span>
+                        <strong className="text-white font-bold">{(estimationResult.input_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between">
+                        <span>📤 출력 토큰 (AI 이력서 생성 예측):</span>
+                        <strong className="text-teal-300 font-bold">{(estimationResult.output_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                      <p className="flex items-center justify-between border-t border-emerald-950 pt-2">
+                        <span>📊 총 토큰 (Input + Output):</span>
+                        <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
           </div>
@@ -707,7 +658,7 @@ if (creditBalance !== null && creditBalance < requiredEnergy) {
               </span>
             ) : (
               <span className="text-slate-400 font-medium text-xs md:text-sm">
-                ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
+                ⚠️ 위에서 [분석량 계산하기]를 먼저 진행해 주세요
               </span>
             )}
           </button>
