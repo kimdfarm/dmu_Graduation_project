@@ -725,9 +725,11 @@ export default function ProfileSettings() {
               <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20">
                 계정 상태: {formData.status}
               </span>
+              {/* 
               <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-cyan-500/10 text-cyan-400 rounded-md border border-cyan-500/20 flex items-center gap-1">
                 <Zap size={12} /> 잔여 에너지: <strong className="text-white">{subscriptionInfo.credit_balance}</strong>회
               </span>
+               */}
             </div>
           </div>
         </div>
@@ -1013,6 +1015,7 @@ export default function ProfileSettings() {
             </div>
 
             {/* 잔여 에너지 상태 카드 및 테스트 버튼 (+10 / -10) */}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-5 bg-[#0b0f19] border border-slate-800 rounded-xl flex flex-col justify-between space-y-4">
                 <div>
