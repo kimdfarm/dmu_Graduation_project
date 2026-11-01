@@ -20,30 +20,28 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
   const isAi = currentVersion === 'AI';
   const isSpell = currentVersion === 'SPELL';
 
-  let targetColumns = ['프로젝트명', '기간 및 인원', '서비스 개요', '담당 역할', '기술 스택'];
+  let defaultColumns = ['분류', '스킬', '핵심 과제', '구현 솔루션', '정량적 영향'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
-    targetColumns = [...secAiColumns];
+    defaultColumns = [...secAiColumns];
   } else if (!isAi && Array.isArray(secColumns) && secColumns.length > 0) {
-    targetColumns = [...secColumns];
+    defaultColumns = [...secColumns];
   }
 
   if (!details || details.length === 0) {
-    return { columns: targetColumns, rows: [] };
+    return { columns: defaultColumns, rows: [] };
   }
 
-  const rawList = Array.isArray(details) ? details : [details];
-  const extractedRows = [];
+  const extractedRows = details.map((detail) => {
+    let rowValues = {};
+    let cardColumns = [...defaultColumns];
 
-  rawList.forEach((cardObj) => {
-    const rowValues = {};
-    let cardColumns = [...targetColumns];
-
-    if ((isAi || isSpell) && cardObj.ai_columns && Array.isArray(cardObj.ai_columns) && cardObj.ai_columns.length > 0) {
-      cardColumns = [...cardObj.ai_columns];
+    if ((isAi || isSpell) && detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
+      cardColumns = [...detail.ai_columns];
     }
 
     if (isAi) {
-      const colVals = cardObj.column_values || {};
+      const colVals = detail.column_values || {};
+      
       Object.keys(colVals).forEach((k) => {
         if (!cardColumns.includes(k)) {
           cardColumns.push(k);
@@ -54,7 +52,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
         rowValues[col] = colVals[col] || '';
       });
 
-      const targetText = cardObj.ai_proofread_text || '';
+      const targetText = detail.ai_proofread_text || '';
       if (Object.keys(rowValues).length === 0 && targetText) {
         const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
         let match;
@@ -65,55 +63,66 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
           rowValues[colName] = content;
         }
       }
+    } else if (isSpell) {
+      const spellText = detail.spell_checked_text || detail.original_text || '';
+      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+      let match;
+      let hasTags = false;
+
+      while ((match = regex.exec(spellText)) !== null) {
+        hasTags = true;
+        const colName = match[1].trim();
+        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+        if (!cardColumns.includes(colName)) cardColumns.push(colName);
+        rowValues[colName] = content;
+      }
+
+      if (!hasTags) {
+        cardColumns.forEach((col, idx) => {
+          rowValues[col] = idx === 1 ? spellText : (detail.title || '');
+        });
+      }
     } else {
-      cardColumns.forEach((col) => {
-        rowValues[col] = '';
-      });
+      const targetText = detail.original_text || '';
+      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
+      let match;
+      let hasTags = false;
 
-      let textToParse = cardObj.original_text || '';
-      if (isSpell && cardObj.spell_checked_text) {
-        textToParse = cardObj.spell_checked_text;
+      while ((match = regex.exec(targetText)) !== null) {
+        hasTags = true;
+        const colName = match[1].trim();
+        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
+        if (!cardColumns.includes(colName)) cardColumns.push(colName);
+        rowValues[colName] = content;
       }
 
-      if (textToParse) {
-        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-        let match;
-        let hasTags = false;
-
-        while ((match = regex.exec(textToParse)) !== null) {
-          hasTags = true;
-          const colName = match[1].trim();
-          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-          if (!cardColumns.includes(colName)) cardColumns.push(colName);
-          rowValues[colName] = content;
-        }
-
-        if (!hasTags) {
-          cardColumns.forEach((col, idx) => {
-            rowValues[col] = idx === 1 ? textToParse : (cardObj.title || '');
-          });
-        }
+      if (!hasTags) {
+        cardColumns.forEach((col, idx) => {
+          rowValues[col] = idx === 1 ? targetText : (detail.title || '');
+        });
       }
     }
 
-    if (cardObj.title && cardObj.title !== '세부 항목' && !rowValues[cardColumns[0]]) {
-      rowValues[cardColumns[0]] = cardObj.title;
+    if (detail.title && detail.title !== '세부 항목' && !rowValues[cardColumns[0]]) {
+      rowValues[cardColumns[0]] = detail.title;
     }
 
-    extractedRows.push({
-      id: cardObj.id || generateUniqueId(),
-      rawObj: cardObj,
+    return {
+      id: detail.id || generateUniqueId(),
+      title: detail.title || '',
+      spell_checked_text: detail.spell_checked_text || null,
+      ai_proofread_text: detail.ai_proofread_text || null,
+      selected_version: currentVersion,
       columns: cardColumns,
       values: rowValues
-    });
+    };
   });
 
-  const allColumnsSet = new Set(targetColumns);
+  const allColumnsSet = new Set(defaultColumns);
   extractedRows.forEach(r => r.columns.forEach(c => allColumnsSet.add(c)));
 
   return { columns: Array.from(allColumnsSet), rows: extractedRows };
 };
-
 const ResumeDetail = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();

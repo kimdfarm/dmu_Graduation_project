@@ -36,73 +36,37 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
     let rowValues = {};
     let cardColumns = [...defaultColumns];
 
-    if ((isAi || isSpell) && detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
+    // 1. ai_columns가 존재하면 해당 컬럼 구조를 우선 반영
+    if (detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
       cardColumns = [...detail.ai_columns];
     }
 
-    if (isAi) {
-      const colVals = detail.column_values || {};
+    // 2. original_text 정규식 파싱 대신 column_values 객체를 직접 매핑합니다.
+    const colVals = detail.column_values || {};
+    
+    // column_values에 있는 키들을 cardColumns에 동적으로 추가
+    Object.keys(colVals).forEach((k) => {
+      if (!cardColumns.includes(k)) {
+        cardColumns.push(k);
+      }
+    });
+
+    // 각 컬럼에 해당하는 값을 rowValues에 대입 (값이 없으면 빈 문자열)
+    cardColumns.forEach((col) => {
+      rowValues[col] = colVals[col] || '';
+    });
+
+    // 만약 column_values가 비어있고 AI/SPELL/ORIGINAL 텍스트만 있는 경우의 예외 처리
+    if (Object.keys(rowValues).length === 0) {
+      const targetText = isAi 
+        ? (detail.ai_proofread_text || '') 
+        : isSpell 
+          ? (detail.spell_checked_text || detail.original_text || '') 
+          : (detail.original_text || '');
       
-      Object.keys(colVals).forEach((k) => {
-        if (!cardColumns.includes(k)) {
-          cardColumns.push(k);
-        }
+      cardColumns.forEach((col, idx) => {
+        rowValues[col] = idx === 1 ? targetText : (detail.title || '');
       });
-
-      cardColumns.forEach((col) => {
-        rowValues[col] = colVals[col] || '';
-      });
-
-      const targetText = detail.ai_proofread_text || '';
-      if (Object.keys(rowValues).length === 0 && targetText) {
-        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-        let match;
-        while ((match = regex.exec(targetText)) !== null) {
-          const colName = match[1].trim();
-          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-          if (!cardColumns.includes(colName)) cardColumns.push(colName);
-          rowValues[colName] = content;
-        }
-      }
-    } else if (isSpell) {
-      // 💡 [독립 처리] 맞춤법 교정 데이터는 원문 컬럼 구조를 그대로 유지하되 텍스트만 독립적으로 적용
-      const spellText = detail.spell_checked_text || detail.original_text || '';
-      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-      let match;
-      let hasTags = false;
-
-      while ((match = regex.exec(spellText)) !== null) {
-        hasTags = true;
-        const colName = match[1].trim();
-        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-        if (!cardColumns.includes(colName)) cardColumns.push(colName);
-        rowValues[colName] = content;
-      }
-
-      if (!hasTags) {
-        cardColumns.forEach((col, idx) => {
-          rowValues[col] = idx === 1 ? spellText : (detail.title || '');
-        });
-      }
-    } else {
-      const targetText = detail.original_text || '';
-      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-      let match;
-      let hasTags = false;
-
-      while ((match = regex.exec(targetText)) !== null) {
-        hasTags = true;
-        const colName = match[1].trim();
-        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-        if (!cardColumns.includes(colName)) cardColumns.push(colName);
-        rowValues[colName] = content;
-      }
-
-      if (!hasTags) {
-        cardColumns.forEach((col, idx) => {
-          rowValues[col] = idx === 1 ? targetText : (detail.title || '');
-        });
-      }
     }
 
     return {

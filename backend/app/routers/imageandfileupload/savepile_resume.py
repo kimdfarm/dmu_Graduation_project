@@ -3,8 +3,9 @@ import re
 import ast
 import time
 import uuid
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, status
+from pydantic import BaseModel, Field
 from groq import Groq
 
 from app.core.config import get_supabase, GROQ_API_KEY
@@ -89,6 +90,24 @@ def get_available_groq_models(client) -> list:
         return [PRIMARY_MODEL]
 
 
+# --- 1. Pydantic 스키마 정의 (섹션 레벨 ai_columns 강제 구조) ---
+class ResumeDetail(BaseModel):
+    id: str = Field(description="항목 ID (예: card_1)")
+    title: str = Field(description="항목 또는 프로젝트 제목")
+    column_values: Dict[str, str] = Field(description="섹션의 ai_columns 키들에 대응하는 실제 값 매핑 딕셔너리")
+
+class ResumeSection(BaseModel):
+    section_type: str = Field(description="섹션 유형 (예: PERSONAL, SKILLS, CAREER, EDUCATION, CERTIFICATION)")
+    section_title: str = Field(description="섹션 제목 (예: 인적사항, 핵심 역량, 경력 및 프로젝트 등)")
+    display_order: int = Field(description="표시 순서 (1부터 시작)")
+    ai_columns: List[str] = Field(description="이 섹션의 모든 카드가 공통으로 공유할 컬럼 목록 (예: ['프로젝트명', '기간', '역할 및 기술', '상세 내용'])")
+    details: List[ResumeDetail] = Field(description="해당 섹션에 속한 세부 카드 목록들")
+
+class ResumeSchema(BaseModel):
+    doc_type: str = Field(default="RESUME", description="문서 타입")
+    sections: List[ResumeSection] = Field(description="이력서 섹션 목록")
+
+
 def normalize_resume_data(parsed_dict: dict) -> dict:
     if not isinstance(parsed_dict, dict):
         return {"doc_type": "RESUME", "sections": []}
@@ -111,44 +130,60 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
         )
         section_type = sec.get("section_type") or "CUSTOM"
         
-        raw_details = (
-            sec.get("details") or 
-            sec.get("items") or 
-            sec.get("contents") or 
-            []
-        )
+        raw_details = sec.get("details") or sec.get("items") or sec.get("contents") or []
         if isinstance(raw_details, dict):
             raw_details = [raw_details]
 
+        # 1. 섹션 내 카드들의 모든 column_values 키를 수집하여 유니온(Union) 대표 컬럼 생성
+        section_ai_columns = sec.get("ai_columns") or []
+        discovered_keys = []
+
+        for item in raw_details:
+            if isinstance(item, dict):
+                vals = item.get("column_values") or {}
+                for k in vals.keys():
+                    if k not in discovered_keys:
+                        discovered_keys.append(k)
+
+        # 수집된 키가 있으면 그것을 대표 ai_columns로 채택 (데이터 손실 차단)
+        if discovered_keys:
+            section_ai_columns = discovered_keys
+        elif not section_ai_columns:
+            section_ai_columns = ["내용"]
+
         normalized_details = []
-        global_ai_columns = []
 
         for d_idx, item in enumerate(raw_details):
             if isinstance(item, dict):
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
-                item_title = str(item.get("title") or item.get("name") or "항목").strip()
+                item_title = str(item.get("title") or item.get("name") or f"항목 {d_idx + 1}").strip()
                 
-                ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["컬럼1", "컬럼2"]
-                column_values = item.get("column_values") or {}
-
-                for col in ai_columns:
-                    if col not in global_ai_columns:
-                        global_ai_columns.append(col)
-
+                incoming_values = item.get("column_values") or {}
+                uniform_column_values = {}
                 formatted_text_parts = []
-                for col in ai_columns:
-                    val = column_values.get(col, "")
-                    formatted_text_parts.append(f"[{col}]\n{val}")
+                
+                # 2. 섹션 컬럼에 정의된 키뿐만 아니라 incoming_values의 모든 데이터 보존
+                all_item_keys = list(section_ai_columns)
+                for k in incoming_values.keys():
+                    if k not in all_item_keys:
+                        all_item_keys.append(k)
+
+                for col in all_item_keys:
+                    val = str(incoming_values.get(col, "")).strip()
+                    if val:
+                        uniform_column_values[col] = val
+                        formatted_text_parts.append(f"[{col}]\n{val}")
                 
                 structured_text = "\n\n".join(formatted_text_parts)
 
-                if structured_text.strip():
+                # 단 하나라도 텍스트나 값이 남아있다면 무조건 결과 카드에 포함
+                if uniform_column_values or structured_text.strip():
                     normalized_details.append({
                         "id": card_id,
                         "title": item_title,
                         "original_text": structured_text.strip(),
-                        "ai_columns": ai_columns,
-                        "column_values": column_values
+                        "ai_columns": list(uniform_column_values.keys()),
+                        "column_values": uniform_column_values
                     })
 
         if normalized_details:
@@ -156,7 +191,7 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
                 "section_type": str(section_type),
                 "section_title": str(section_title).strip(),
                 "display_order": idx + 1,
-                "columns": global_ai_columns if global_ai_columns else ["컬럼1", "컬럼2"],
+                "columns": section_ai_columns,
                 "details": normalized_details
             })
 
@@ -164,7 +199,6 @@ def normalize_resume_data(parsed_dict: dict) -> dict:
         "doc_type": parsed_dict.get("doc_type", "RESUME"),
         "sections": normalized_sections
     }
-
 
 def parse_resume_with_groq(raw_text: str, mode: str = "RESUME") -> dict:
     if not groq_client:
@@ -180,56 +214,34 @@ def parse_resume_with_groq(raw_text: str, mode: str = "RESUME") -> dict:
             detail="파일에서 읽을 수 있는 텍스트를 추출하지 못했습니다."
         )
 
-    truncated_text = cleaned_text[:]
-    safe_raw_text = truncated_text.replace("{", "{{").replace("}", "}}")
+    safe_raw_text = cleaned_text.replace("{", "{{").replace("}", "}}")
 
-    # 💡 이력서 항목별 컬럼 분할 및 중복 복사 방지 프롬프트 고도화
+    # 프롬프트에 아키텍처 규칙을 명확히 주입하여 섹션 분리 및 공통 컬럼 구조 강제
     SYSTEM_PROMPT = """You are an expert resume parsing engine and career consultant.
 
-CRITICAL GOALS:
-1. Analyze the uploaded resume text and structure it logically by sections (e.g., 경력 및 프로젝트, 기술 스택, 학력 등).
-2. For each item/card, define appropriate custom column headers (`ai_columns`, e.g., ["프로젝트명", "주요 역할", "사용 기술", "상세 내용"]).
-3. **DO NOT duplicate the entire text across all columns.** Distribute and summarize the text into its corresponding specific column keys in `column_values`.
-4. Ensure the output strictly follows the requested JSON format without any markdown code block issues.
-
-반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
-{
-  "doc_type": "RESUME",
-  "sections": [
-    {
-      "section_type": "CAREER",
-      "section_title": "경력 및 프로젝트",
-      "display_order": 1,
-      "details": [
-        {
-          "id": "card_1",
-          "title": "프로젝트 제목",
-          "ai_columns": ["프로젝트명", "역할 및 기술", "상세 내용"],
-          "column_values": {
-            "프로젝트명": "프로젝트 이름...",
-            "역할 및 기술": "맡은 역할 및 사용 기술...",
-            "상세 내용": "구체적인 구현 내용 및 성과..."
-          }
-        }
-      ]
-    }
-  ]
-}"""
+ARCHITECTURE RULES & STRICT INSTRUCTIONS:
+1. **Documents & Sections**: The resume is a single container. You must divide it into distinct logical **Sections** (`document_sections`).
+2. **Language Matching (언어 일치)**: **All section titles (`section_title`) and column headers (`ai_columns`) must match the language of the source resume text.** If the source resume is written in English, generate column headers and section titles in English (e.g., "Project Name", "Period", "Role"). If it is in Korean, use Korean.
+3. **Section-Level Unified Columns**: **Each Section must define its own unified `ai_columns` array at the section level.** All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
+4. **No Mixing**: Never mix unrelated categories or disparate column structures into the same section.
+5. **Lossless Extraction (원문 유지)**: 절대 텍스트를 요약하거나, 다른 언어로 번역하거나, 임의로 수정하지 말고 원본 문장을 그대로 유지할 것. Do not summarize, translate, or alter the original text; extract and preserve sentences verbatim in their original language.
+6. **JSON Output**: Output strictly valid JSON matching the requested schema without markdown block wrappers."""
 
     target_models = get_available_groq_models(groq_client)
     last_error = None
 
     for model_name in target_models:
         try:
-            print(f"[Groq Attempting Model]: {model_name}")
+            print(f"[Groq Attempting Model (Structured Section-based)]: {model_name}")
+            
             response = groq_client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse all data dynamically from this text into the requested JSON schema:\n\n{safe_raw_text}"}
+                    {"role": "system", "content": SYSTEM_PROMPT + f"\n\nTarget JSON Schema structure:\n{ResumeSchema.model_json_schema()}"},
+                    {"role": "user", "content": f"Parse all data dynamically from this text into the exact JSON schema:\n\n{safe_raw_text}"}
                 ],
                 temperature=0.1,  
-                max_tokens=4096,
+                max_tokens=8192,  # <-- 이 부분을 추가하여 출력 한도를 늘려주세요.
                 response_format={"type": "json_object"}
             )
 
@@ -237,8 +249,9 @@ CRITICAL GOALS:
             clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
 
             if clean_json_str:
-                parsed = safe_json_parse(clean_json_str)
-                normalized_result = normalize_resume_data(parsed)
+                parsed_dict = json.loads(clean_json_str)
+                validated_data = ResumeSchema(**parsed_dict)
+                normalized_result = normalize_resume_data(validated_data.model_dump())
 
                 if len(normalized_result["sections"]) > 0:
                     print(f"[Success Parsing with Model]: {model_name}")
@@ -304,7 +317,7 @@ async def upload_resume_file(
                 "section_type": sec.get("section_type", "CUSTOM"),
                 "section_title": sec.get("section_title", "세부 정보"),
                 "display_order": sec.get("display_order", idx + 1),
-                "columns": sec.get("columns", ["컬럼1", "컬럼2"]),
+                "columns": sec.get("columns", ["항목명", "내용"]),
                 "details": sec.get("details", [])
             })
 

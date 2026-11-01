@@ -1,6 +1,10 @@
+import json
 import re
-from typing import Optional
+import ast
+import time
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, status
+from pydantic import BaseModel, Field
 from groq import Groq
 
 from app.core.config import get_supabase, GROQ_API_KEY
@@ -15,21 +19,25 @@ router = APIRouter(
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
-# 💡 1. column_values 딕셔너리를 [컬럼명]\n내용 형태의 문자열로 변환하는 정제 함수
-def format_text_from_column_values(ai_columns: list, column_values: dict) -> str:
-    if not ai_columns or not column_values:
-        return ""
-    
-    formatted_blocks = []
-    for col in ai_columns:
-        val = column_values.get(col, "")
-        if val:
-            formatted_blocks.append(f"[{col}]\n{val}")
-            
-    return "\n\n".join(formatted_blocks)
+# 💡 1. Pydantic 스키마 정의
+class CoverLetterDetail(BaseModel):
+    id: str = Field(description="항목 ID (예: card_1, card_2)")
+    title: str = Field(description="세부 항목 또는 프로젝트 제목")
+    column_values: Dict[str, str] = Field(description="섹션의 ai_columns 키들에 대응하는 실제 값 매핑 딕셔너리 (질문 반복 금지)")
+
+class CoverLetterSection(BaseModel):
+    section_type: str = Field(description="섹션 유형 (예: HEADER, COVER_LETTER_SECTION, PROJECT)")
+    section_title: str = Field(description="문항의 주제 또는 질문 제목 (예: 기본 정보, 1. 지원동기 및 포부, 2. 주요 프로젝트 및 성과)")
+    display_order: int = Field(description="표시 순서 (1부터 시작)")
+    ai_columns: List[str] = Field(description="이 섹션의 카드가 공통으로 공유할 컬럼 목록 (예: 서술형은 ['내용'], 프로젝트는 ['구현 내용', '사용 기술'])")
+    details: List[CoverLetterDetail] = Field(description="해당 섹션에 속한 세부 내용 및 카드 목록들")
+
+class CoverLetterSchema(BaseModel):
+    doc_type: str = Field(default="COVER_LETTER", description="문서 타입")
+    sections: List[CoverLetterSection] = Field(description="자기소개서 섹션 목록")
 
 
-# 💡 2. 자소서 데이터를 다중 섹션 & 동적 컬럼(ai_columns, column_values) 구조로 정제하는 함수
+# 💡 2. 데이터 정제 및 동적 컬럼 매핑 함수
 def normalize_cover_letter_data(parsed_dict: dict) -> dict:
     if not isinstance(parsed_dict, dict):
         return {"doc_type": "COVER_LETTER", "sections": []}
@@ -44,37 +52,63 @@ def normalize_cover_letter_data(parsed_dict: dict) -> dict:
         if not isinstance(sec, dict):
             continue
 
-        section_title = sec.get("section_title") or sec.get("title") or f"자소서 문항 {idx + 1}"
+        section_title = (
+            sec.get("section_title") or 
+            sec.get("title") or 
+            f"자소서 문항 {idx + 1}"
+        )
         section_type = sec.get("section_type") or "DYNAMIC_SECTION"
         
-        raw_details = sec.get("details") or sec.get("items") or []
+        raw_details = sec.get("details") or sec.get("items") or sec.get("contents") or []
         if isinstance(raw_details, dict):
             raw_details = [raw_details]
 
+        section_ai_columns = sec.get("ai_columns") or []
+        discovered_keys = []
+
+        for item in raw_details:
+            if isinstance(item, dict):
+                vals = item.get("column_values") or {}
+                for k in vals.keys():
+                    if k not in discovered_keys:
+                        discovered_keys.append(k)
+
+        if discovered_keys:
+            section_ai_columns = discovered_keys
+        elif not section_ai_columns:
+            section_ai_columns = ["내용"]
+
         normalized_details = []
-        global_ai_columns = []
 
         for d_idx, item in enumerate(raw_details):
             if isinstance(item, dict):
                 card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
-                item_title = str(item.get("title") or item.get("name") or "항목").strip()
+                item_title = str(item.get("title") or item.get("name") or "").strip()
                 
-                ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["컬럼1", "컬럼2"]
-                column_values = item.get("column_values") or {}
+                incoming_values = item.get("column_values") or {}
+                uniform_column_values = {}
+                formatted_text_parts = []
+                
+                all_item_keys = list(section_ai_columns)
+                for k in incoming_values.keys():
+                    if k not in all_item_keys:
+                        all_item_keys.append(k)
 
-                for c in ai_columns:
-                    if c not in global_ai_columns:
-                        global_ai_columns.append(c)
+                for col in all_item_keys:
+                    val = str(incoming_values.get(col, "")).strip()
+                    if val:
+                        uniform_column_values[col] = val
+                        formatted_text_parts.append(f"[{col}]\n{val}")
+                
+                structured_text = "\n\n".join(formatted_text_parts)
 
-                structured_text = format_text_from_column_values(ai_columns, column_values)
-
-                if structured_text.strip():
+                if uniform_column_values or structured_text.strip():
                     normalized_details.append({
                         "id": card_id,
                         "title": item_title,
                         "original_text": structured_text.strip(),
-                        "ai_columns": ai_columns,
-                        "column_values": column_values
+                        "ai_columns": list(uniform_column_values.keys()),
+                        "column_values": uniform_column_values
                     })
 
         if normalized_details:
@@ -82,7 +116,7 @@ def normalize_cover_letter_data(parsed_dict: dict) -> dict:
                 "section_type": str(section_type),
                 "section_title": str(section_title).strip(),
                 "display_order": idx + 1,
-                "columns": global_ai_columns if global_ai_columns else ["컬럼1", "컬럼2"],
+                "columns": section_ai_columns,
                 "details": normalized_details
             })
 
@@ -92,49 +126,36 @@ def normalize_cover_letter_data(parsed_dict: dict) -> dict:
     }
 
 
-# 💡 3. 요청하신 출력 구조 프롬프트 및 JSON Output Schema를 적용한 Groq 파싱 함수
-# 💡 3. 파일의 원본 구조 및 문항 형태를 자율적으로 분석해 파싱하는 Groq 함수
-# 💡 3. 파일의 원본 구조 및 문항 형태를 자율적으로 분석해 파싱하는 Groq 함수 (출력 구조 최적화 반영)
+# 💡 3. Groq 파싱 함수 (주제와 내용 분리 아키텍처 적용)
 def parse_cover_letter_with_groq(raw_text: str) -> dict:
     if not groq_client:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY가 설정되지 않았습니다.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="서버에 GROQ_API_KEY가 설정되지 않았습니다."
+        )
 
-    # ✅ 자기소개서 문항 구조(질문, 답변, 핵심 역량 등)에 맞게 명확히 파싱하도록 시스템 프롬프트 고도화
-    # savepile_coverletters.py 내 SYSTEM_PROMPT 교체
+    cleaned_text = raw_text.strip() if raw_text else ""
+    if len(cleaned_text) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="파일에서 읽을 수 있는 텍스트를 추출하지 못했습니다."
+        )
 
-    SYSTEM_PROMPT = """You are an ultra-comprehensive document parsing engine and expert cover letter consultant.
+    safe_raw_text = cleaned_text.replace("{", "{{").replace("}", "}}")
 
-[작성 지침]
-1. 원문의 내용을 분석하여 단순히 '질문', '답변' 2개 컬럼으로 묶지 말고, 내용의 흐름에 맞춰 유연하고 전문적인 3~4개의 동적 분석 컬럼을 정의하세요.
-   - 예시 A (일반 문항): ["지원 동기", "주요 기술 역량 및 경험", "입사 후 포부 및 기여"]
-   - 예시 B (문제 해결 문항): ["핵심 과제 및 배경", "해결 방법 및 기술", "정량적 성과 및 배운 점"]
-   - 예시 C (경험 윤문): ["Situation", "Task", "Action", "Result"]
-2. 각 컬럼별로 원문 텍스트 내용을 분할/배분하여 `column_values`의 키-값으로 매핑하세요.
-3. 절대 원문 내용을 누락하거나 통째로 한 컬럼에 몰아 넣지 마세요.
+    SYSTEM_PROMPT = """You are an expert cover letter parsing engine and career consultant.
 
-반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
-{
-  "doc_type": "COVER_LETTER",
-  "sections": [
-    {
-      "section_type": "COVER_LETTER_SECTION",
-      "section_title": "자기소개서 문항 1",
-      "display_order": 1,
-      "details": [
-        {
-          "id": "card_1",
-          "title": "지원동기 및 포부",
-          "ai_columns": ["지원 동기", "핵심 기술 역량", "입사 후 포부"],
-          "column_values": {
-            "지원 동기": "사용자 관점의 서비스 편의성과 백엔드 시스템 구축에 높은 열정을 가지고 있어 지원하게 되었습니다...",
-            "핵심 기술 역량": "동양미래대학교 소프트웨어 전공 중 FastAPI 기반 AI 백엔드 구축 및 Android 앱 개발을 주도적으로 수행하였습니다...",
-            "입사 후 포부": "입사 후에는 지속적으로 기술 역량을 고도화하여 확장성과 안정성을 보장하는 핵심 개발자로 성장하겠습니다."
-          }
-        }
-      ]
-    }
-  ]
-}"""
+ARCHITECTURE RULES & STRICT INSTRUCTIONS:
+1. **Topic-Content Separation (주제와 내용 분리)**:
+   - The overarching topic or question heading MUST be placed strictly in `section_title`.
+   - **DO NOT create a redundant question column or repeat the section title inside `details` or `column_values`.** The `section_title` already acts as the topic.
+2. **Proper Column & Card Structuring**:
+   - **For Header / Profile Section**: Group profile attributes into a single card where `ai_columns` are attributes and `column_values` hold their values.
+   - **For Essay / Motivation Questions**: Do not split unnecessarily. Use a single card with a clean column like `["내용"]` (or `["Content"]` if English) containing the verbatim answer text.
+   - **For Project / Multi-item Sections**: If there are distinct sub-items, split them into separate detail cards (`details`) where each card's `title` is the sub-item name, and columns represent details.
+3. **Language Matching (언어 일치)**: **All section titles (`section_title`) and column headers (`ai_columns`) must match the language of the source cover letter text.** If the source text is written in English, generate column headers and section titles in English. If it is in Korean, use Korean.
+4. **Lossless Extraction (원문 유지)**: Do not summarize, translate, or alter the original text; extract and preserve sentences verbatim in their original language[cite: 2].
+5. **JSON Output**: Output strictly valid JSON matching the requested schema without markdown block wrappers."""
     target_models = get_available_groq_models(groq_client)
     last_error = None
 
@@ -143,29 +164,37 @@ def parse_cover_letter_with_groq(raw_text: str) -> dict:
             response = groq_client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Parse this cover letter text into the required JSON schema accurately:\n\n{raw_text}"}
+                    {"role": "system", "content": SYSTEM_PROMPT + f"\n\nTarget JSON Schema structure:\n{CoverLetterSchema.model_json_schema()}"},
+                    {"role": "user", "content": f"Parse all data dynamically from this cover letter text into the exact JSON schema:\n\n{safe_raw_text}"}
                 ],
-                temperature=0.1,
-                max_tokens=4096,
+                temperature=0.1,  
+                max_tokens=8192,  
                 response_format={"type": "json_object"}
             )
+
             raw_content = response.choices[0].message.content or ""
             clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
 
             if clean_json_str:
-                parsed = safe_json_parse(clean_json_str)
-                normalized = normalize_cover_letter_data(parsed)
-                if normalized.get("sections"):
-                    return normalized
+                parsed_dict = json.loads(clean_json_str)
+                validated_data = CoverLetterSchema(**parsed_dict)
+                normalized_result = normalize_cover_letter_data(validated_data.model_dump())
+
+                if len(normalized_result["sections"]) > 0:
+                    return normalized_result
+
         except Exception as e:
             last_error = e
+            time.sleep(0.5)
             continue
 
-    raise HTTPException(status_code=500, detail=f"Groq 파싱 실패: {str(last_error)}")
+    raise HTTPException(
+        status_code=500,
+        detail=f"모든 유효 Groq 모델 파싱 실패: {str(last_error)}"
+    )
 
-# 💡 4. 업로드 라우터 수정 (mode 파라미터 추가 반영)
-# 💡 4. 업로드 라우터 (파일 구조 자율 분석 반영)
+
+# 💡 4. 업로드 라우터
 @router.post("/upload")
 async def upload_cover_letter_file(
     member_id: str = Form(...),
@@ -180,9 +209,11 @@ async def upload_cover_letter_file(
         raw_text = extract_text_from_file(file_bytes, file.filename)
 
         if not raw_text or not raw_text.strip():
-            raise HTTPException(status_code=400, detail="파일에서 텍스트를 추출할 수 없습니다.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="파일에서 텍스트를 추출할 수 없습니다."
+            )
 
-        # 파일의 고유 구조를 스스로 분석하여 파싱
         parsed_result = parse_cover_letter_with_groq(raw_text)
 
         supabase = get_supabase()
@@ -195,7 +226,7 @@ async def upload_cover_letter_file(
         doc_res = supabase.table("documents").insert(doc_payload).execute()
 
         if not doc_res.data:
-            raise HTTPException(status_code=500, detail="documents DB 저장 실패")
+            raise HTTPException(status_code=500, detail="documents 테이블 저장에 실패하였습니다.")
 
         created_document_id = doc_res.data[0]["id"]
 
@@ -203,17 +234,22 @@ async def upload_cover_letter_file(
         sections_payload = []
 
         for idx, sec in enumerate(sections_data):
+            if not isinstance(sec, dict):
+                continue
+                
             sections_payload.append({
                 "document_id": created_document_id,
                 "section_type": sec.get("section_type", "DYNAMIC_SECTION"),
                 "section_title": sec.get("section_title", f"문항 {idx + 1}"),
                 "display_order": sec.get("display_order", idx + 1),
-                "columns": sec.get("columns", ["컬럼1", "컬럼2"]),
+                "columns": sec.get("columns", ["내용"]),
                 "details": sec.get("details", [])
             })
 
         if sections_payload:
-            supabase.table("document_sections").insert(sections_payload).execute()
+            sec_res = supabase.table("document_sections").insert(sections_payload).execute()
+            if not sec_res.data:
+                raise HTTPException(status_code=500, detail="document_sections 테이블 저장에 실패하였습니다.")
 
         return {
             "status": "success",
@@ -226,7 +262,12 @@ async def upload_cover_letter_file(
     except Exception as e:
         if created_document_id:
             try:
-                get_supabase().table("documents").delete().eq("id", created_document_id).execute()
-            except Exception:
-                pass
-        raise HTTPException(status_code=500, detail=f"업로드 실패: {str(e)}")
+                supabase = get_supabase()
+                supabase.table("documents").delete().eq("id", created_document_id).execute()
+            except Exception as rollback_err:
+                print(f"[Rollback Failed]: {rollback_err}")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"자기소개서 업로드 및 파싱 저장 실패: {str(e)}"
+        )

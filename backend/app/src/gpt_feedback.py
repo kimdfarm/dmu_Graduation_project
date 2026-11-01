@@ -13,7 +13,8 @@ load_dotenv()
 def fetch_and_parse_document(document_id: str) -> tuple[str, str]:
     """
     Supabase의 documents 테이블에서 doc_type(COVER_LETTER 또는 RESUME)을 확인하고,
-    해당 문서의 구조와 내용을 완벽하게 파싱하여 텍스트로 조합합니다.
+    document_sections의 선택된 버전(selected) 및 ai_style의 mode 정보를 참고하여
+    문서의 구조와 내용을 완벽하게 파싱하여 텍스트로 조합합니다.
     반환값: (doc_type, parsed_text)
     """
     try:
@@ -50,40 +51,64 @@ def fetch_and_parse_document(document_id: str) -> tuple[str, str]:
         header_label = "이력서" if doc_type == "RESUME" else "자기소개서"
         parsed_lines = [f"[{header_label} 제목: {doc_title}]\n"]
 
-        # 3. 항목별, 카드별 텍스트 정교하게 추출
+        # 3. 항목별, 카드별 텍스트 및 컬럼/모드 정보 반영 파싱
         for sec in sections:
             sec_title = sec.get("section_title", "항목")
-            sec_version = sec.get("selected_version") or "ORIGINAL"
-            details = sec.get("details") or []
             
-            parsed_lines.append(f"\n--- [{sec_title}] ---")
+            # 선택된 버전(selected) 파악 ('ai', 'spell', 'original' 등)
+            sec_selected = str(sec.get("selected") or sec.get("selected_version") or "ORIGINAL").upper().strip()
+            
+            # ai_style 내부의 mode 확인 (selected가 AI일 때 또는 기본 모드 참고용)
+            ai_style = sec.get("ai_style") or {}
+            if isinstance(ai_style, str):
+                try:
+                    ai_style = json.loads(ai_style)
+                except Exception:
+                    ai_style = {}
+            
+            section_mode = str(ai_style.get("mode") or sec.get("mode") or "").upper().strip()
+            
+            parsed_lines.append(f"\n--- [{sec_title}] (선택: {sec_selected}, 모드: {section_mode or '기본'}) ---")
 
+            details = sec.get("details") or []
             for d in details:
                 if not isinstance(d, dict):
                     continue
                 
                 card_title = d.get("title", "")
-                card_version = d.get("selected_version") or sec_version
+                card_version = str(d.get("selected") or d.get("selected_version") or sec_selected).upper().strip()
                 
-                # 사용자가 선택한 버전에 따라 텍스트 분기 채택 (AI 교정본 -> 맞춤법 검사본 -> 원본 순)
+                # 컬럼 정보(ai_columns 등)가 있다면 참고 기록
+                ai_columns = d.get("ai_columns") or sec.get("ai_columns") or []
+                if ai_columns:
+                    parsed_lines.append(f"• 참고 컬럼: {', '.join(ai_columns)}")
+
+                # 텍스트 분기 처리 (selected가 AI인 경우 AI 교정본 우선 채택 등)
                 target_text = ""
-                if card_version == 'AI' and d.get("ai_proofread_text"):
-                    target_text = d.get("ai_proofread_text")
-                elif card_version == 'SPELL' and d.get("spell_checked_text"):
-                    target_text = d.get("spell_checked_text")
-                else:
+                if card_version == 'AI' or sec_selected == 'AI':
+                    target_text = d.get("ai_proofread_text") or d.get("ai_text") or ""
+                
+                if not target_text and (card_version == 'SPELL' or sec_selected == 'SPELL'):
+                    target_text = d.get("spell_checked_text") or ""
+                
+                if not target_text:
                     target_text = d.get("original_text") or ""
 
-                # values 객체(동적 컬럼 매핑)가 있는 경우 추가 병합
-                if not target_text and d.get("values"):
-                    values_dict = d.get("values")
-                    target_text = " ".join([f"{k}: {v}" for k, v in values_dict.items() if v])
+                # column_values 또는 values 객체가 있는 경우 동적 매핑 병합
+                column_values = d.get("column_values") or d.get("values")
+                if not target_text and column_values:
+                    target_text = " ".join([f"[{k}] {v}" for k, v in column_values.items() if v])
 
                 if card_title:
                     parsed_lines.append(f"• 항목명: {card_title}")
+                
                 if target_text:
-                    cleaned = target_text.replace("\\n", "\n").strip()
+                    cleaned = str(target_text).replace("\\n", "\n").strip()
                     parsed_lines.append(cleaned)
+                elif column_values:
+                    for k, v in column_values.items():
+                        if v:
+                            parsed_lines.append(f"• {k}: {v}")
 
         return doc_type, "\n".join(parsed_lines)
 
@@ -132,25 +157,25 @@ class ResumeFeedbackEngine:
         return self.generate_feedback(user_doc_text, top_jd_text, doc_type=doc_type)
 
     def generate_feedback(self, user_resume: str, top_jd_text: str, doc_type: str = "COVER_LETTER") -> dict:
-        # doc_type에 따라 이력서인지 자기소개서인지 명칭 분기
         doc_label = "이력서/경력기술서" if doc_type == "RESUME" else "자기소개서"
         
         prompt = f"""
 당신은 IT 분야 전문 커리어 코치입니다.
-사용자의 {doc_label} 및 기술스택과 채용 공고(JD)를 비교 분석하여 JSON 형식으로 피드백을 제공해 주세요.
+사용자의 {doc_label} (document_section의 컬럼 구조, 선택된 버전 및 모드 스타일이 반영됨)과 채용 공고(JD)를 비교 분석하여 JSON 형식으로 피드백을 제공해 주세요.
 
-[사용자 {doc_label} 및 기술스택]
+[사용자 {doc_label}]
 {user_resume}
 
 [채용 공고 (JD)]
 {top_jd_text}
 
 [출력 요구사항]
-반드시 아래 키(Key)를 가진 단일 JSON 객체로 응답하세요:
-- "match_summary": {doc_label}와 채용 공고 간의 종합 일치도 및 총평 (2~3문장)
-- "strengths": {doc_label}에서 채용 공고와 잘 부합하는 강점 (항목 2~3개 리스트)
-- "missing_skills": 채용 공고 요구사항 대비 보완이 필요한 역량 및 키워드 (2~3개 리스트)
-- "improvement_suggestions": 공고 합격률을 높이기 위한 {doc_label} 수정/보완 제안 (2~3개 리스트)
+- **중요**: 피드백 출력 언어는 반드시 위 [사용자 {doc_label}]에 작성된 **원문 문서의 언어(Language)**와 동일한 언어로 작성해 주세요. (예: 문서가 한국어로 되어 있다면 한국어로, 영어로 되어 있다면 영어로 출력)
+- 반드시 아래 키(Key)를 가진 단일 JSON 객체로 응답하세요:
+  - "match_summary": {doc_label}와 채용 공고 간의 종합 일치도 및 총평 (2~3문장)
+  - "strengths": {doc_label}에서 채용 공고와 잘 부합하는 강점 (항목 2~3개 리스트)
+  - "missing_skills": 채용 공고 요구사항 대비 보완이 필요한 역량 및 키워드 (2~3개 리스트)
+  - "improvement_suggestions": 공고 합격률을 높이기 위한 {doc_label} 수정/보완 제안 (2~3개 리스트)
 """
 
         # 1차 시도 (OpenAI 또는 Groq)

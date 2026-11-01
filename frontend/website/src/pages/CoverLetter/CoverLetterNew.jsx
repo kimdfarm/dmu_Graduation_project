@@ -211,6 +211,7 @@ const CoverLetterNew = () => {
       } else if (createMode === 'MANUAL') {
         if (sections.length === 0) { alert('최소 1개 이상의 자소서 항목이 필요합니다.'); setIsLoading(false); return; }
 
+        // ✅ ResumeNew처럼 백엔드가 요구하는 필드 구조로 변환
         const formattedSections = sections.map((sec, idx) => ({
           section_type: sec.type || 'CUSTOM',
           section_title: sec.title,
@@ -221,7 +222,12 @@ const CoverLetterNew = () => {
         const response = await fetch(`${API_URL}/api/cover-letters`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ member_id: userId, title: title.trim(), category, custom_sections: formattedSections }),
+          body: JSON.stringify({ 
+            member_id: userId, 
+            title: title.trim(), 
+            category, 
+            custom_sections: formattedSections 
+          }),
         });
 
         if (!response.ok) {

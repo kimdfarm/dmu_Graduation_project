@@ -125,6 +125,7 @@ class SectionUpdateRequest(BaseModel):
 # ------------------------------------------------------------------
 
 # [1] 새 자기소개서 생성 (동적 문항 & 컬럼 반영)
+# [1] 새 자기소개서 생성 (동적 문항 & 컬럼 반영)
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_cover_letter(payload: CoverLetterCreateRequest):
     try:
@@ -147,12 +148,10 @@ async def create_cover_letter(payload: CoverLetterCreateRequest):
         sections_to_insert = []
 
         # B-1. 프론트엔드에서 전달한 맞춤 프레임/문항 구조가 있는 경우
-        # B-1. 프론트엔드에서 전달한 맞춤 프레임/문항 구조가 있는 경우
         if payload.custom_sections and len(payload.custom_sections) > 0:
             for idx, sec in enumerate(payload.custom_sections):
                 cols = sec.columns if sec.columns and len(sec.columns) > 0 else ["질문 항목", "작성 내용"]
                 
-                # 💡 초기 column_values 빈 맵 생성 및 original_text 포맷 정렬
                 empty_column_values = {col: "" for col in cols}
                 init_original_text = f"[{cols[0]}]\n내용을 입력해주세요."
 
@@ -163,11 +162,20 @@ async def create_cover_letter(payload: CoverLetterCreateRequest):
                         "original_text": init_original_text,
                         "spell_checked_text": None,
                         "ai_proofread_text": None,
-                        "ai_columns": cols,                   # ← 추가: 컬럼 구조 보존
-                        "column_values": empty_column_values, # ← 추가: 컬럼 값 매핑 보존
+                        "ai_columns": cols,
+                        "column_values": empty_column_values,
                         "selected_version": "ORIGINAL"
                     }
                 ] if not sec.details else [d.model_dump() for d in sec.details]
+
+                sections_to_insert.append({
+                    "document_id": doc_id,
+                    "section_type": sec.section_type,
+                    "section_title": sec.section_title,
+                    "display_order": sec.display_order or (idx + 1),
+                    "columns": cols,
+                    "details": init_details
+                })
         # B-2. custom_sections가 없는 경우 기본 자기소개서 항목(4종)으로 Fallback
         else:
             default_cols = ["질문 항목", "작성 내용"]
@@ -219,7 +227,7 @@ async def create_cover_letter(payload: CoverLetterCreateRequest):
     except Exception as e:
         print(f"❌ 자기소개서 생성 에러: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 # [2] 내 자기소개서 목록 조회
 @router.get("")
 async def get_cover_letters(member_id: str):
