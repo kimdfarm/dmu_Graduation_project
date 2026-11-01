@@ -4,7 +4,7 @@ import {
   ArrowLeft, Loader2, Sparkles, Search, 
   Calendar, CheckCircle2, Check, Globe
 } from 'lucide-react';
-import { FRAME_TEMPLATES } from '../../templates/githubTemplates';
+import { GITHUB_FRAME_TEMPLATES } from '../../templates/githubTemplates';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
