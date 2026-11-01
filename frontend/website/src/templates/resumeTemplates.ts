@@ -167,7 +167,9 @@ export const FRAME_TEMPLATES: Record<string, FrameTemplate> = {
       { type: 'SKILLS', title: '2. Tech Stack (기술 스택)', columns: ['Category (분야)', 'Tools (도구)', 'Level (수준)'] },
       { type: 'EXPERIENCE', title: '3. Projects & Work (프로젝트 및 경력)', columns: ['Title (제목)', 'Period (기간)', 'Impact & Tech (성과 및 사용 기술)'] },
     ]
-  }
+  }, // <--- 💡 여기에 콤마(,)가 빠져 있어서 깨졌던 것입니다!
+
+
 };
 
 /**

@@ -525,7 +525,7 @@ async def generate_github_resume(
 
         created_document_id = doc_res.data[0]["id"]
 
-        # 2. 프론트엔드에서 전달된 템플릿 전체 구조 가져오기
+        # 2. 프론트엔드에서 전달된 템플릿 전체 구조 가져오기 (savepile_resume.py와 동일한 스키마 구조 보장)
         template_structure = payload.template_structure or {}
         template_sections = template_structure.get("sections", [])
         
@@ -543,11 +543,10 @@ async def generate_github_resume(
         model2_system_prompt = f"""You are an expert resume formatting and database structuring engine.
 
 CRITICAL GOALS:
-1. Analyze the provided GitHub repository analysis data.
-2. Structure the data logically according to the requested template sections.
-3. For each section and card/item, define appropriate custom column headers (`ai_columns`, e.g., ["프로젝트명", "주요 역할", "사용 기술", "상세 내용"]).
-4. **DO NOT duplicate the entire text across all columns.** Distribute and summarize the text into its corresponding specific column keys in `column_values`.
-5. Language rule: {lang_instruction}
+1. Analyze the provided GitHub repository analysis data and distribute them into the requested template sections (`template_sections`).
+2. **Each Section must define its own unified `ai_columns` array at the section level** matching the provided template columns (e.g., ["Project Name", "Timeline", "Tech Stack", "Architecture & Impact"]).
+3. All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
+4. Language rule: {lang_instruction}
 
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {{
@@ -557,11 +556,11 @@ CRITICAL GOALS:
       "section_type": "PROJECTS",
       "section_title": "섹션 제목",
       "display_order": 1,
+      "ai_columns": ["컬럼1", "컬럼2"],
       "details": [
         {{
           "id": "card_1_1",
           "title": "프로젝트/항목 제목",
-          "ai_columns": ["컬럼1", "컬럼2"],
           "column_values": {{
             "컬럼1": "내용...",
             "컬럼2": "내용..."
@@ -579,11 +578,10 @@ CRITICAL GOALS:
 [깃허브 원본 프로젝트 분석 데이터]
 {json.dumps(projects_data, ensure_ascii=False)}
 
-위 데이터를 바탕으로 지정된 템플릿 섹션들에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
+위 데이터를 바탕으로 지정된 템플릿 섹션들의 구조와 컬럼에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
 """
 
         try:
-            # Gemini SDK를 이용한 콘텐츠 생성 호출 (정확한 JSON 응답을 위해 response_mime_type 지정)
             model2_res = gemini_client.models.generate_content(
                 model=GEMINI_MODEL_NAME,
                 contents=f"System Prompt:\n{model2_system_prompt}\n\nUser Prompt:\n{model2_user_prompt}",
@@ -604,7 +602,7 @@ CRITICAL GOALS:
             sections_data = parsed_result.get("sections", [])
             
             if not sections_data:
-                sections_data = [
+                sections_data = template_sections or [
                     {
                         "section_type": "PROJECTS",
                         "section_title": "주요 프로젝트",
@@ -613,10 +611,8 @@ CRITICAL GOALS:
                         "details": [{
                             "id": "card_1_1",
                             "title": payload.repo_name or "GitHub Project",
-                            "original_text": "[프로젝트명]\nGitHub 프로젝트\n\n[주요 내용]\n분석 데이터 기반 자동 생성",
                             "ai_columns": ["프로젝트명", "주요 내용"],
-                            "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"},
-                            "selected_version": "ORIGINAL"
+                            "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"}
                         }]
                     }
                 ]
@@ -638,7 +634,7 @@ CRITICAL GOALS:
                 "section_type": sec.get("section_type", "PROJECTS"),
                 "section_title": sec.get("section_title", "세부 정보"),
                 "display_order": sec.get("display_order", idx + 1),
-                "columns": sec.get("columns", ["항목", "내용"]),
+                "columns": sec.get("columns", sec.get("ai_columns", ["항목", "내용"])),
                 "details": sec.get("details", [])
             })
 
@@ -668,6 +664,7 @@ CRITICAL GOALS:
             status_code=500,
             detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
         )
+
 
 
 def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:

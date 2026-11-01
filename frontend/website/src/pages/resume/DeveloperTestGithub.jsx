@@ -4,7 +4,7 @@ import {
   ArrowLeft, Loader2, Sparkles, Search, 
   Calendar, CheckCircle2, Check, Globe
 } from 'lucide-react';
-import { FRAME_TEMPLATES } from '../../templates/resumeTemplates';
+import { FRAME_TEMPLATES } from '../../templates/githubTemplates';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -226,7 +226,7 @@ const DeveloperTestGithub = () => {
     }
   };
 
-  const handleDirectGenerateResume = async () => {
+const handleDirectGenerateResume = async () => {
     if (!selectedFrame) {
       alert("이력서 프레임 템플릿을 선택해 주세요.");
       return;
@@ -247,8 +247,8 @@ const DeveloperTestGithub = () => {
       setLoading(true);
       setLoadingText(`[${testGithubId}] 2단계 심층 AI 분석 및 이력서 생성 중...`);
 
-      const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
-      const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
+      // 💡 GITHUB_FRAME_TEMPLATES에서 선택된 프레임 참조
+      const currentTemplate = GITHUB_FRAME_TEMPLATES[selectedFrame] || {};
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -258,7 +258,7 @@ const DeveloperTestGithub = () => {
           title: title.trim() || `[${testGithubId}] GitHub 기술 이력서`,
           category: category,
           repo_name: selectedRepos.join(', '),
-          template_columns: targetColumns,
+          template_structure: currentTemplate, 
           language: language,
           analysis_data: { projects_data: estimationResult.projects_data }
         })
@@ -421,10 +421,10 @@ const DeveloperTestGithub = () => {
           <div className="space-y-3">
             <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
               <Globe className="w-4 h-4 text-emerald-400" />
-              이력서 프레임 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
+              GitHub 심층 분석 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Object.entries(FRAME_TEMPLATES).map(([key, tpl]) => (
+              {Object.entries(GITHUB_FRAME_TEMPLATES).map(([key, tpl]) => (
                 <button
                   key={key}
                   type="button"
