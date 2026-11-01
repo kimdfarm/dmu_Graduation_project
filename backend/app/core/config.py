@@ -7,6 +7,8 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("MAIN_URL")
 SUPABASE_KEY = os.getenv("MAIN_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("SUPABASE_URL 또는 SUPABASE_KEY가 .env 파일에 설정되지 않았습니다.")

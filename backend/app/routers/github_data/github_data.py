@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Header, status, Query, Re
 from pydantic import BaseModel
 import httpx
 from supabase import Client
-from groq import Groq, RateLimitError, AuthenticationError, APIError
+from google import genai
+from google.genai import errors as genai_errors
 from datetime import datetime, timedelta, timezone, time
-from app.core.config import get_supabase, GROQ_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
+from app.core.config import get_supabase, GEMINI_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
 import requests
 import traceback
 import re
@@ -167,7 +168,8 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             "key_prs_and_issues": []
         }
 
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Groq 클라이언트 대신 Google GenAI 클라이언트 초기화
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 try:
     from json_repair import repair_json
@@ -369,7 +371,8 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 }
 """
 
-GROQ_MODEL_NAME = "openai/gpt-oss-120b"
+# Gemini 모델 지정 (가장 빠르고 가벼운 gemini-2.5-flash 활용 권장)
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
@@ -489,10 +492,10 @@ async def generate_github_resume(
 ):
     created_document_id = None
 
-    if not groq_client:
+    if not gemini_client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="GROQ_API_KEY가 설정되지 않았습니다."
+            detail="GEMINI_API_KEY가 설정되지 않았습니다."
         )
 
     try:
@@ -580,18 +583,17 @@ CRITICAL GOALS:
 """
 
         try:
-            model2_res = groq_client.chat.completions.create(
-                model=GROQ_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": model2_system_prompt},
-                    {"role": "user", "content": model2_user_prompt}
-                ],
-                temperature=0.1,  
-                max_tokens=4096,
-                response_format={"type": "json_object"}
+            # Gemini SDK를 이용한 콘텐츠 생성 호출 (정확한 JSON 응답을 위해 response_mime_type 지정)
+            model2_res = gemini_client.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=f"System Prompt:\n{model2_system_prompt}\n\nUser Prompt:\n{model2_user_prompt}",
+                config={
+                    "temperature": 0.1,
+                    "response_mime_type": "application/json",
+                }
             )
 
-            raw_content = model2_res.choices[0].message.content or ""
+            raw_content = model2_res.text or ""
             clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
 
             parsed_result = {}
@@ -619,12 +621,6 @@ CRITICAL GOALS:
                     }
                 ]
 
-        except RateLimitError as rle:
-            print(f"Groq 토큰 한도 초과(Rate Limit): {rle}")
-            raise HTTPException(
-                status_code=429,
-                detail="Groq API 분당 토큰/요청 한도(Rate Limit)를 초과했습니다. 잠시 후 다시 시도해 주세요."
-            )
         except Exception as sec_err:
             print(f"섹션 생성 중 오류 발생: {sec_err}")
             raise HTTPException(
@@ -669,7 +665,7 @@ CRITICAL GOALS:
                 print(f"Rollback failed: {rollback_err}")
 
         raise HTTPException(
-            status_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR if hasattr(status, 'HTTP_500_INTERNAL_SERVER_ERROR') else 500,
+            status_code=500,
             detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
         )
 
