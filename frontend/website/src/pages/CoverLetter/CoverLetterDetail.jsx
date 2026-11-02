@@ -7,8 +7,7 @@ import {
   CheckCircle, AlertTriangle, Lightbulb, BarChart3, Tag, Check, Info, RefreshCw, Target, Zap, Building 
 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const BASE_URL = import.meta.env.VITE_BASE_URL || "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const generateUniqueId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -413,7 +412,7 @@ const CoverLetterDetail = () => {
       && targetSection.modeColumnsMap[modeName].length > 0;
 
     try {
-      await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -494,7 +493,7 @@ const CoverLetterDetail = () => {
   };
 
   const handleFetchRecommendationsLsi = async () => {
-    await executeRecommendation(`${API_URL}/api/recommend`);
+    await executeRecommendation(`${BASE_URL}/api/recommend`);
   };
 
   const handleRunFeedbackAnalysis = async () => {
@@ -507,7 +506,7 @@ const CoverLetterDetail = () => {
       setIsAnalyzingFeedback(true);
       setAnalysisError('');
 
-      const fbRes = await fetch(`${API_URL}/api/feedback`, {
+      const fbRes = await fetch(`${BASE_URL}/api/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

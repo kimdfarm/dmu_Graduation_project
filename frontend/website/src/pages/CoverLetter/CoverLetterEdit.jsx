@@ -5,7 +5,7 @@ import {
   PlusCircle, X, GripVertical, Maximize2, Check, AlertTriangle 
 } from 'lucide-react';
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // 안전한 UUID 생성 함수
 const generateUniqueId = () => {
@@ -167,7 +167,7 @@ const CoverLetterEdit = () => {
       try {
         setIsLoading(true);
         setErrorMessage('');
-        const response = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
+        const response = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}`);
         if (!response.ok) throw new Error('자기소개서 정보를 불러오지 못했습니다.');
 
         const data = await response.json();
@@ -244,7 +244,7 @@ const CoverLetterEdit = () => {
       setErrorMessage('');
 
       const deletePromises = deletedSectionIds.map(async (secId) => {
-        const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${secId}`, {
+        const res = await fetch(`${API_URL}/api/cover-letters/sections/${secId}`, {
           method: 'DELETE',
         });
         if (!res.ok) throw new Error(`섹션 삭제 중 오류 발생 (ID: ${secId})`);
@@ -253,7 +253,7 @@ const CoverLetterEdit = () => {
 
       const updatePromises = sections.map(async (sec) => {
         const cleanDetails = serializeTableToDetails(sec.columns, sec.rows);
-        const res = await fetch(`${BASE_URL}/api/cover-letters/sections/${sec.id}`, {
+        const res = await fetch(`${API_URL}/api/cover-letters/sections/${sec.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -456,7 +456,7 @@ const CoverLetterEdit = () => {
       const newDisplayOrder = sections.length + 1;
       const defaultColumns = ['질문', '답변'];
 
-      const res = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}/sections`, {
+      const res = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
