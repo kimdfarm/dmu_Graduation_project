@@ -452,6 +452,13 @@ async def analyze_repository_graphql(
                     detail=f"저장소 정보를 찾을 수 없습니다: {target_owner}/{target_repo_name}"
                 )
 
+            # 브랜치 혹은 커밋 내역이 아예 없는 빈 저장소 체크
+            if not repo_analytics.get("defaultBranchRef"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"[{target_repo_name}] 저장소에 기본 브랜치나 분석할 커밋 데이터가 없습니다."
+                )
+
             if not all_commits:
                 base_repo_data = repo_analytics
 

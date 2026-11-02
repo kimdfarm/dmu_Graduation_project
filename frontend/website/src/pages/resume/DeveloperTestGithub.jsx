@@ -49,7 +49,7 @@ const DeveloperTestGithub = () => {
   const [searchMode, setSearchMode] = useState('relative');
   const [years, setYears] = useState(0);
   const [months, setMonths] = useState(6);
-
+  const [skippedRepos, setSkippedRepos] = useState([]); // 정보 없음/에러로 건너뛴 저장소 상태 추가
   const getInitialDates = () => {
     const today = new Date();
     const sixMonthsAgo = new Date();
@@ -165,6 +165,7 @@ const DeveloperTestGithub = () => {
       setEstimationProgress({ current: 0, total: selectedRepos.length, currentRepo: '' });
 
       const projectsData = [];
+      const failedRepos = []; // 건너뛴 저장소 기록용
 
       for (let i = 0; i < selectedRepos.length; i++) {
         const repoName = selectedRepos[i];
@@ -174,27 +175,42 @@ const DeveloperTestGithub = () => {
           currentRepo: repoName 
         });
 
-        const res = await fetch(`${BASE_URL}/api/github/analyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            github_id: String(testGithubId),
-            repo_name: String(repoName),
-            start_date: startDate || "",
-            end_date: endDate || ""
-          })
-        });
+        try {
+          const res = await fetch(`${BASE_URL}/api/github/analyze`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              github_id: String(testGithubId),
+              repo_name: String(repoName),
+              start_date: startDate || "",
+              end_date: endDate || ""
+            })
+          });
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `[${repoName}] 분석 실패`);
+          if (!res.ok) {
+            // 에러 발생 시 전체 중단 대신 해당 저장소만 기록하고 건너뜀
+            console.warn(`[${repoName}] 분석 데이터 부족 또는 에러 발생, 건너뜁니다.`);
+            failedRepos.push(repoName);
+            continue;
+          }
+
+          const data = await res.json();
+          
+          // 데이터 내부 유효성 체크 (커밋이나 스택 등이 완전히 비어있는 경우 체크 가능)
+          projectsData.push(data);
+        } catch (repoErr) {
+          console.warn(`[${repoName}] 요청 실패로 건너뜁니다:`, repoErr);
+          failedRepos.push(repoName);
         }
+      }
 
-        const data = await res.json();
-        projectsData.push(data);
+      setSkippedRepos(failedRepos); // 건너뛴 저장소 상태 저장
+
+      if (projectsData.length === 0) {
+        throw new Error("선택한 모든 저장소에 탐색 가능한 유효 데이터(커밋 등)가 없습니다.");
       }
 
       const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
@@ -214,7 +230,9 @@ const DeveloperTestGithub = () => {
         input_tokens: estimateData.input_tokens,
         output_tokens: estimateData.output_tokens,
         total_tokens: estimateData.total_tokens,
-        projects_data: projectsData
+        projects_data: projectsData,
+        success_count: projectsData.length,
+        skipped_count: failedRepos.length
       });
 
     } catch (err) {
