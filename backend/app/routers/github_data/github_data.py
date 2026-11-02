@@ -9,6 +9,8 @@ from supabase import Client
 from google import genai
 from google.genai import errors as genai_errors
 import time as py_time  # time 모듈을 py_time으로 별칭 지정
+import datetime  # from datetime import datetime 대신 모듈 전체 임포트
+from datetime import timedelta, timezone, time as dt_time
 import random
 from app.core.config import get_supabase, GEMINI_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
 import requests
@@ -773,8 +775,8 @@ def get_github_repositories(
                 if detail_res.status_code == 200:
                     raw_repos.append(detail_res.json())
 
-        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        start_datetime = datetime.datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_datetime = datetime.datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
 
         filtered_repos = []
         for repo in raw_repos:
@@ -811,7 +813,7 @@ def get_github_repositories(
             pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
             if pushed_at_str:
                 try:
-                    pushed_dt = datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    pushed_dt = datetime.datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
                     if start_datetime <= pushed_dt <= end_datetime:
                         filtered_repos.append(repo_item)
                 except Exception:
