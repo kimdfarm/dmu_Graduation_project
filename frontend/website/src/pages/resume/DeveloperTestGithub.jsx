@@ -503,23 +503,50 @@ const handleDirectGenerateResume = async () => {
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-200">단축 선택</span>
                       <div className="flex gap-1.5">
-                        {[{ label: '3개월', m: 3 }, { label: '6개월', m: 6 }, { label: '1년', y: 1, m: 0 }].map((p) => (
-                          <button
-                            key={p.label}
-                            type="button"
-                            onClick={() => { setYears(p.y || 0); setMonths(p.m || 0); }}
-                            className="px-3 py-1 rounded-xl text-xs font-semibold bg-[#0a1024] text-emerald-300 border border-emerald-900/40 hover:bg-emerald-950/40"
-                          >
-                            {p.label}
-                          </button>
-                        ))}
+                        {[
+                          { label: '3개월', y: 0, m: 3 }, 
+                          { label: '6개월', y: 0, m: 6 }, 
+                          { label: '1년', y: 1, m: 0 }
+                        ].map((p) => {
+                          const isSelected = years === p.y && months === p.m;
+                          return (
+                            <button
+                              key={p.label}
+                              type="button"
+                              onClick={() => { setYears(p.y); setMonths(p.m); }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-600/30 ring-1 ring-emerald-400'
+                                  : 'bg-[#0a1024] text-emerald-300 border-emerald-900/40 hover:bg-emerald-950/40'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 grid grid-cols-2 gap-4">
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
+                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="relative flex items-center">
+                      <Calendar className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={startDate} 
+                        onChange={(e) => setStartDate(e.target.value)} 
+                        className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-75" 
+                      />
+                    </div>
+                    <div className="relative flex items-center">
+                      <Calendar className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={endDate} 
+                        onChange={(e) => setEndDate(e.target.value)} 
+                        className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-75" 
+                      />
+                    </div>
                   </div>
                 )}
 
