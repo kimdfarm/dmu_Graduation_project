@@ -44,11 +44,9 @@ const ResumeNew = () => {
   const [columnInput, setColumnInput] = useState('');
   const [customColumnsList, setCustomColumnsList] = useState(['제목/역할', '참여 기간', '상세 업무 및 성과']);
 
-  // 💡 GitHub 탭 전용 추가 커스텀 섹션 및 컬럼 상태
-  const [githubCustomSections, setGithubCustomSections] = useState([]);
-  const [githubSecTitle, setGithubSecTitle] = useState('');
+  // 💡 GitHub 탭 전용 커스텀 템플릿 컬럼 구성 상태
+  const [githubCustomCols, setGithubCustomCols] = useState(['프로젝트명 및 역할', '참여 기간', '주요 기여 및 성과']);
   const [githubColInput, setGithubColInput] = useState('');
-  const [githubColsList, setGithubColsList] = useState(['제목/역할', '참여 기간', '상세 업무 및 성과']);
 
   // GitHub 연동 및 쿠키 기반 고정 ID (변조 방지)
   const [githubUser, setGithubUser] = useState(
@@ -274,7 +272,7 @@ const ResumeNew = () => {
     }
   };
 
-  // 최종 이력서 생성 (GitHub 템플릿 + 사용자가 추가한 커스텀 섹션 함께 전송)
+  // 최종 이력서 생성 (사용자가 선택한 템플릿 로직 구조 반영)
   const handleDirectGenerateResume = async () => {
     if (!selectedGithubFrame) {
       alert("GitHub 심층 분석 템플릿을 선택해 주세요.");
@@ -296,23 +294,30 @@ const ResumeNew = () => {
       setLoading(true);
       setLoadingText(`[${githubUser}] AI 심층 분석 및 이력서 생성 중...`);
 
-      const baseTemplate = GITHUB_FRAME_TEMPLATES[selectedGithubFrame] || {};
-      
-      // 💡 기본 템플릿 섹션들에 사용자가 커스텀으로 추가한 섹션들을 병합
-      const mergedSections = [
-        ...(baseTemplate.sections || []),
-        ...githubCustomSections.map((sec, idx) => ({
-          type: 'CUSTOM',
-          title: sec.title,
-          columns: sec.columns,
-          display_order: (baseTemplate.sections?.length || 0) + idx + 1
-        }))
-      ];
+      let currentTemplate = {};
 
-      const currentTemplate = {
-        ...baseTemplate,
-        sections: mergedSections
-      };
+      if (selectedGithubFrame === 'CUSTOM_SINGLE') {
+        // 💡 1개 커스텀 템플릿 선택 시 사용자가 구성한 컬럼을 단일 섹션 구조로 생성
+        if (githubCustomCols.length === 0) {
+          alert('최소 1개 이상의 컬럼 항목을 추가해 주세요.');
+          setLoading(false);
+          return;
+        }
+        currentTemplate = {
+          name: '1개 커스텀 템플릿',
+          category: category,
+          sections: [
+            {
+              section_type: 'CUSTOM',
+              title: '주요 개발 프로젝트 및 성과',
+              columns: [...githubCustomCols],
+              display_order: 1
+            }
+          ]
+        };
+      } else {
+        currentTemplate = GITHUB_FRAME_TEMPLATES[selectedGithubFrame] || {};
+      }
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -380,7 +385,7 @@ const ResumeNew = () => {
   const categoryOptions = ['신입 개발자', '경력직 개발자', '인턴십 / 프로젝트', '기타 / 자유 양식'];
   const ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx', 'hwp', 'hwpx', 'txt', 'rtf', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif', 'tiff'];
 
-  // 수동 탭용 컬럼/섹션 핸들러
+  // 수동 탭용 핸들러
   const handleAddColumnTag = () => {
     const trimmed = columnInput.trim();
     if (!trimmed) return;
@@ -397,23 +402,15 @@ const ResumeNew = () => {
   };
   const handleDeleteSection = (idx) => setSections(prev => prev.filter((_, i) => i !== idx));
 
-  // 💡 GitHub 탭 전용 추가 섹션/컬럼 핸들러
-  const handleAddGithubColumnTag = () => {
+  // 💡 GitHub 탭 전용 커스텀 템플릿 컬럼 핸들러
+  const handleAddGithubCol = () => {
     const trimmed = githubColInput.trim();
     if (!trimmed) return;
-    if (githubColsList.includes(trimmed)) { alert('이미 존재해 있는 컬럼 항목입니다.'); return; }
-    setGithubColsList(prev => [...prev, trimmed]);
+    if (githubCustomCols.includes(trimmed)) { alert('이미 존재해 있는 컬럼 항목입니다.'); return; }
+    setGithubCustomCols(prev => [...prev, trimmed]);
     setGithubColInput('');
   };
-  const handleRemoveGithubColumnTag = (idxRem) => setGithubColsList(prev => prev.filter((_, i) => i !== idxRem));
-  const handleAddGithubCustomSection = () => {
-    if (!githubSecTitle.trim()) { alert('추가할 섹션 이름을 입력해 주세요.'); return; }
-    if (githubColsList.length === 0) { alert('최소 하나 이상의 컬럼을 추가해 주세요.'); return; }
-    setGithubCustomSections(prev => [...prev, { title: githubSecTitle.trim(), columns: [...githubColsList] }]);
-    setGithubSecTitle('');
-    setGithubColsList(['제목/역할', '참여 기간', '상세 업무 및 성과']);
-  };
-  const handleDeleteGithubCustomSection = (idx) => setGithubCustomSections(prev => prev.filter((_, i) => i !== idx));
+  const handleRemoveGithubCol = (idxRem) => setGithubCustomCols(prev => prev.filter((_, i) => i !== idxRem));
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -784,7 +781,7 @@ const ResumeNew = () => {
             </div>
           )}
 
-          {/* TAB 3: GITHUB 활동 분석 및 커스텀 섹션 추가 기능 연동 */}
+          {/* TAB 3: GITHUB 활동 분석 및 1개 커스텀 템플릿 선택 연동 */}
           {createMode === 'GITHUB' && (
             <div className="space-y-6 pt-4 border-t border-emerald-950/60">
               
@@ -794,7 +791,7 @@ const ResumeNew = () => {
                     <GithubIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정</p>
+                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정 (고정됨)</p>
                     <p className="text-sm font-bold text-white font-mono">{githubUser || '계정 정보 없음'}</p>
                   </div>
                 </div>
@@ -803,13 +800,36 @@ const ResumeNew = () => {
                 </span>
               </div>
 
-              {/* GitHub 심층 분석 템플릿 선택 영역 */}
+              {/* GitHub 심층 분석 템플릿 선택 영역 (1개 커스텀 템플릿 포함) */}
               <div className="space-y-3">
                 <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                   <Globe className="w-4 h-4 text-emerald-400" />
                   GitHub 심층 분석 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  
+                  {/* 💡 1개 커스텀 템플릿 옵션 카드 추가 */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGithubFrame('CUSTOM_SINGLE')}
+                    className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
+                      selectedGithubFrame === 'CUSTOM_SINGLE'
+                        ? 'bg-emerald-950/40 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                        : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <p className="font-bold text-slate-100 text-xs leading-snug break-words flex-1">1개 커스텀 템플릿</p>
+                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">사용자가 지정한 단일 빈 섹션에 원하는 컬럼 열을 자유롭게 구성하여 생성합니다.</p>
+                    </div>
+                    <div>
+                      <span className="inline-block text-[10px] px-2.5 py-0.5 rounded-md bg-[#070b19] border border-emerald-950 text-emerald-300 font-semibold">
+                        사용자 정의 (1개 섹션)
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* 기존 GitHub 프레임 템플릿 목록 */}
                   {Object.entries(GITHUB_FRAME_TEMPLATES).map(([key, tpl]) => (
                     <button
                       key={key}
@@ -835,6 +855,48 @@ const ResumeNew = () => {
                 </div>
               </div>
 
+              {/* 💡 [핵심] '1개 커스텀 템플릿' 선택 시에만 나타나는 컬럼 구성 영역 */}
+              {selectedGithubFrame === 'CUSTOM_SINGLE' && (
+                <div className="space-y-4 p-5 bg-[#0a1024] border border-emerald-500/60 rounded-2xl shadow-md animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <Columns className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-xs font-bold text-emerald-300">단일 섹션 내 컬럼(Column) 열 구성</h3>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    선택하신 1개 커스텀 템플릿의 단일 섹션에 들어갈 세부 열 항목들을 자유롭게 추가하거나 삭제해 주세요.
+                  </p>
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row gap-2 w-full">
+                      <input
+                        type="text"
+                        placeholder="추가할 컬럼 항목명 (예: 주요 기술 스택)"
+                        value={githubColInput}
+                        onChange={(e) => setGithubColInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddGithubCol(); } }}
+                        className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddGithubCol}
+                        className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> 컬럼 추가
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {githubCustomCols.map((col, cIdx) => (
+                        <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#070b19] border border-emerald-900/60 text-emerald-300 text-xs rounded-lg font-medium">
+                          📌 {col}
+                          <button type="button" onClick={() => handleRemoveGithubCol(cIdx)} className="hover:text-rose-400">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 이력서 작성 언어 선택 영역 */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
@@ -849,83 +911,6 @@ const ResumeNew = () => {
                   <option value="ko" className="bg-[#0f152d] text-white">🇰🇷 한국어 (Korean)</option>
                   <option value="en" className="bg-[#0f152d] text-white">🇺🇸 영어 (English)</option>
                 </select>
-              </div>
-
-              {/* 💡 GitHub 탭 전용 새 섹션 및 컬럼 추가 영역 */}
-              <div className="space-y-4 p-5 bg-[#0a1024] border border-emerald-950/80 rounded-2xl shadow-md">
-                <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                  <Columns className="w-4 h-4 text-emerald-400" />
-                  추가 커스텀 섹션 및 컬럼 구성 (선택사항)
-                </label>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  GitHub 기본 분석 섹션 외에 사용자가 직접 추가하고 싶은 빈 섹션과 컬럼 항목을 구성하여 함께 생성할 수 있습니다.
-                </p>
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="추가할 섹션 이름 (예: 수상 경력 또는 오픈소스 기여)"
-                    value={githubSecTitle}
-                    onChange={(e) => setGithubSecTitle(e.target.value)}
-                    className="w-full px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
-                  />
-                  <div className="flex flex-col sm:flex-row gap-2 w-full">
-                    <input
-                      type="text"
-                      placeholder="추가할 컬럼 항목명"
-                      value={githubColInput}
-                      onChange={(e) => setGithubColInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddGithubColumnTag(); } }}
-                      className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddGithubColumnTag}
-                      className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> 컬럼 추가
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {githubColsList.map((col, cIdx) => (
-                      <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#070b19] border border-emerald-900/60 text-emerald-300 text-xs rounded-lg font-medium">
-                        📌 {col}
-                        <button type="button" onClick={() => handleRemoveGithubColumnTag(cIdx)} className="hover:text-rose-400">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddGithubCustomSection}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 mt-2"
-                  >
-                    <Plus className="w-4 h-4" /> 커스텀 섹션 추가하기
-                  </button>
-                </div>
-
-                {githubCustomSections.length > 0 && (
-                  <div className="space-y-2.5 pt-3 border-t border-emerald-950/60">
-                    <p className="text-xs font-bold text-slate-300">추가된 커스텀 섹션 목록 ({githubCustomSections.length}개)</p>
-                    {githubCustomSections.map((sec, idx) => (
-                      <div key={idx} className="p-3.5 rounded-xl border bg-[#070b19] border-emerald-950 text-xs space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-white">🔹 {sec.title}</span>
-                          <button type="button" onClick={() => handleDeleteGithubCustomSection(idx)} className="text-slate-500 hover:text-rose-400 p-1">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {sec.columns.map((col, cIdx) => (
-                            <span key={cIdx} className="px-2 py-0.5 bg-[#0a1024] border border-emerald-950 text-emerald-300 text-[11px] rounded-md">
-                              📌 {col}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* 기간 설정 컴포넌트 */}
