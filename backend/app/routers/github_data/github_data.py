@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
+from random import random
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, Header, status, Query, Response
 from pydantic import BaseModel
@@ -22,6 +23,21 @@ router = APIRouter(
 class GithubAuthRequest(BaseModel):
     code: str
     user_id: str | None = None
+
+def check_user_has_commits_in_repo(repo_full_name: str, github_id: str, token: str, headers: dict) -> bool:
+    try:
+        # 해당 저장소의 커밋 목록을 내 아이디(author) 기준으로 조회해봄
+        commits_url = f"https://api.github.com/repos/{repo_full_name}/commits?author={github_id}&per_page=1"
+        res = requests.get(commits_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            commits = res.json()
+            # 내가 작성한 커밋이 1개라도 존재하면 True 반환
+            if isinstance(commits, list) and len(commits) > 0:
+                return True
+        return False
+    except Exception:
+        return False
+
 
 @router.post("/auth/github/callback")
 def github_callback(payload: GithubAuthRequest, response: Response):
@@ -70,6 +86,8 @@ def github_callback(payload: GithubAuthRequest, response: Response):
 def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "") -> dict:
     try:
         effective_author = target_author or raw_graphql_data.get("target_author", "")
+        is_fork = raw_graphql_data.get("isFork", False) # 포크 여부 확인
+        
         repo_name = (
             raw_graphql_data.get("name") 
             or raw_graphql_data.get("repo_name") 
@@ -96,6 +114,8 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     commits_raw = history.get("nodes") or []
 
         merged_commits = {}
+        my_commit_count = 0 # 내가 작성한 커밋 수 카운트
+
         for c in commits_raw:
             if not isinstance(c, dict):
                 continue
@@ -106,6 +126,9 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
             if effective_author and author_login and author_login.lower() != effective_author.lower():
                 continue
+
+            # 내 커밋으로 인정된 경우 카운트 증가
+            my_commit_count += 1
 
             msg = (c.get("messageHeadline") or c.get("message") or "").strip()
             if not msg:
@@ -587,49 +610,57 @@ CRITICAL GOALS:
 
 위 데이터를 바탕으로 지정된 템플릿 섹션들의 구조와 컬럼에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
 """
-
-        try:
-            model2_res = gemini_client.models.generate_content(
-                model=GEMINI_MODEL_NAME,
-                contents=f"System Prompt:\n{model2_system_prompt}\n\nUser Prompt:\n{model2_user_prompt}",
-                config={
-                    "temperature": 0.1,
-                    "response_mime_type": "application/json",
-                }
-            )
-
-            raw_content = model2_res.text or ""
-            clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
-
-            parsed_result = {}
-            if clean_json_str:
-                parsed = safe_json_parse(clean_json_str)
-                parsed_result = normalize_github_resume_data(parsed)
-
-            sections_data = parsed_result.get("sections", [])
-            
-            if not sections_data:
-                sections_data = template_sections or [
-                    {
-                        "section_type": "PROJECTS",
-                        "section_title": "주요 프로젝트",
-                        "display_order": 1,
-                        "columns": ["프로젝트명", "주요 내용"],
-                        "details": [{
-                            "id": "card_1_1",
-                            "title": payload.repo_name or "GitHub Project",
-                            "ai_columns": ["프로젝트명", "주요 내용"],
-                            "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"}
-                        }]
+        max_retries = 3
+        model2_res = None
+        for attempt in range(max_retries):
+            try:
+                model2_res = gemini_client.models.generate_content(
+                    model=GEMINI_MODEL_NAME,
+                    contents=f"System Prompt:\n{model2_system_prompt}\n\nUser Prompt:\n{model2_user_prompt}",
+                    config={
+                        "temperature": 0.1,
+                        "response_mime_type": "application/json",
                     }
-                ]
+                )
 
-        except Exception as sec_err:
-            print(f"섹션 생성 중 오류 발생: {sec_err}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"섹션 AI 생성 중 오류 발생: {str(sec_err)}"
-            )
+                raw_content = model2_res.text or ""
+                clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
+
+                parsed_result = {}
+                if clean_json_str:
+                    parsed = safe_json_parse(clean_json_str)
+                    parsed_result = normalize_github_resume_data(parsed)
+
+                sections_data = parsed_result.get("sections", [])
+                
+                if not sections_data:
+                    sections_data = template_sections or [
+                        {
+                            "section_type": "PROJECTS",
+                            "section_title": "주요 프로젝트",
+                            "display_order": 1,
+                            "columns": ["프로젝트명", "주요 내용"],
+                            "details": [{
+                                "id": "card_1_1",
+                                "title": payload.repo_name or "GitHub Project",
+                                "ai_columns": ["프로젝트명", "주요 내용"],
+                                "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"}
+                            }]
+                        }
+                    ]
+
+            except Exception as api_err:
+                err_str = str(api_err)
+                # 503 에러이거나 과부하 관련 에러인 경우에만 재시도 진행
+                if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) and attempt < max_retries - 1:
+                    sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5) # 2초, 4초 순으로 대기 시간 증가 + 지터
+                    print(f"⚠️ Gemini API 503 과부하 발생. {sleep_time:.1f}초 후 재시도합니다... ({attempt + 1}/{max_retries})")
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    # 마지막 시도였거나 다른 종류의 에러인 경우 그대로 예외 발생
+                    print(f"Gemini API 호출 실패: {api_err}")
+                    raise api_err
 
         all_sections_list = []
         for idx, sec in enumerate(sections_data):
@@ -749,6 +780,20 @@ def get_github_repositories(
             if not repo or not isinstance(repo, dict):
                 continue
                 
+            # 1. 포크된 저장소인지 확인
+            is_fork = repo.get("fork", False)
+            
+            # 2. 만약 포크 저장소라면, 해당 사용자가 실제로 기여했는지 확인하기 위한 추가 API 호출 또는 체크
+            # GitHub API 기본 리포 목록에는 내가 해당 포크에 커밋을 했는지 여부가 바로 안 나오므로,
+            # 포크 저장소인 경우 최근 커밋 작성자나 기여(Contributor) 정보를 가볍게 체크합니다.
+            if is_fork:
+                repo_full_name = repo.get("full_name")
+                # 해당 저장소에 내 아이디가 커밋 작성자로 포함되어 있는지 확인하는 함수 혹은 체크 로직
+                has_my_commit = check_user_has_commits_in_repo(repo_full_name, github_id, token, headers)
+                if not has_my_commit:
+                    # 포크인데 내가 활동한 기록이 없으면 목록에서 제외!
+                    continue
+
             repo_item = {
                 "id": repo.get("id"),
                 "name": repo.get("name"),
