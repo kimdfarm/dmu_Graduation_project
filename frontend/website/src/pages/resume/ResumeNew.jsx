@@ -43,7 +43,9 @@ const ResumeNew = () => {
   const [customColumnsList, setCustomColumnsList] = useState(['제목/역할', '참여 기간', '상세 업무 및 성과']);
 
   // GitHub 연동 및 상태
-  const [githubUser, setGithubUser] = useState(null);
+  const [githubUser, setGithubUser] = useState(
+    getCookie('github_id') || localStorage.getItem('github_id') || ''
+  );
   const [repositories, setRepositories] = useState([]);
   const [repoSearchKeyword, setRepoSearchKeyword] = useState('');
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
@@ -53,7 +55,7 @@ const ResumeNew = () => {
   const [isEstimating, setIsEstimating] = useState(false);
   const [estimationResult, setEstimationResult] = useState(null); // { tokens, energy, projects_data }
   const [creditBalance, setCreditBalance] = useState(null);
-
+  const [skippedRepos, setSkippedRepos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
   
@@ -133,9 +135,9 @@ const ResumeNew = () => {
     setGithubUser(githubId);
   };
 
-  const fetchUserRepositories = async (targetUser, targetToken, customFilters = {}) => {
+  const fetchUserRepositories = async (targetUser, customFilters = {}) => {
     const user = targetUser || githubUser || getCookie('github_id') || localStorage.getItem('github_id');
-    const token = targetToken || getCookie('github_access_token') || localStorage.getItem('github_access_token');
+    const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
 
     if (!user) return;
 
@@ -150,7 +152,7 @@ const ResumeNew = () => {
       if (activeStartDate) params.append('start_date', activeStartDate);
       if (activeEndDate) params.append('end_date', activeEndDate);
 
-      const res = await fetch(`${BASE_URL}/api/github/repositories?${params.toString()}`, {
+      const res = await fetch(`${BASE_URL}/api/develop/github/repositories?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +200,7 @@ const ResumeNew = () => {
       setActiveFilterText(`${startDate} ~ ${endDate} 상세 기간 탐색 결과`);
     }
 
-    fetchUserRepositories(githubUser, null, { 
+    fetchUserRepositories(githubUser, { 
       startDate: activeStart, 
       endDate: activeEnd 
     });
@@ -206,89 +208,89 @@ const ResumeNew = () => {
 
   // 💡 [핵심] 분석량 및 에너지 사전 계산 함수
   const handleEstimateCost = async () => {
-  if (selectedRepos.length === 0) {
-    alert("분석할 저장소를 1개 이상 선택해 주세요.");
-    return;
-  }
-
-  const githubId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
-  const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
-
-  if (!githubId) {
-    alert('GitHub 계정 연동 정보가 올바르지 않습니다.');
-    return;
-  }
-
-  try {
-    setIsEstimating(true);
-    setErrorMessage('');
-
-    // 1. 선택된 저장소들의 분석 데이터를 모두 가져옴
-    const analyzePromises = selectedRepos.map(repoName => 
-      fetch(`${BASE_URL}/api/github/analyze`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          github_id: String(githubId),
-          repo_name: String(repoName),
-          start_date: startDate || "",
-          end_date: endDate || ""
-        })
-      }).then(async res => {
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `[${repoName}] 분석 실패`);
-        }
-        return res.json();
-      })
-    );
-
-    const projectsData = await Promise.all(analyzePromises);
-
-    // 2. 한 번에 견적 API 호출
-    const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ analysis_data: { projects_data: projectsData } })
-    });
-
-    if (!estimateRes.ok) {
-      const errData = await estimateRes.json().catch(() => ({}));
-      throw new Error(errData.detail || '토큰 견적 계산 실패');
+    if (selectedRepos.length === 0) {
+      alert("분석할 저장소를 1개 이상 선택해 주세요.");
+      return;
     }
 
-    const estimateData = await estimateRes.json();
+    const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
+    const verifiedId = getCookie('github_id') || localStorage.getItem('github_id') || githubUser;
 
-    setEstimationResult({
-      tokens: estimateData.estimated_tokens,
-      energy: estimateData.energy_cost,
-      projects_data: projectsData
-    });
+    try {
+      setIsEstimating(true);
+      setErrorMessage('');
 
-  } catch (err) {
-    console.error("분석량 계산 실패:", err);
-    // [object Object] 대신 정확한 에러 문구가 뜨도록 수정
-    alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
-  } finally {
-    setIsEstimating(false);
-  }
-};
+      const projectsData = [];
+      const failedRepos = [];
+
+      for (let i = 0; i < selectedRepos.length; i++) {
+        const repoName = selectedRepos[i];
+        try {
+          const res = await fetch(`${BASE_URL}/api/github/analyze`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              github_id: String(verifiedId),
+              repo_name: String(repoName),
+              start_date: startDate || "",
+              end_date: endDate || ""
+            })
+          });
+
+          if (!res.ok) {
+            failedRepos.push(repoName);
+            continue;
+          }
+
+          const data = await res.json();
+          projectsData.push(data);
+        } catch (repoErr) {
+          failedRepos.push(repoName);
+        }
+      }
+
+      setSkippedRepos(failedRepos);
+
+      if (projectsData.length === 0) {
+        throw new Error("선택한 모든 저장소에 탐색 가능한 유효 데이터가 없습니다.");
+      }
+
+      const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_data: { projects_data: projectsData } })
+      });
+
+      if (!estimateRes.ok) {
+        const errData = await estimateRes.json().catch(() => ({}));
+        throw new Error(errData.detail || '토큰 견적 계산 실패');
+      }
+
+      const estimateData = await estimateRes.json();
+
+      setEstimationResult({
+        tokens: estimateData.total_tokens || estimateData.estimated_tokens,
+        energy: estimateData.energy_cost || Math.ceil((estimateData.total_tokens || 1) / 5000),
+        projects_data: projectsData,
+        success_count: projectsData.length,
+        skipped_count: failedRepos.length
+      });
+
+    } catch (err) {
+      console.error("분석량 계산 실패:", err);
+      alert(err.message || "분석량 계산 중 오류가 발생했습니다.");
+    } finally {
+      setIsEstimating(false);
+    }
+  };
 
   // 💡 최종 이력서 생성 (계산된 projects_data 재사용)
   const handleDirectGenerateResume = async () => {
     if (!estimationResult || !estimationResult.projects_data) {
       alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
-      return;
-    }
-
-    // 에너지 잔여량 비교 검증 (5,000토큰당 1에너지)
-    const requiredEnergy = estimationResult.energy;
-    if (creditBalance !== null && creditBalance < requiredEnergy) {
-      alert(`에너지가 부족합니다. (필요: ${requiredEnergy}회, 잔여: ${creditBalance}회) 에너지를 충전해 주세요.`);
-      navigate('/ProfileSettings');
       return;
     }
 
@@ -300,10 +302,9 @@ const ResumeNew = () => {
 
     try {
       setLoading(true);
-      setLoadingText("AI 이력서 카드 생성 및 에너지 차감 중...");
+      setLoadingText(`[${githubUser}] AI 심층 분석 및 이력서 생성 중...`);
 
       const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
-      const targetColumns = currentTemplate.sections?.[2]?.columns || ["프로젝트명", "담당 역할", "사용 기술", "성과"];
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -313,7 +314,8 @@ const ResumeNew = () => {
           title: title.trim() || `[${githubUser}] GitHub 기술 이력서`,
           category: category,
           repo_name: selectedRepos.join(', '),
-          template_columns: targetColumns, // 💡 템플릿 컬럼 정보 전달
+          template_structure: currentTemplate,
+          language: 'ko',
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });
@@ -329,7 +331,7 @@ const ResumeNew = () => {
       }
 
     } catch (error) {
-      console.error("원클릭 이력서 생성 실패:", error);
+      console.error("이력서 생성 실패:", error);
       alert(error.message || "이력서 생성 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -810,12 +812,12 @@ const ResumeNew = () => {
                     <GithubIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium text-emerald-300">연동된 GitHub 계정</p>
-                    <p className="text-sm font-bold text-white">{githubUser || '계정 정보 없음'}</p>
+                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정 (고정됨)</p>
+                    <p className="text-sm font-bold text-white font-mono">{githubUser || '계정 정보 없음'}</p>
                   </div>
                 </div>
                 <span className="text-[11px] px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full font-semibold">
-                  인증 완료
+                  안전 인증 완료
                 </span>
               </div>
 
@@ -854,23 +856,50 @@ const ResumeNew = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-200">단축 선택</span>
                       <div className="flex gap-1.5">
-                        {[{ label: '3개월', m: 3 }, { label: '6개월', m: 6 }, { label: '1년', y: 1, m: 0 }].map((p) => (
-                          <button
-                            key={p.label}
-                            type="button"
-                            onClick={() => { setYears(p.y || 0); setMonths(p.m || 0); }}
-                            className="px-3 py-1 rounded-xl text-xs font-semibold bg-[#0a1024] text-emerald-300 border border-emerald-900/40 hover:bg-emerald-950/40"
-                          >
-                            {p.label}
-                          </button>
-                        ))}
+                        {[
+                          { label: '3개월', y: 0, m: 3 }, 
+                          { label: '6개월', y: 0, m: 6 }, 
+                          { label: '1년', y: 1, m: 0 }
+                        ].map((p) => {
+                          const isSelected = years === p.y && months === p.m;
+                          return (
+                            <button
+                              key={p.label}
+                              type="button"
+                              onClick={() => { setYears(p.y); setMonths(p.m); }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-600/30 ring-1 ring-emerald-400'
+                                  : 'bg-[#0a1024] text-emerald-300 border-emerald-900/40 hover:bg-emerald-950/40'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 grid grid-cols-2 gap-4">
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-[#0a1024] border border-emerald-950 rounded-xl px-3 py-2 text-xs text-white" />
+                  <div className="bg-[#070b19] border border-emerald-950 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="relative flex items-center">
+                      <Calendar className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={startDate} 
+                        onChange={(e) => setStartDate(e.target.value)} 
+                        className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-75" 
+                      />
+                    </div>
+                    <div className="relative flex items-center">
+                      <Calendar className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={endDate} 
+                        onChange={(e) => setEndDate(e.target.value)} 
+                        className="w-full bg-[#0a1024] border border-emerald-950 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-75" 
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -929,8 +958,7 @@ const ResumeNew = () => {
                 </div>
               )}
 
-              {/* 💡 [핵심] 분석량 및 에너지 사전 계산 버튼 및 결과 영역 */}
-              {/*
+              {/* 분석량 계산 영역 */}
               {selectedRepos.length > 0 && (
                 <div className="p-5 bg-[#0a1024] border border-emerald-900 rounded-2xl space-y-4 shadow-lg">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -944,28 +972,35 @@ const ResumeNew = () => {
                       className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-teal-600/30"
                     >
                       {isEstimating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      <span>분석량 및 에너지 계산하기 (5,000토큰당 1에너지)</span>
+                      <span>분석량 및 토큰 계산하기</span>
                     </button>
                   </div>
 
                   {estimationResult && (
                     <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300">
                       <p className="flex items-center justify-between">
-                        <span>📊 예상 입력 토큰 수:</span>
+                        <span>📊 총 예상 토큰 수:</span>
                         <strong className="text-white font-bold">{estimationResult.tokens.toLocaleString()} 토큰</strong>
                       </p>
-                      <p className="flex items-center justify-between">
-                        <span>⚡ 소모될 에너지 비용:</span>
-                        <strong className="text-amber-400 font-bold">{estimationResult.energy} 에너지</strong>
-                      </p>
-                      <p className="text-[11px] text-slate-400 pt-1 border-t border-emerald-950">
-                        * 내 잔여 에너지: <strong className="text-slate-200">{creditBalance ?? 0}회</strong> {creditBalance !== null && creditBalance < estimationResult.energy && <span className="text-rose-400 font-bold ml-1">(에너지 부족)</span>}
-                      </p>
+                      <div className="mt-2 pt-2 border-t border-emerald-950 space-y-1 text-[11px] text-slate-300">
+                        <p className="flex items-center justify-between text-emerald-400">
+                          <span>✅ 성공적으로 탐색한 저장소:</span>
+                          <span className="font-bold">{estimationResult.success_count}개</span>
+                        </p>
+                        <p className="flex items-center justify-between text-rose-400">
+                          <span>⚠️ 정보가 없어 건너뛴 저장소:</span>
+                          <span className="font-bold">{skippedRepos.length}개</span>
+                        </p>
+                        {skippedRepos.length > 0 && (
+                          <p className="text-slate-400 font-mono text-[10px] truncate">
+                            제외된 저장소: {skippedRepos.join(', ')}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
-              */}
             </div>
           )}
 
