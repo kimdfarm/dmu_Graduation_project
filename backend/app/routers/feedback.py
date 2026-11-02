@@ -26,23 +26,33 @@ async def generate_resume_feedback(req: FeedbackRequest):
         )
 
     feedback_engine = ResumeFeedbackEngine(api_key=req.openai_api_key)
+    
+    # 변수 초기화를 통해 UnboundLocalError 원천 차단
+    result = None
 
-
-    if "error" in result:
+    try:
+        if req.document_id:
+            result = feedback_engine.generate_feedback_from_document_id(req.document_id, req.top_jd_text)
+        elif req.user_resume and req.user_resume.strip():
+            result = feedback_engine.generate_feedback(req.user_resume, req.top_jd_text)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="document_id 또는 user_resume 중 하나는 반드시 제공되어야 합니다."
+            )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"🔥 피드백 생성 중 예외 발생: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result["error"]
+            detail=f"피드백 생성 중 서버 오류가 발생했습니다: {str(e)}"
         )
-    # 1. document_id가 제공된 경우: Supabase에서 문항 구조 및 버전을 완벽히 파싱하여 분석
-    if req.document_id:
-        result = feedback_engine.generate_feedback_from_document_id(req.document_id, req.top_jd_text)
-    # 2. 텍스트가 직접 제공된 경우
-    elif req.user_resume and req.user_resume.strip():
-        result = feedback_engine.generate_feedback(req.user_resume, req.top_jd_text)
-    else:
+
+    if not isinstance(result, dict):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="document_id 또는 user_resume 중 하나는 반드시 제공되어야 합니다."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI 엔진으로부터 올바른 응답 데이터를 받지 못했습니다."
         )
 
     if "error" in result:
