@@ -90,11 +90,6 @@ const ResumeNew = () => {
       setStartDate(initialStart);
       setEndDate(initialEnd);
       setActiveFilterText('최근 6개월 기준 탐색 결과');
-
-      fetchUserRepositories(githubUser, null, { 
-        startDate: initialStart, 
-        endDate: initialEnd 
-      });
     }
 
     if (FRAME_TEMPLATES[selectedFrame]) {
@@ -812,7 +807,7 @@ const ResumeNew = () => {
                     <GithubIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정 (고정됨)</p>
+                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정</p>
                     <p className="text-sm font-bold text-white font-mono">{githubUser || '계정 정보 없음'}</p>
                   </div>
                 </div>
