@@ -12,12 +12,11 @@ from app.utils.scheduler import scheduler
 from app.routers import sign
 from app.routers import login
 from app.routers import resume
-from app.routers.github_data import github_groq_data
 from app.routers.imageandfileupload.usegrog import router as usegrog_router
 from app.routers.imageandfileupload import savepile_resume
 from app.routers.setting.profilesetting import router as settings_router
 from app.routers.setting import educersetting
-from app.routers.github_data import github_data
+from app.routers.github_data import github_groq_data
 from app.routers import sections
 from app.routers.jobs import router as jobs_router
 from app.routers import coverletters
@@ -89,7 +88,7 @@ app.include_router(settings_router)
 app.include_router(educersetting.router)
 app.include_router(resume.router)
 app.include_router(savepile_resume.router)
-app.include_router(github_data.router)
+# app.include_router(github_groq_data.router)
 app.include_router(sections.router)
 app.include_router(jobs_router)
 app.include_router(coverletters.router)

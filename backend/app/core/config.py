@@ -55,9 +55,8 @@ def get_CRAWL_supabase() -> Client:
         raise ValueError("Supabase environment variables (CRAWL_URL, CRAWL_KEY) are missing.")
     return create_client(CRAWL_URL, CRAWL_KEY)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-GROQ_BY_CROWER = os.getenv("GROQ_BY_CROWER")
+GROQ_API_KEY = os.getenv("GROQ_BY_CROWER")
+GROQ_BY_CROWER = os.getenv("GROQ_API_KEY")
 
 YOUR_GITHUB_CLIENT_ID = os.getenv("YOUR_GITHUB_CLIENT_ID")
 YOUR_GITHUB_CLIENT_SECRET = os.getenv("YOUR_GITHUB_CLIENT_SECRET")
