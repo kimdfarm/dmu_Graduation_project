@@ -86,10 +86,10 @@ def github_callback(payload: GithubAuthRequest, response: Response):
         "access_token": access_token
     }
 
-def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "") -> dict:
+def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "", start_date: str = None, end_date: str = None) -> dict:
     try:
         effective_author = target_author or raw_graphql_data.get("target_author", "")
-        is_fork = raw_graphql_data.get("isFork", False) # 포크 여부 확인
+        is_fork = raw_graphql_data.get("isFork", False)
         
         repo_name = (
             raw_graphql_data.get("name") 
@@ -107,6 +107,20 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             elif "edges" in languages_data:
                 tech_stacks = [e.get("node", {}).get("name") for e in (languages_data.get("edges") or []) if e and e.get("node")]
 
+        # 날짜 범위 파싱
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        if end_date:
+            try:
+                end_dt = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            except Exception:
+                pass
+
         commits_raw = []
         default_branch = raw_graphql_data.get("defaultBranchRef") or {}
         if isinstance(default_branch, dict):
@@ -117,12 +131,24 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     commits_raw = history.get("nodes") or []
 
         merged_commits = {}
-        my_commit_count = 0 # 내가 작성한 커밋 수 카운트
+        my_commit_count = 0
 
         for c in commits_raw:
             if not isinstance(c, dict):
                 continue
                 
+            # 💡 커밋 날짜(committedDate) 필터링 추가
+            committed_date_str = c.get("committedDate")
+            if committed_date_str and (start_dt or end_dt):
+                try:
+                    c_dt = datetime.datetime.strptime(committed_date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    if start_dt and c_dt < start_dt:
+                        continue
+                    if end_dt and c_dt > end_dt:
+                        continue
+                except Exception:
+                    pass
+
             author_info = c.get("author") or {}
             user_info = author_info.get("user") or {}
             author_login = user_info.get("login", "")
@@ -130,7 +156,6 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             if effective_author and author_login and author_login.lower() != effective_author.lower():
                 continue
 
-            # 내 커밋으로 인정된 경우 카운트 증가
             my_commit_count += 1
 
             msg = (c.get("messageHeadline") or c.get("message") or "").strip()
@@ -159,6 +184,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             for msg, stat in merged_commits.items()
         ]
 
+        # 💡 Pull Requests 필터링 추가
         prs_raw = []
         prs_data = raw_graphql_data.get("pullRequests") or {}
         if isinstance(prs_data, dict):
@@ -167,6 +193,17 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
         merged_prs = {}
         for pr in prs_raw:
             if isinstance(pr, dict):
+                pr_created_str = pr.get("createdAt")
+                if pr_created_str and (start_dt or end_dt):
+                    try:
+                        pr_dt = datetime.datetime.strptime(pr_created_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                        if start_dt and pr_dt < start_dt:
+                            continue
+                        if end_dt and pr_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
                 pr_author = (pr.get("author") or {}).get("login", "")
                 if effective_author and pr_author and pr_author.lower() != effective_author.lower():
                     continue
@@ -193,7 +230,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             "key_commits": [],
             "key_prs_and_issues": []
         }
-
+    
 # Groq 클라이언트 대신 Google GenAI 클라이언트 초기화
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
@@ -699,11 +736,11 @@ CRITICAL GOALS:
 
 
 
-def estimate_tokens_and_cost_v2(projects_data: list) -> tuple[int, int]:
+def estimate_tokens_and_cost_v2(projects_data: list, start_date: str = None, end_date: str = None) -> tuple[int, int]:
     total_chars = 0
     for repo in projects_data:
         target_author = repo.get("target_author", "")
-        cleaned = preprocess_github_data(repo, target_author=target_author)
+        cleaned = preprocess_github_data(repo, target_author=target_author, start_date=start_date, end_date=end_date)
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
