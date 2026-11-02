@@ -200,6 +200,9 @@ async def get_resumes(member_id: str):
 # [3] 특정 이력서 상세 및 섹션 조회
 # [3] 특정 이력서 상세 및 섹션 조회 (컬럼 기반 교정본 적용)
 # [3] 특정 이력서 상세 및 섹션 조회 (JSONB 맵핑 지원 버전)
+# [3] 특정 이력서 상세 및 섹션 조회 (컬럼 및 교정본 완벽 복원 지원)
+# [3] 특정 이력서 상세 및 섹션 조회 (비어있는 details 방어 및 완벽 복원)
+# [3] 특정 이력서 상세 및 섹션 조회 (버전별 컬럼 및 데이터 완벽 분리 보존)
 @router.get("/{resume_id}")
 async def get_resume_detail(resume_id: str):
     try:
@@ -219,26 +222,100 @@ async def get_resume_detail(resume_id: str):
 
         for sec in raw_sections:
             sec_version = sec.get("selected_version") or "ORIGINAL"
+            current_ai_style = sec.get("ai_style") or "PROJECT"
+            cols = sec.get("columns") or ["항목", "내용"]
             raw_details = sec.get("details") or []
 
-            # 💡 DB의 JSONB 컬럼에서 카드 ID별 텍스트 맵 추출
-            raw_spell = sec.get("spell_checked_text") or []
-            raw_ai = sec.get("ai_proofread_text") or []
+            if not raw_details or len(raw_details) == 0:
+                raw_details = [{
+                    "id": f"fallback-{sec.get('id', 'sec')}-1",
+                    "title": sec.get("section_title", "세부 항목"),
+                    "original_text": f"[{cols[0]}]\n내용을 입력해주세요.",
+                    "selected_version": "ORIGINAL",
+                    "ai_columns": cols,
+                    "column_values": {cols[0]: "내용을 입력해주세요."}
+                }]
 
-            spell_map = {item["id"]: item.get("spell_checked_text") for item in raw_spell if isinstance(item, dict) and "id" in item}
-            ai_map = {item["id"]: item.get("ai_proofread_text") for item in raw_ai if isinstance(item, dict) and "id" in item}
+            # 1. 맞춤법(SPELL) 캐시 맵 추출
+            raw_spell = sec.get("spell_checked_text") or []
+            spell_map = {}
+            if isinstance(raw_spell, list):
+                for item in raw_spell:
+                    if isinstance(item, dict) and "id" in item:
+                        spell_map[str(item["id"])] = item
+
+            # 2. AI 교정 캐시 맵 추출
+            raw_ai = sec.get("ai_proofread_text") or []
+            ai_item_map = {}
+            if isinstance(raw_ai, list):
+                for group in raw_ai:
+                    if isinstance(group, dict) and group.get("mode") == current_ai_style:
+                        items_list = group.get("items", [])
+                        if isinstance(items_list, list):
+                            for it in items_list:
+                                if isinstance(it, dict) and "id" in it:
+                                    ai_item_map[str(it["id"])] = it
+                        break
+                if not ai_item_map:
+                    for item in raw_ai:
+                        if isinstance(item, dict) and "id" in item:
+                            ai_item_map[str(item["id"])] = item
 
             updated_details = []
             for d in raw_details:
                 if isinstance(d, dict):
-                    card_id = d.get("id")
-                    updated_card = {
-                        **d,
-                        "selected_version": d.get("selected_version") or sec_version,
-                        # JSONB 컬럼에 있는 값이 우선시되도록 바인딩
-                        "spell_checked_text": d.get("spell_checked_text") or spell_map.get(card_id),
-                        "ai_proofread_text": d.get("ai_proofread_text") or ai_map.get(card_id)
-                    }
+                    card_id = str(d.get("id"))
+                    updated_card = dict(d)
+                    
+                    # 💡 원본(Original) 데이터
+                    orig_cols = d.get("ai_columns") or cols
+                    orig_vals = d.get("column_values") or {orig_cols[0]: d.get("original_text", "")}
+
+                    # 💡 맞춤법(Spell) 데이터
+                    spell_matched = spell_map.get(card_id)
+                    spell_text = None
+                    spell_cols = orig_cols
+                    spell_vals = orig_vals
+                    if spell_matched:
+                        spell_text = spell_matched.get("spell_checked_text") or spell_matched.get("ai_proofread_text")
+                        spell_cols = spell_matched.get("ai_columns") or orig_cols
+                        spell_vals = spell_matched.get("column_values") or {spell_cols[0]: spell_text or ""}
+
+                    # 💡 AI 교정 데이터
+                    ai_matched = ai_item_map.get(card_id)
+                    ai_text = None
+                    ai_cols = orig_cols
+                    ai_vals = {}
+                    if ai_matched:
+                        ai_text = ai_matched.get("ai_proofread_text")
+                        ai_cols = ai_matched.get("ai_columns") or orig_cols
+                        ai_vals = ai_matched.get("column_values") or {}
+
+                    # 각 버전별 데이터를 개별 속성으로 저장하여 프론트엔드가 언제든 꺼내 쓸 수 있게 함
+                    updated_card.update({
+                        "spell_checked_text": spell_text,
+                        "ai_proofread_text": ai_text,
+                        "column_values_orig": orig_vals,
+                        "ai_columns_orig": orig_cols,
+                        "column_values_spell": spell_vals,
+                        "ai_columns_spell": spell_cols,
+                        "column_values_ai": ai_vals,
+                        "ai_columns_ai": ai_cols,
+                        "selected_version": d.get("selected_version") or sec_version
+                    })
+
+                    # 현재 선택된 버전에 맞춰 기본 column_values 매핑
+                    cur_ver = updated_card["selected_version"]
+                    if cur_ver == "AI":
+                        updated_card["column_values"] = ai_vals
+                        updated_card["ai_columns"] = ai_cols
+                    elif cur_ver == "SPELL":
+                        updated_card["column_values"] = spell_vals
+                        updated_card["ai_columns"] = spell_cols
+                    else:
+                        updated_card["column_values"] = orig_vals
+                        updated_card["ai_columns"] = orig_cols
+
                     updated_details.append(updated_card)
                 else:
                     updated_details.append(d)

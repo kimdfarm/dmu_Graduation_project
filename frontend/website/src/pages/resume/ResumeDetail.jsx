@@ -16,113 +16,93 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 11);
 };
 
-const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
+const parseDetailsToTableSchema = (section, currentVersion = 'ORIGINAL') => {
   const isAi = currentVersion === 'AI';
   const isSpell = currentVersion === 'SPELL';
+  const isOriginal = currentVersion === 'ORIGINAL';
 
-  let defaultColumns = ['분류', '스킬', '핵심 과제', '구현 솔루션', '정량적 영향'];
-  if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
-    defaultColumns = [...secAiColumns];
-  } else if (!isAi && Array.isArray(secColumns) && secColumns.length > 0) {
-    defaultColumns = [...secColumns];
-  }
-
-  if (!details || details.length === 0) {
-    return { columns: defaultColumns, rows: [] };
+  const currentMode = section.ai_style || 'PROJECT';
+  
+  const details = section.details || [];
+  if (details.length === 0) {
+    return { columns: [], rows: [] };
   }
 
   const extractedRows = details.map((detail) => {
     let rowValues = {};
-    let cardColumns = [...defaultColumns];
+    let cardColumns = [];
+    let colVals = {};
 
-    if ((isAi || isSpell) && detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
-      cardColumns = [...detail.ai_columns];
-    }
-
+    // 💡 1. AI 버전일 때: 오직 AI 모드 전용 컬럼과 값만 사용 (원본 컬럼 '내용' 등 유입 원천 차단)
     if (isAi) {
-      const colVals = detail.column_values || {};
+      colVals = (detail.aiValuesByMode && detail.aiValuesByMode[currentMode]) || detail.column_values_ai || detail.column_values || {};
+      const aiCols = (detail.aiColumnsByMode && detail.aiColumnsByMode[currentMode]) || detail.ai_columns_ai || detail.ai_columns;
       
-      Object.keys(colVals).forEach((k) => {
-        if (!cardColumns.includes(k)) {
-          cardColumns.push(k);
+      if (Array.isArray(aiCols) && aiCols.length > 0) {
+        cardColumns = [...aiCols];
+      } else {
+        cardColumns = Object.keys(colVals);
+      }
+
+      // 만약 column_values가 비어있다면 ai_proofread_text나 original_text 활용
+      if (Object.keys(colVals).length === 0) {
+        const fallbackText = detail.ai_proofread_text || detail.original_text || '';
+        if (fallbackText) {
+          cardColumns = ['항목', '내용'];
+          colVals = { '내용': fallbackText };
         }
-      });
+      }
 
       cardColumns.forEach((col) => {
         rowValues[col] = colVals[col] || '';
       });
 
-      const targetText = detail.ai_proofread_text || '';
-      if (Object.keys(rowValues).length === 0 && targetText) {
-        const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-        let match;
-        while ((match = regex.exec(targetText)) !== null) {
-          const colName = match[1].trim();
-          const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-          if (!cardColumns.includes(colName)) cardColumns.push(colName);
-          rowValues[colName] = content;
-        }
-      }
-    } else if (isSpell) {
-      const spellText = detail.spell_checked_text || detail.original_text || '';
-      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-      let match;
-      let hasTags = false;
-
-      while ((match = regex.exec(spellText)) !== null) {
-        hasTags = true;
-        const colName = match[1].trim();
-        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-        if (!cardColumns.includes(colName)) cardColumns.push(colName);
-        rowValues[colName] = content;
-      }
-
-      if (!hasTags) {
+    } 
+    // 💡 2. 맞춤법(SPELL) 버전일 때
+    else if (isSpell) {
+      colVals = detail.column_values_spell || detail.column_values || {};
+      cardColumns = detail.ai_columns_spell || section.columns || ['항목', '내용'];
+      
+      if (Object.keys(colVals).length > 0) {
+        rowValues = { ...colVals };
+      } else {
+        const spellText = detail.spell_checked_text || detail.original_text || '';
         cardColumns.forEach((col, idx) => {
           rowValues[col] = idx === 1 ? spellText : (detail.title || '');
         });
       }
-    } else {
-      const targetText = detail.original_text || '';
-      const regex = /\[(.*?)\]([\s\S]*?)(?=\[|$)/g;
-      let match;
-      let hasTags = false;
-
-      while ((match = regex.exec(targetText)) !== null) {
-        hasTags = true;
-        const colName = match[1].trim();
-        const content = match[2].replace(/^[•\-\*\s]+/gm, '').trim();
-        if (!cardColumns.includes(colName)) cardColumns.push(colName);
-        rowValues[colName] = content;
-      }
-
-      if (!hasTags) {
+    } 
+    // 💡 3. 원본(ORIGINAL) 버전일 때
+    else {
+      colVals = detail.column_values_orig || detail.column_values || {};
+      cardColumns = detail.ai_columns_orig || section.columns || ['항목', '내용'];
+      
+      if (Object.keys(colVals).length > 0) {
+        rowValues = { ...colVals };
+      } else {
+        const origText = detail.original_text || '';
         cardColumns.forEach((col, idx) => {
-          rowValues[col] = idx === 1 ? targetText : (detail.title || '');
+          rowValues[col] = idx === 1 ? origText : (detail.title || '');
         });
       }
-    }
-
-    if (detail.title && detail.title !== '세부 항목' && !rowValues[cardColumns[0]]) {
-      rowValues[cardColumns[0]] = detail.title;
     }
 
     return {
       id: detail.id || generateUniqueId(),
       title: detail.title || '',
-      spell_checked_text: detail.spell_checked_text || null,
-      ai_proofread_text: detail.ai_proofread_text || null,
       selected_version: currentVersion,
       columns: cardColumns,
       values: rowValues
     };
   });
 
-  const allColumnsSet = new Set(defaultColumns);
+  // 전체 섹션의 컬럼 합치기 (AI 모드일 때는 해당 모드의 컬럼들만 유지)
+  const allColumnsSet = new Set();
   extractedRows.forEach(r => r.columns.forEach(c => allColumnsSet.add(c)));
 
   return { columns: Array.from(allColumnsSet), rows: extractedRows };
 };
+
 const ResumeDetail = () => {
   const { resumeId } = useParams();
   const navigate = useNavigate();
@@ -201,7 +181,7 @@ const ResumeDetail = () => {
     }
   };
 
-  const handleSectionVersionChange = async (sectionId, version) => {
+const handleSectionVersionChange = async (sectionId, version) => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: version }));
 
     try {
@@ -210,6 +190,8 @@ const ResumeDetail = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selected_version: version })
       });
+      // 💡 버전 변경 후 확실한 반영을 위해 새로고침 실행
+      window.location.reload();
     } catch (err) {
       console.error('버전 업데이트 실패:', err);
     }
@@ -225,6 +207,12 @@ const ResumeDetail = () => {
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
 
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_version: 'SPELL' })
+      });
+
       const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -237,21 +225,8 @@ const ResumeDetail = () => {
       });
 
       if (response.ok) {
-        const result = await response.json();
-        setSections((prevSections) =>
-          prevSections.map((sec) => {
-            if (sec.id !== sectionId) return sec;
-            const updatedDetails = sec.details.map((detail) => {
-              const checkedItem = Array.isArray(result) 
-                ? result.find((item) => String(item.id) === String(detail.id))
-                : null;
-              return checkedItem
-                ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
-                : detail;
-            });
-            return { ...sec, details: updatedDetails };
-          })
-        );
+        // 💡 맞춤법 교정 완료 후 새로고침 실행
+        window.location.reload();
       }
     } catch (err) {
       console.error('맞춤법 교정 API 오류:', err);
@@ -271,6 +246,15 @@ const ResumeDetail = () => {
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          selected_version: 'AI',
+          ai_style: selectedMode 
+        })
+      });
+
       const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/ai-proofread`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -284,7 +268,8 @@ const ResumeDetail = () => {
       });
 
       if (response.ok) {
-        window.location.reload(); // 최신 데이터 반영을 위해 새로고침 또는 데이터 리패치
+        // 💡 AI 교정 완료 후 새로고침 실행
+        window.location.reload();
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);
@@ -301,24 +286,28 @@ const ResumeDetail = () => {
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection) return;
 
-    const hasExistingData = targetSection.modeColumnsMap && targetSection.modeColumnsMap[modeName] && targetSection.modeColumnsMap[modeName].length > 0;
+    const hasExistingData = targetSection.modeColumnsMap 
+      && targetSection.modeColumnsMap[modeName] 
+      && targetSection.modeColumnsMap[modeName].length > 0;
 
-    if (hasExistingData) {
-      try {
-        await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            selected_version: 'AI',
-            ai_style: modeName 
-          })
-        });
+    try {
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          selected_version: 'AI',
+          ai_style: modeName 
+        })
+      });
+
+      if (hasExistingData) {
+        // 💡 기존 캐시가 있어도 모드 전환 후 확실하게 반영되도록 새로고침 실행
         window.location.reload();
-      } catch (err) {
-        console.error('버전 및 모드 변경 실패:', err);
+      } else {
+        await handleExecuteAIProofread(sectionId, modeName);
       }
-    } else {
-      await handleExecuteAIProofread(sectionId, modeName);
+    } catch (err) {
+      console.error('버전 및 모드 변경 실패:', err);
     }
   };
 
@@ -470,8 +459,8 @@ const ResumeDetail = () => {
             const modeGroupsMap = {};
             const modeOrderedItemMapsMap = {};
 
+            // 1. AI 교정 캐시 맵핑 준비 (모드별 그룹 및 항목 맵 파싱)
             const rawAiProofread = sec.ai_proofread_text;
-
             if (Array.isArray(rawAiProofread)) {
               rawAiProofread.forEach((group) => {
                 if (group && typeof group === 'object' && group.mode) {
@@ -491,21 +480,75 @@ const ResumeDetail = () => {
               });
             }
 
-            const currentMode = sec.ai_style || 'PROJECT';
-            const targetGroup = modeGroupsMap[currentMode];
-            const currentItemMap = modeOrderedItemMapsMap[currentMode] || {};
-            const currentAiColumns = modeColumnsMap[currentMode] || (targetGroup ? targetGroup.ai_columns : []);
+            // 2. 맞춤법(SPELL) 캐시 맵핑 준비
+            const spellItemMap = {};
+            const rawSpell = sec.spell_checked_text;
+            if (Array.isArray(rawSpell)) {
+              rawSpell.forEach((st) => {
+                if (st && st.id !== undefined && st.id !== null) {
+                  spellItemMap[String(st.id)] = st;
+                }
+              });
+            }
 
+            const currentMode = sec.ai_style || 'PROJECT';
+            const currentVersion = sec.selected_version || 'ORIGINAL';
+
+            // 3. 각 상세 항목(detail)에 버전별(Original, Spell, AI 모드별) 캐시 데이터 완벽 주입
             const updatedDetails = (sec.details || []).map((detail) => {
               const detailIdStr = detail.id !== undefined && detail.id !== null ? String(detail.id) : '';
-              const matchedItem = currentItemMap[detailIdStr] || null;
+              
+              // 💡 각 모드별(PROJECT, IMPACT, TECH, COMP 등) AI 교정 데이터 추출 맵 구성
+              const aiColumnsByMode = {};
+              const aiValuesByMode = {};
+              
+              Object.keys(modeOrderedItemMapsMap).forEach((modeKey) => {
+                const modeItemMap = modeOrderedItemMapsMap[modeKey];
+                const matchedAiItem = modeItemMap[detailIdStr];
+                if (matchedAiItem) {
+                  aiColumnsByMode[modeKey] = matchedAiItem.ai_columns || modeColumnsMap[modeKey] || [];
+                  aiValuesByMode[modeKey] = matchedAiItem.column_values || {};
+                }
+              });
 
-              return {
+              // 현재 선택된 모드의 AI 데이터
+              const currentAiItem = modeOrderedItemMapsMap[currentMode]?.[detailIdStr] || null;
+              const matchedSpell = spellItemMap[detailIdStr] || null;
+
+              // 원본 데이터 기본값 설정
+              const origCols = detail.ai_columns || sec.columns || ['항목', '내용'];
+              const origVals = detail.column_values || { [origCols[0]]: detail.original_text || '' };
+
+              const updatedCard = {
                 ...detail,
-                ai_proofread_text: matchedItem?.ai_proofread_text || detail.ai_proofread_text || '',
-                ai_columns: matchedItem?.ai_columns || currentAiColumns || detail.ai_columns || [],
-                column_values: matchedItem?.column_values || detail.column_values || {}
+                selected_version: detail.selected_version || currentVersion,
+                // 버전별 컬럼 및 값 분리 저장
+                column_values_orig: origVals,
+                ai_columns_orig: origCols,
+                column_values_spell: matchedSpell?.column_values || origVals,
+                ai_columns_spell: matchedSpell?.ai_columns || origCols,
+                // 모드별 AI 값 구조 보존
+                column_values_ai: currentAiItem?.column_values || aiValuesByMode[currentMode] || {},
+                ai_columns_ai: currentAiItem?.ai_columns || modeColumnsMap[currentMode] || origCols,
+                // 전체 모드별 맵을 카트에 심어줌
+                aiValuesByMode: aiValuesByMode,
+                aiColumnsByMode: aiColumnsByMode
               };
+
+              // 현재 선택된 버전에 맞춰 활성 column_values와 ai_columns 설정
+              const curVer = updatedCard.selected_version;
+              if (curVer === 'AI') {
+                updatedCard.column_values = updatedCard.column_values_ai;
+                updatedCard.ai_columns = updatedCard.ai_columns_ai;
+              } else if (curVer === 'SPELL') {
+                updatedCard.column_values = updatedCard.column_values_spell;
+                updatedCard.ai_columns = updatedCard.ai_columns_spell;
+              } else {
+                updatedCard.column_values = updatedCard.column_values_orig;
+                updatedCard.ai_columns = updatedCard.ai_columns_orig;
+              }
+
+              return updatedCard;
             });
 
             return { ...sec, details: updatedDetails, modeColumnsMap };
@@ -539,7 +582,7 @@ const ResumeDetail = () => {
     const isShort = colName.includes('기간') || colName.includes('날짜') || colName.includes('역할') || colName.includes('일자');
 
     if (isDetail || textValue.length > 80) {
-      return 'flex-[3] min-w-[350px]';
+      return 'flex-[3] min-w-[300px] max-w-[400px]';
     }
     if (isShort || textValue.length < 20) {
       return 'flex-[1] min-w-[140px] max-w-[200px]';
@@ -547,15 +590,12 @@ const ResumeDetail = () => {
     return 'flex-[1.5] min-w-[180px]';
   };
 
+
   const formattedSections = sections.map((sec) => {
     const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    const currentMode = sectionAiModes[sec.id] || 'PROJECT';
-
-    const targetAiColumns = (sec.modeColumnsMap && sec.modeColumnsMap[currentMode]) 
-      ? sec.modeColumnsMap[currentMode] 
-      : [];
-
-    const { columns, rows } = parseDetailsToTableSchema(sec.details, sec.columns, targetAiColumns, secVersion);
+    
+    // 섹션 객체 전체(sec)를 전달해야 내부에서 sec.details를 올바르게 읽어옵니다.
+    const { columns, rows } = parseDetailsToTableSchema(sec, secVersion);
     return { ...sec, columns, rows, currentVersion: secVersion };
   });
 

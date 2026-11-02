@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
+const BASE_URL = import.meta.env.VITE_BASE_URL || "http://localhost:8000";
 const generateUniqueId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -17,11 +17,12 @@ const generateUniqueId = () => {
 };
 
 // 💡 [수정] SPELL 버전일 때 원문과 섞이지 않고 spell_checked_text가 독립적으로 완벽히 렌더링되도록 파싱 로직 분리
-const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL') => {
+const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], currentVersion = 'ORIGINAL', currentMode = 'STAR') => {
   const isAi = currentVersion === 'AI';
   const isSpell = currentVersion === 'SPELL';
+  const isOriginal = currentVersion === 'ORIGINAL';
 
-  let defaultColumns = ['질문', '답변'];
+  let defaultColumns = ['분류', '스킬', '핵심 과제', '구현 솔루션', '정량적 영향'];
   if (isAi && Array.isArray(secAiColumns) && secAiColumns.length > 0) {
     defaultColumns = [...secAiColumns];
   } else if (!isAi && Array.isArray(secColumns) && secColumns.length > 0) {
@@ -36,37 +37,65 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
     let rowValues = {};
     let cardColumns = [...defaultColumns];
 
-    // 1. ai_columns가 존재하면 해당 컬럼 구조를 우선 반영
-    if (detail.ai_columns && Array.isArray(detail.ai_columns) && detail.ai_columns.length > 0) {
-      cardColumns = [...detail.ai_columns];
+    // 1. AI 버전일 때 처리
+    if (isAi) {
+      const modeVals = (detail.aiValuesByMode && detail.aiValuesByMode[currentMode]) || detail.column_values_ai || detail.column_values || {};
+      const modeCols = (detail.aiColumnsByMode && detail.aiColumnsByMode[currentMode]) || detail.ai_columns_ai || detail.ai_columns || defaultColumns;
+
+      if (Array.isArray(modeCols) && modeCols.length > 0) {
+        cardColumns = [...modeCols];
+      }
+
+      Object.keys(modeVals).forEach((k) => {
+        if (!cardColumns.includes(k)) {
+          cardColumns.push(k);
+        }
+      });
+
+      cardColumns.forEach((col) => {
+        rowValues[col] = modeVals[col] || '';
+      });
+
+      // 💡 만약 값이 비어있다면 original_text나 ai_proofread_text를 첫 번째 컬럼에 강제 할당하여 '내용 없음' 방지
+      if (Object.keys(rowValues).length === 0 || Object.values(rowValues).every(v => !v)) {
+        const fallbackText = detail.ai_proofread_text || detail.original_text || '';
+        if (fallbackText) {
+          cardColumns = ['항목', '내용'];
+          rowValues = { '내용': fallbackText };
+        }
+      }
+    } 
+    // 2. SPELL (맞춤법) 버전일 때 처리
+    else if (isSpell) {
+      const spellVals = detail.column_values_spell || detail.column_values || {};
+      const spellCols = detail.ai_columns_spell || cardColumns;
+
+      if (Object.keys(spellVals).length > 0 && Object.values(spellVals).some(v => v)) {
+        cardColumns = [...spellCols];
+        rowValues = { ...spellVals };
+      } else {
+        const spellText = detail.spell_checked_text || detail.original_text || '';
+        cardColumns = ['항목', '내용'];
+        rowValues = { '내용': spellText };
+      }
+    } 
+    // 3. ORIGINAL (원본) 버전일 때 처리
+    else {
+      const origVals = detail.column_values_orig || detail.column_values || {};
+      const origCols = detail.ai_columns_orig || cardColumns;
+
+      if (Object.keys(origVals).length > 0 && Object.values(origVals).some(v => v)) {
+        cardColumns = [...origCols];
+        rowValues = { ...origVals };
+      } else {
+        const originalText = detail.original_text || '';
+        cardColumns = ['항목', '내용'];
+        rowValues = { '내용': originalText };
+      }
     }
 
-    // 2. original_text 정규식 파싱 대신 column_values 객체를 직접 매핑합니다.
-    const colVals = detail.column_values || {};
-    
-    // column_values에 있는 키들을 cardColumns에 동적으로 추가
-    Object.keys(colVals).forEach((k) => {
-      if (!cardColumns.includes(k)) {
-        cardColumns.push(k);
-      }
-    });
-
-    // 각 컬럼에 해당하는 값을 rowValues에 대입 (값이 없으면 빈 문자열)
-    cardColumns.forEach((col) => {
-      rowValues[col] = colVals[col] || '';
-    });
-
-    // 만약 column_values가 비어있고 AI/SPELL/ORIGINAL 텍스트만 있는 경우의 예외 처리
-    if (Object.keys(rowValues).length === 0) {
-      const targetText = isAi 
-        ? (detail.ai_proofread_text || '') 
-        : isSpell 
-          ? (detail.spell_checked_text || detail.original_text || '') 
-          : (detail.original_text || '');
-      
-      cardColumns.forEach((col, idx) => {
-        rowValues[col] = idx === 1 ? targetText : (detail.title || '');
-      });
+    if (detail.title && detail.title !== '세부 항목' && !rowValues[cardColumns[0]]) {
+      rowValues[cardColumns[0]] = detail.title;
     }
 
     return {
@@ -85,7 +114,6 @@ const parseDetailsToTableSchema = (details, secColumns = [], secAiColumns = [], 
 
   return { columns: Array.from(allColumnsSet), rows: extractedRows };
 };
-
 const CoverLetterDetail = () => {
   const { coverLetterId } = useParams();
   const navigate = useNavigate();
@@ -122,7 +150,7 @@ const CoverLetterDetail = () => {
 
   const fetchCoverLetterData = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/cover-letters/${coverLetterId}`);
+      const res = await fetch(`${BASE_URL}/api/cover-letters/${coverLetterId}`);
       if (!res.ok) throw new Error('자기소개서 정보를 불러오는 데 실패했습니다.');
 
       const data = await res.json();
@@ -143,6 +171,7 @@ const CoverLetterDetail = () => {
           const modeGroupsMap = {};
           const modeOrderedItemMapsMap = {};
 
+
           const rawAiProofread = sec.ai_proofread_text;
 
           if (Array.isArray(rawAiProofread)) {
@@ -152,8 +181,10 @@ const CoverLetterDetail = () => {
                 modeGroupsMap[group.mode] = group;
 
                 const itemMap = {};
-                if (Array.isArray(group.items)) {
-                  group.items.forEach((it) => {
+                // group.items 또는 group.details 안전하게 처리
+                const itemsList = group.items || group.details || [];
+                if (Array.isArray(itemsList)) {
+                  itemsList.forEach((it) => {
                     if (it && it.id !== undefined && it.id !== null) {
                       itemMap[String(it.id)] = it;
                     }
@@ -165,20 +196,39 @@ const CoverLetterDetail = () => {
           }
 
           const currentMode = sec.ai_style || 'STAR';
-          const targetGroup = modeGroupsMap[currentMode];
-          const currentItemMap = modeOrderedItemMapsMap[currentMode] || {};
-          const currentAiColumns = modeColumnsMap[currentMode] || (targetGroup ? targetGroup.ai_columns : []);
+          const currentVersion = sec.selected_version || 'AI';
 
           const updatedDetails = (sec.details || []).map((detail) => {
             const detailIdStr = detail.id !== undefined && detail.id !== null ? String(detail.id) : '';
-            const matchedItem = currentItemMap[detailIdStr] || null;
+            
+            const aiColumnsByMode = {};
+            const aiValuesByMode = {};
+
+            Object.keys(modeOrderedItemMapsMap).forEach((modeKey) => {
+              const modeItemMap = modeOrderedItemMapsMap[modeKey];
+              const matchedAiItem = modeItemMap[detailIdStr];
+              if (matchedAiItem) {
+                aiColumnsByMode[modeKey] = matchedAiItem.ai_columns || modeColumnsMap[modeKey] || [];
+                aiValuesByMode[modeKey] = matchedAiItem.column_values || {};
+              }
+            });
+
+            const currentAiItem = modeOrderedItemMapsMap[currentMode]?.[detailIdStr] || null;
+
+            const origCols = detail.ai_columns || sec.columns || ['질문 항목', '작성 내용'];
+            const origVals = detail.column_values || { [origCols[0]]: detail.original_text || '' };
 
             return {
               ...detail,
+              selected_version: detail.selected_version || currentVersion,
+              column_values_orig: origVals,
+              ai_columns_orig: origCols,
+              column_values_ai: currentAiItem?.column_values || aiValuesByMode[currentMode] || {},
+              ai_columns_ai: currentAiItem?.ai_columns || modeColumnsMap[currentMode] || origCols,
+              aiValuesByMode: aiValuesByMode,
+              aiColumnsByMode: aiColumnsByMode,
               spell_checked_text: spellMap[detailIdStr] || detail.spell_checked_text || '',
-              ai_proofread_text: matchedItem?.ai_proofread_text || detail.ai_proofread_text || '',
-              ai_columns: matchedItem?.ai_columns || currentAiColumns || detail.ai_columns || [],
-              column_values: matchedItem?.column_values || detail.column_values || {}
+              ai_proofread_text: currentAiItem?.ai_proofread_text || detail.ai_proofread_text || ''
             };
           });
 
@@ -251,11 +301,13 @@ const CoverLetterDetail = () => {
     setSectionVersions((prev) => ({ ...prev, [sectionId]: version }));
 
     try {
-      await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selected_version: version })
       });
+      // 💡 버전 변경 후 확실한 반영을 위해 새로고침 실행
+      window.location.reload();
     } catch (err) {
       console.error('버전 업데이트 실패:', err);
     }
@@ -270,33 +322,27 @@ const CoverLetterDetail = () => {
 
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'SPELL' }));
-      const response = await fetch(`${API_URL}/api/sections/${sectionId}/spell-check`, {
+
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_version: 'SPELL' })
+      });
+
+      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/spell-check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           details: targetSection.details.map((d) => ({
             id: d.id,
-            original_text: d.original_text || d.values?.답변 || d.title || ''
+            original_text: d.original_text || ''
           }))
         })
       });
 
       if (response.ok) {
-        const result = await response.json();
-        setSections((prevSections) =>
-          prevSections.map((sec) => {
-            if (sec.id !== sectionId) return sec;
-            const updatedDetails = sec.details.map((detail) => {
-              const checkedItem = Array.isArray(result) 
-                ? result.find((item) => String(item.id) === String(detail.id))
-                : null;
-              return checkedItem
-                ? { ...detail, spell_checked_text: checkedItem.spell_checked_text }
-                : detail;
-            });
-            return { ...sec, details: updatedDetails };
-          })
-        );
+        // 💡 맞춤법 교정 완료 후 새로고침 실행
+        window.location.reload();
       }
     } catch (err) {
       console.error('맞춤법 교정 API 오류:', err);
@@ -313,23 +359,39 @@ const CoverLetterDetail = () => {
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection || !targetSection.details) return;
 
+    // 💡 디버깅용: 전송하는 텍스트 확인
+    console.log("AI 교정 요청 텍스트:", targetSection.details);
+
     try {
       setProcessingSections((prev) => ({ ...prev, [sectionId]: 'AI' }));
 
-      const response = await fetch(`${API_URL}/api/sections/${sectionId}/coverletter-ai-proofread`, {
+      await fetch(`${BASE_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          selected_version: 'AI',
+          ai_style: selectedMode 
+        })
+      });
+
+      const response = await fetch(`${BASE_URL}/api/sections/${sectionId}/coverletter-ai-proofread`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: selectedMode,
           details: targetSection.details.map((d) => ({
             id: d.id,
-            original_text: d.original_text || d.values?.답변 || d.title || ''
+            // 💡 만약 original_text가 비어있다면 화면에 보이는 값이나 기본 문구를 대신 보냄
+            original_text: d.original_text || d.title || '자기소개서 내용을 작성해주세요.'
           }))
         })
       });
 
       if (response.ok) {
-        await fetchCoverLetterData();
+        window.location.reload();
+      } else {
+        const errText = await response.text();
+        console.error("AI 교정 서버 에러:", errText);
       }
     } catch (err) {
       console.error('AI 교정 API 오류:', err);
@@ -346,26 +408,32 @@ const CoverLetterDetail = () => {
     const targetSection = sections.find((s) => s.id === sectionId);
     if (!targetSection) return;
 
-    const hasExistingData = targetSection.modeColumnsMap && targetSection.modeColumnsMap[modeName] && targetSection.modeColumnsMap[modeName].length > 0;
+    const hasExistingData = targetSection.modeColumnsMap 
+      && targetSection.modeColumnsMap[modeName] 
+      && targetSection.modeColumnsMap[modeName].length > 0;
 
-    if (hasExistingData) {
-      try {
-        await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            selected_version: 'AI',
-            ai_style: modeName 
-          })
-        });
-        await fetchCoverLetterData();
-      } catch (err) {
-        console.error('버전 및 모드 변경 실패:', err);
+    try {
+      await fetch(`${API_URL}/api/sections/${sectionId}/version`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          selected_version: 'AI',
+          ai_style: modeName 
+        })
+      });
+
+      if (hasExistingData) {
+        // 💡 기존 캐시가 있으면 새로고침을 통해 깔끔하게 반영
+        window.location.reload();
+      } else {
+        // 캐시가 없으면 해당 모드로 AI 교정 API 실행 후 새로고침
+        await handleExecuteAIProofread(sectionId, modeName);
       }
-    } else {
-      await handleExecuteAIProofread(sectionId, modeName);
+    } catch (err) {
+      console.error('자기소개서 AI 모드 변경 실패:', err);
     }
   };
+  
 
   const executeRecommendation = async (endpoint) => {
     try {
@@ -467,7 +535,7 @@ const CoverLetterDetail = () => {
     const isShort = colName.includes('기간') || colName.includes('날짜') || colName.includes('역할') || colName.includes('일자');
 
     if (isDetail || textValue.length > 80) {
-      return 'flex-[3] min-w-[350px]';
+      return 'flex-[3] min-w-[300px] max-w-[400px]';
     }
     if (isShort || textValue.length < 20) {
       return 'flex-[1] min-w-[140px] max-w-[200px]';
@@ -476,8 +544,8 @@ const CoverLetterDetail = () => {
   };
 
   const formattedSections = sections.map((sec) => {
-    const secVersion = sectionVersions[sec.id] || sec.selected_version || 'ORIGINAL';
-    const currentMode = sectionAiModes[sec.id] || 'STAR';
+    const secVersion = sectionVersions[sec.id] || sec.selected_version || 'AI';
+    const currentMode = sectionAiModes[sec.id] || sec.ai_style || 'STAR';
 
     const targetAiColumns = (sec.modeColumnsMap && sec.modeColumnsMap[currentMode]) 
       ? sec.modeColumnsMap[currentMode] 
@@ -487,7 +555,8 @@ const CoverLetterDetail = () => {
       sec.details, 
       sec.columns, 
       targetAiColumns,  
-      secVersion
+      secVersion,
+      currentMode
     );
     
     return { ...sec, columns, rows, currentVersion: secVersion };

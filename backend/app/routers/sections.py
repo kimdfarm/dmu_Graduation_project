@@ -464,6 +464,9 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
 # ------------------------------------------------------------------
 # Endpoint 3: [자기소개서 전용] 1번 고정된 컬럼 기반으로 개별 카드 순회 교정 엔드포인트
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Endpoint 3: [자기소개서 전용] 1번 고정된 컬럼 기반으로 개별 카드 순회 교정 엔드포인트
+# ------------------------------------------------------------------
 @router.post("/{section_id}/coverletter-ai-proofread", response_model=List[AIProofreadResponseItem])
 async def coverletter_ai_proofread_section(
     section_id: str,
@@ -499,7 +502,7 @@ async def coverletter_ai_proofread_section(
     existing_group_cols = target_group.get("ai_columns", []) if target_group else []
     combined_base_cols = list(set(base_sec_columns + existing_group_cols))
     
-    # 💡 1. 컬럼 구조는 최초 1번만 창의적/동적으로 도출하여 고정값으로 사용
+    # 💡 컬럼 구조는 최초 1번만 창의적/동적으로 도출하여 고정값으로 사용
     use_columns = derive_unified_columns_with_ai(
         mode=current_style, 
         existing_columns=combined_base_cols, 
@@ -516,11 +519,9 @@ async def coverletter_ai_proofread_section(
 
     new_items_list = []
 
-    # 💡 2. 일괄(Batch) 방식 대신, 카드 1개씩 반복(Loop)하며 고정된 use_columns에 맞추어 개별 처리
     for item in payload.details:
         item_id_str = str(item.id)
         
-        # 캐시가 존재하고 컬럼 구조가 일치하면 그대로 사용
         if item_id_str in cached_map:
             cached_item = cached_map[item_id_str]
             old_vals = cached_item.get("column_values", {})
@@ -534,7 +535,6 @@ async def coverletter_ai_proofread_section(
             })
             continue
 
-        # 캐시에 없으면 카드 1개씩 단독 LLM 호출 (카드 간 간섭/혼동 방지)
         single_result = run_single_card_ai_proofread_llm(
             card_id=item.id,
             original_text=item.original_text,
@@ -579,7 +579,6 @@ async def coverletter_ai_proofread_section(
         ))
 
     return response_items
-
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
