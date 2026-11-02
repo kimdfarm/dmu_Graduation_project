@@ -243,7 +243,6 @@ const DeveloperTestGithub = () => {
       setEstimationProgress({ current: 0, total: 0, currentRepo: '' });
     }
   };
-
 const handleDirectGenerateResume = async () => {
     if (!selectedFrame) {
       alert("이력서 프레임 템플릿을 선택해 주세요.");
@@ -639,6 +638,23 @@ const handleDirectGenerateResume = async () => {
                         <span>📊 총 토큰 (Input + Output):</span>
                         <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
                       </p>
+                      
+                      {/* 탐색 통계 및 정보 없는 저장소 안내 영역 */}
+                    <div className="mt-3 pt-3 border-t border-emerald-950/80 space-y-1.5 text-[11px] text-slate-300">
+                      <p className="flex items-center justify-between text-emerald-400">
+                        <span>✅ 성공적으로 탐색한 저장소:</span>
+                        <span className="font-bold">{estimationResult.success_count}개</span>
+                      </p>
+                      <p className="flex items-center justify-between text-rose-400">
+                        <span>⚠️ 정보가 없어 건너뛴 저장소:</span>
+                        <span className="font-bold">{skippedRepos.length}개</span>
+                      </p>
+                      {skippedRepos.length > 0 && (
+                        <p className="text-slate-400 font-mono text-[10px] truncate">
+                          제외된 저장소: {skippedRepos.join(', ')}
+                        </p>
+                      )}
+                    </div>
                     </div>
                   )}
                 </div>
