@@ -463,12 +463,16 @@ const CoverLetterDetail = () => {
   };
 
   const getColumnWidthClass = (colName, textValue = '') => {
-    const isDetail = colName.includes('내용') || colName.includes('답변') || colName.includes('작성') || colName.includes('경험') || colName.includes('Result') || colName.includes('Action');
-    const isShort = colName.includes('제목') || colName.includes('문항') || colName.includes('항목') || colName.includes('Role');
+    const isDetail = colName.includes('상세') || colName.includes('성과') || colName.includes('업무') || colName.includes('내용') || colName.includes('소개');
+    const isShort = colName.includes('기간') || colName.includes('날짜') || colName.includes('역할') || colName.includes('일자');
 
-    if (isDetail || textValue.length > 80) return 'w-[650px] md:w-[750px] shrink-0';
-    if (isShort || textValue.length < 20) return 'w-[300px] md:w-[360px] shrink-0';
-    return 'w-[450px] md:w-[550px] shrink-0';
+    if (isDetail || textValue.length > 80) {
+      return 'flex-[3] min-w-[350px]';
+    }
+    if (isShort || textValue.length < 20) {
+      return 'flex-[1] min-w-[140px] max-w-[200px]';
+    }
+    return 'flex-[1.5] min-w-[180px]';
   };
 
   const formattedSections = sections.map((sec) => {
