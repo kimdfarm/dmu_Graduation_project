@@ -431,7 +431,7 @@ async def analyze_repository_graphql(
     target_repo_name = payload.repo_name
 
     if "/" in payload.repo_name:
-        parts = payload.repo_name.split("/")
+        parts = payload.repo_name.split("/", 1)
         target_owner = parts[0]
         target_repo_name = parts[1]
 

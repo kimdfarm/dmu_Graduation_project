@@ -70,9 +70,11 @@ if FRONTEND_URL:
 
 app.add_middleware(
     CORSMiddleware,
-    # 만약 Vercel 주소를 아직 모르는 초기 배포 단계이거나 와일드카드로 테스트할 때:
-    # allow_origins=["*"] 로 설정하셔도 됩니다.
-    allow_origins=origins if FRONTEND_URL else ["*"],
+    allow_origins=[
+        "https://dmu-graduation-project.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
