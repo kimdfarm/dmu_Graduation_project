@@ -8,7 +8,8 @@ import httpx
 from supabase import Client
 from google import genai
 from google.genai import errors as genai_errors
-from datetime import datetime, timedelta, timezone, time
+import time as py_time  # time 모듈을 py_time으로 별칭 지정
+import random
 from app.core.config import get_supabase, GEMINI_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
 import requests
 import traceback
@@ -655,7 +656,7 @@ CRITICAL GOALS:
                 if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) and attempt < max_retries - 1:
                     sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5) # 2초, 4초 순으로 대기 시간 증가 + 지터
                     print(f"⚠️ Gemini API 503 과부하 발생. {sleep_time:.1f}초 후 재시도합니다... ({attempt + 1}/{max_retries})")
-                    time.sleep(sleep_time)
+                    py_time.sleep(sleep_time)
                     continue
                 else:
                     # 마지막 시도였거나 다른 종류의 에러인 경우 그대로 예외 발생
