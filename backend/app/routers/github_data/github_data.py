@@ -397,7 +397,7 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 }
 """
 
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
+GEMINI_MODEL_NAME = "gemini-3.8-flash"
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
