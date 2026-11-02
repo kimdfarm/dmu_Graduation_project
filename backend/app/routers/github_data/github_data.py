@@ -397,8 +397,8 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 }
 """
 
-# Gemini 모델 지정 (가장 빠르고 가벼운 gemini-3.8-flash 활용 권장)
-GEMINI_MODEL_NAME = "gemini-3.8-flash"
+# Gemini 모델 지정 (가장 빠르고 가벼운 gemini-1.5-flash 활용 권장)
+GEMINI_MODEL_NAME = "gemini-1.5-flash"
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
