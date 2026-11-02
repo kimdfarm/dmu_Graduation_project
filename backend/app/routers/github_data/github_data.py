@@ -435,89 +435,81 @@ async def analyze_repository_graphql(
         target_owner = parts[0]
         target_repo_name = parts[1]
 
-    async with httpx.AsyncClient(timeout=1200.0) as client:
-        all_commits = []
-        has_next_page = True
-        after_cursor = None
-        
-        start_dt = datetime.strptime(payload.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) if payload.start_date else None
+    try:
+        async with httpx.AsyncClient(timeout=1200.0) as client:
+            all_commits = []
+            has_next_page = True
+            after_cursor = None
+            
+            start_dt = None
+            if payload.start_date:
+                try:
+                    start_dt = datetime.datetime.strptime(payload.start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except Exception:
+                    pass
 
-        for _ in range(3):
-            if not has_next_page:
-                break
+            for _ in range(3):
+                if not has_next_page:
+                    break
 
-            response = await client.post(
-                "https://api.github.com/graphql",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "query": GRAPHQL_REPO_QUERY,
-                    "variables": {
-                        "owner": target_owner,
-                        "name": target_repo_name,
-                        "afterCursor": after_cursor
+                response = await client.post(
+                    "https://api.github.com/graphql",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "query": GRAPHQL_REPO_QUERY,
+                        "variables": {
+                            "owner": target_owner,
+                            "name": target_repo_name,
+                            "afterCursor": after_cursor
+                        }
                     }
-                }
-            )
-            
-            res_data = response.json()
-            if "errors" in res_data:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"GitHub GraphQL 요청 실패: {res_data['errors'][0].get('message')}"
                 )
-            
-            raw_data = res_data.get("data", {})
-            repo_analytics = raw_data.get("repository") or {}
+                
+                res_data = response.json()
+                if "errors" in res_data:
+                    print(f"GraphQL Error Details: {res_data['errors']}")
+                    break
+                
+                raw_data = res_data.get("data", {})
+                repo_analytics = raw_data.get("repository") or {}
 
-            if not repo_analytics:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"저장소 정보를 찾을 수 없습니다: {target_owner}/{target_repo_name}"
-                )
+                if not repo_analytics:
+                    break
 
-            # 브랜치 혹은 커밋 내역이 아예 없는 빈 저장소 체크
-            if not repo_analytics.get("defaultBranchRef"):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"[{target_repo_name}] 저장소에 기본 브랜치나 분석할 커밋 데이터가 없습니다."
-                )
+                if not all_commits:
+                    base_repo_data = repo_analytics
 
-            if not all_commits:
-                base_repo_data = repo_analytics
+                history_data = repo_analytics.get("defaultBranchRef", {}).get("target", {}).get("history", {})
+                page_info = history_data.get("pageInfo", {})
+                nodes = history_data.get("nodes", [])
 
-            history_data = repo_analytics.get("defaultBranchRef", {}).get("target", {}).get("history", {})
-            page_info = history_data.get("pageInfo", {})
-            nodes = history_data.get("nodes", [])
+                for node in nodes:
+                    all_commits.append(node)
 
-            should_stop = False
-            for node in nodes:
-                committed_date = node.get("committedDate")
-                if committed_date and start_dt:
-                    try:
-                        commit_dt = datetime.fromisoformat(committed_date.replace("Z", "+00:00"))
-                        if commit_dt < start_dt:
-                            should_stop = True
-                    except Exception:
-                        pass
-                all_commits.append(node)
+                if not page_info.get("hasNextPage"):
+                    break
 
-            if should_stop or not page_info.get("hasNextPage"):
-                break
+                after_cursor = page_info.get("endCursor")
+                has_next_page = page_info.get("hasNextPage", False)
 
-            after_cursor = page_info.get("endCursor")
-            has_next_page = page_info.get("hasNextPage", False)
+            if not all_commits and not base_repo_data.get("defaultBranchRef"):
+                raise HTTPException(status_code=422, detail=f"[{target_repo_name}] 분석할 커밋 데이터가 없습니다.")
 
-        if base_repo_data.get("defaultBranchRef") and base_repo_data["defaultBranchRef"].get("target"):
-            base_repo_data["defaultBranchRef"]["target"]["history"]["nodes"] = all_commits
+            if base_repo_data.get("defaultBranchRef") and base_repo_data["defaultBranchRef"].get("target"):
+                base_repo_data["defaultBranchRef"]["target"]["history"]["nodes"] = all_commits
 
-        base_repo_data["repo_name"] = base_repo_data.get("name") or target_repo_name
-        base_repo_data["target_author"] = target_owner
+            base_repo_data["repo_name"] = base_repo_data.get("name") or target_repo_name
+            base_repo_data["target_author"] = target_owner
 
-        return base_repo_data
-    
+            return base_repo_data
+
+    except Exception as e:
+        print(f"Analyze Repository Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"저장소 분석 중 서버 오류 발생: {str(e)}")
+
 @router.post("/resumes/github-generate")
 async def generate_github_resume(
     payload: GithubResumeGenerateRequest,
