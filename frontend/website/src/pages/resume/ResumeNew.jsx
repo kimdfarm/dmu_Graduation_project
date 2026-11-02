@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FilePlus, ArrowLeft, Loader2, Sparkles, Plus, Trash2, Upload, FileText, X, Globe, 
-  Columns, Table, CheckCircle2, Star, Lock, Search, Check, 
-  Calendar, Clock, GitCommit
+  Columns, Table, CheckCircle2, Search, Check, Calendar 
 } from 'lucide-react';
 
 import { FRAME_TEMPLATES } from '../../templates/resumeTemplates';
+import { GITHUB_FRAME_TEMPLATES } from '../../templates/githubTemplates'; // 💡 GitHub 심층 분석 템플릿 임포트 복구
+
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const GithubIcon = ({ className = "w-4 h-4" }) => (
@@ -27,14 +28,15 @@ const ResumeNew = () => {
 
   const [createMode, setCreateMode] = useState('MANUAL');
   const [selectedFrame, setSelectedFrame] = useState('KR_DEV_BACKEND');
+  const [selectedGithubFrame, setSelectedGithubFrame] = useState(''); // 💡 GitHub 템플릿 전용 선택 상태 추가
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('신입 개발자');
+  const [language, setLanguage] = useState('ko'); // 💡 이력서 작성 언어 상태 추가
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
-  const [fileTypeBadge, setFileTypeBadge] = useState({ label: '문서', color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/40' });
   const [isDragging, setIsDragging] = useState(false);
 
   const [sections, setSections] = useState(FRAME_TEMPLATES.KR_DEV_BACKEND?.sections || []);
@@ -42,7 +44,7 @@ const ResumeNew = () => {
   const [columnInput, setColumnInput] = useState('');
   const [customColumnsList, setCustomColumnsList] = useState(['제목/역할', '참여 기간', '상세 업무 및 성과']);
 
-  // GitHub 연동 및 상태
+  // GitHub 연동 및 쿠키 기반 고정 ID (변조 방지)
   const [githubUser, setGithubUser] = useState(
     getCookie('github_id') || localStorage.getItem('github_id') || ''
   );
@@ -51,11 +53,11 @@ const ResumeNew = () => {
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
   const [selectedRepos, setSelectedRepos] = useState([]);
   
-  // 💡 토큰 분석량 및 에너지 견적 관련 상태
+  // 토큰 분석량 관련 상태
   const [isEstimating, setIsEstimating] = useState(false);
-  const [estimationResult, setEstimationResult] = useState(null); // { tokens, energy, projects_data }
-  const [creditBalance, setCreditBalance] = useState(null);
+  const [estimationResult, setEstimationResult] = useState(null); 
   const [skippedRepos, setSkippedRepos] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
   
@@ -79,40 +81,24 @@ const ResumeNew = () => {
   const [activeFilterText, setActiveFilterText] = useState('최근 6개월 기준 탐색 결과');
 
   useEffect(() => {
-    if (createMode === 'GITHUB' && githubUser) {
-      const today = new Date();
-      const pastDate = new Date();
-      pastDate.setMonth(today.getMonth() - 6);
-
-      const initialEnd = today.toISOString().split('T')[0];
-      const initialStart = pastDate.toISOString().split('T')[0];
-
-      setStartDate(initialStart);
-      setEndDate(initialEnd);
-      setActiveFilterText('최근 6개월 기준 탐색 결과');
+    if (createMode === 'GITHUB') {
+      const verifiedUser = getCookie('github_id') || localStorage.getItem('github_id');
+      if (!verifiedUser) {
+        alert('GitHub 계정 연동 정보가 없습니다. 연동을 먼저 진행해 주세요.');
+        navigate('/profileSettings');
+        return;
+      }
+      setGithubUser(verifiedUser);
     }
 
-    if (FRAME_TEMPLATES[selectedFrame]) {
+    if (FRAME_TEMPLATES[selectedFrame] && createMode === 'MANUAL') {
       setSections([...FRAME_TEMPLATES[selectedFrame].sections]);
     }
+  }, [selectedFrame, createMode]);
 
-    const userId = localStorage.getItem('userId');
-    if (userId) {
-      fetch(`${BASE_URL}/api/subscription/${userId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && typeof data.credit_balance === 'number') {
-            setCreditBalance(data.credit_balance);
-          }
-        })
-        .catch(err => console.error("구독 정보 조회 실패:", err));
-    }
-  }, [selectedFrame, createMode, githubUser]);
-
-  // 저장소 선택이 바뀌면 기존 계산된 견적 초기화 (재계산 필요 유도)
   useEffect(() => {
     setEstimationResult(null);
-  }, [selectedRepos, startDate, endDate]);
+  }, [selectedRepos, startDate, endDate, selectedGithubFrame]);
 
   const handleSelectGithubMode = () => {
     const token = getCookie('github_access_token') || localStorage.getItem('github_access_token');
@@ -201,7 +187,7 @@ const ResumeNew = () => {
     });
   };
 
-  // 💡 [핵심] 분석량 및 에너지 사전 계산 함수
+  // 분석량 계산 (빈 저장소 에러 방지 및 건너뛰기 기능 포함)
   const handleEstimateCost = async () => {
     if (selectedRepos.length === 0) {
       alert("분석할 저장소를 1개 이상 선택해 주세요.");
@@ -267,8 +253,9 @@ const ResumeNew = () => {
       const estimateData = await estimateRes.json();
 
       setEstimationResult({
-        tokens: estimateData.total_tokens || estimateData.estimated_tokens,
-        energy: estimateData.energy_cost || Math.ceil((estimateData.total_tokens || 1) / 5000),
+        input_tokens: estimateData.input_tokens,
+        output_tokens: estimateData.output_tokens,
+        total_tokens: estimateData.total_tokens,
         projects_data: projectsData,
         success_count: projectsData.length,
         skipped_count: failedRepos.length
@@ -282,10 +269,15 @@ const ResumeNew = () => {
     }
   };
 
-  // 💡 최종 이력서 생성 (계산된 projects_data 재사용)
+  // 최종 이력서 생성 (GitHub 템플릿 포함 전송)
   const handleDirectGenerateResume = async () => {
+    if (!selectedGithubFrame) {
+      alert("GitHub 심층 분석 템플릿을 선택해 주세요.");
+      return;
+    }
+
     if (!estimationResult || !estimationResult.projects_data) {
-      alert("먼저 '분석량 및 에너지 계산하기'를 진행해 주세요.");
+      alert("먼저 '분석량 및 토큰 계산하기'를 진행해 주세요.");
       return;
     }
 
@@ -299,7 +291,7 @@ const ResumeNew = () => {
       setLoading(true);
       setLoadingText(`[${githubUser}] AI 심층 분석 및 이력서 생성 중...`);
 
-      const currentTemplate = FRAME_TEMPLATES[selectedFrame] || {};
+      const currentTemplate = GITHUB_FRAME_TEMPLATES[selectedGithubFrame] || {};
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -310,7 +302,7 @@ const ResumeNew = () => {
           category: category,
           repo_name: selectedRepos.join(', '),
           template_structure: currentTemplate,
-          language: 'ko',
+          language: language,
           analysis_data: { projects_data: estimationResult.projects_data }
         })
       });
@@ -411,12 +403,10 @@ const ResumeNew = () => {
     }
     setSelectedFile(file);
     if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'heic', 'heif'].includes(fileExt) || file.type.startsWith('image/')) {
-      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/40' });
       const reader = new FileReader();
       reader.onloadend = () => setFilePreview(reader.result);
       reader.readAsDataURL(file);
     } else {
-      setFileTypeBadge({ label: fileExt.toUpperCase(), color: 'bg-teal-950/80 text-teal-300 border-teal-800/40' });
       setFilePreview(null);
     }
   };
@@ -441,12 +431,6 @@ const ResumeNew = () => {
 
       if (createMode === 'UPLOAD') {
         if (!selectedFile) { alert('분석할 이력서 파일이나 이미지를 등록해 주세요.'); setIsLoading(false); return; }
-        
-        if (creditBalance !== null && creditBalance < 15) {
-          alert('에너지가 부족합니다.');
-          setIsLoading(false);
-          return;
-        }
 
         const formData = new FormData();
         formData.append('member_id', userId);
@@ -464,12 +448,6 @@ const ResumeNew = () => {
 
       } else if (createMode === 'MANUAL') {
         if (sections.length === 0) { alert('최소 1개 이상의 섹션이 필요합니다.'); setIsLoading(false); return; }
-        
-        if (creditBalance !== null && creditBalance < 20) {
-          alert('에너지가 부족합니다.');
-          setIsLoading(false);
-          return;
-        }
 
         const formattedSections = sections.map((sec, idx) => ({
           section_type: sec.type || 'CUSTOM',
@@ -503,16 +481,6 @@ const ResumeNew = () => {
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    const d = new Date(dateString);
-    if (isNaN(d.getTime())) return '-';
-    const yy = String(d.getFullYear()).slice(2);
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yy}.${mm}.${dd}`;
-  };
-
   return (
     <div className="min-h-screen bg-[#070b19] text-slate-100 flex items-start justify-center p-6 md:p-10 font-sans overflow-y-auto">
       <div className="w-full max-w-4xl bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 md:p-10 shadow-2xl space-y-8 my-6 relative">
@@ -528,12 +496,6 @@ const ResumeNew = () => {
           </button>
           
           <div className="flex items-center gap-3">
-            {/*
-            {creditBalance !== null && (
-              <span className="text-[11px] font-bold px-3 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-full">
-                ⚡ 잔여 에너지: {creditBalance}회
-              </span>
-            )}*/}
             <span className="text-[11px] font-bold px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
               Resume Builder
             </span>
@@ -797,7 +759,7 @@ const ResumeNew = () => {
             </div>
           )}
 
-          {/* TAB 3: GITHUB 활동 분석 및 에너지 계산 연동 */}
+          {/* TAB 3: GITHUB 활동 분석 및 템플릿 선택 연동 */}
           {createMode === 'GITHUB' && (
             <div className="space-y-6 pt-4 border-t border-emerald-950/60">
               
@@ -807,13 +769,61 @@ const ResumeNew = () => {
                     <GithubIcon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정</p>
+                    <p className="text-[11px] font-medium text-emerald-300">인증된 본인 GitHub 계정 (고정됨)</p>
                     <p className="text-sm font-bold text-white font-mono">{githubUser || '계정 정보 없음'}</p>
                   </div>
                 </div>
                 <span className="text-[11px] px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full font-semibold">
                   안전 인증 완료
                 </span>
+              </div>
+
+              {/* 💡 GitHub 심층 분석 템플릿 선택 영역 복구 */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-emerald-400" />
+                  GitHub 심층 분석 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Object.entries(GITHUB_FRAME_TEMPLATES).map(([key, tpl]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelectedGithubFrame(key)}
+                      className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
+                        selectedGithubFrame === key
+                          ? 'bg-emerald-950/40 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                          : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <p className="font-bold text-slate-100 text-xs leading-snug break-words flex-1">{tpl.name}</p>
+                        <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">{tpl.desc}</p>
+                      </div>
+                      <div>
+                        <span className="inline-block text-[10px] px-2.5 py-0.5 rounded-md bg-[#070b19] border border-emerald-950 text-emerald-300 font-semibold">
+                          {tpl.category}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 이력서 작성 언어 선택 영역 복구 */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-emerald-400" />
+                  이력서 작성 언어
+                </label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full px-4 py-3.5 text-sm text-white bg-[#0a1024] border border-emerald-950/80 rounded-2xl focus:outline-none focus:border-emerald-500 transition-all shadow-md cursor-pointer"
+                >
+                  <option value="ko" className="bg-[#0f152d] text-white">🇰🇷 한국어 (Korean)</option>
+                  <option value="en" className="bg-[#0f152d] text-white">🇺🇸 영어 (English)</option>
+                </select>
               </div>
 
               {/* 기간 설정 컴포넌트 */}
@@ -975,7 +985,7 @@ const ResumeNew = () => {
                     <div className="p-4 bg-[#070b19] border border-emerald-500/40 rounded-xl text-xs space-y-2 text-emerald-300">
                       <p className="flex items-center justify-between">
                         <span>📊 총 예상 토큰 수:</span>
-                        <strong className="text-white font-bold">{estimationResult.tokens.toLocaleString()} 토큰</strong>
+                        <strong className="text-white font-bold">{estimationResult.total_tokens.toLocaleString()} 토큰</strong>
                       </p>
                       <div className="mt-2 pt-2 border-t border-emerald-950 space-y-1 text-[11px] text-slate-300">
                         <p className="flex items-center justify-between text-emerald-400">
@@ -1005,14 +1015,14 @@ const ResumeNew = () => {
             onClick={createMode === 'GITHUB' ? handleDirectGenerateResume : undefined}
             disabled={
               isLoading || loading || 
-              (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0)) ||
+              (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0 || !selectedGithubFrame)) ||
               (createMode === 'UPLOAD' && !selectedFile)
             }
             className={`
               w-full py-4 px-6 rounded-2xl font-black text-sm md:text-base transition-all duration-200 
               flex items-center justify-center gap-2 mt-8 cursor-pointer
               ${
-                isLoading || loading || (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0)) || (createMode === 'UPLOAD' && !selectedFile)
+                isLoading || loading || (createMode === 'GITHUB' && (!estimationResult || selectedRepos.length === 0 || !selectedGithubFrame)) || (createMode === 'UPLOAD' && !selectedFile)
                   ? 'bg-[#0a1024] text-slate-500 border border-emerald-950/60 cursor-not-allowed'
                   : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30'
               }
@@ -1025,14 +1035,18 @@ const ResumeNew = () => {
               </span>
             ) : createMode === 'GITHUB' ? (
               <span className="flex items-center gap-2">
-                {estimationResult ? (
+                {!selectedGithubFrame ? (
+                  <span className="text-slate-400 font-medium text-xs md:text-sm">
+                    ⚠️ 상단에서 GitHub 심층 분석 템플릿을 선택해 주세요
+                  </span>
+                ) : estimationResult ? (
                   <>
                     <Sparkles className="w-5 h-5 text-yellow-300 fill-yellow-300 animate-bounce" />
-                    <span>소모 에너지 {estimationResult.energy}회 차감하고 이력서 생성하기</span>
+                    <span>[{githubUser}] 2단계 심층 AI 분석 후 이력서 생성하기</span>
                   </>
                 ) : (
                   <span className="text-slate-400 font-medium text-xs md:text-sm">
-                    ⚠️ 위에서 [분석량 및 에너지 계산하기]를 먼저 진행해 주세요
+                    ⚠️ 위에서 [분석량 및 토큰 계산하기]를 먼저 진행해 주세요
                   </span>
                 )}
               </span>
