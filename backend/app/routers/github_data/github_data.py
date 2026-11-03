@@ -857,6 +857,8 @@ def get_github_repositories(
 
 class EstimateCostRequest(BaseModel):
     analysis_data: Dict[str, Any]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 @router.post("/github/estimate-cost")
 def estimate_github_cost(payload: EstimateCostRequest):
@@ -872,7 +874,13 @@ def estimate_github_cost(payload: EstimateCostRequest):
     total_chars = 0
     for repo in projects_data:
         target_author = repo.get("target_author", "")
-        cleaned = preprocess_github_data(repo, target_author=target_author)
+        # 💡 payload에서 받은 start_date와 end_date를 전달합니다!
+        cleaned = preprocess_github_data(
+            repo, 
+            target_author=target_author, 
+            start_date=payload.start_date, 
+            end_date=payload.end_date
+        )
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
     
