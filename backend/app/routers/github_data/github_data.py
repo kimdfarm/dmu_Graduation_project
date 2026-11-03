@@ -121,6 +121,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             except Exception:
                 pass
 
+        # 1. 커밋 필터링
         commits_raw = []
         default_branch = raw_graphql_data.get("defaultBranchRef") or {}
         if isinstance(default_branch, dict):
@@ -131,13 +132,10 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     commits_raw = history.get("nodes") or []
 
         merged_commits = {}
-        my_commit_count = 0
-
         for c in commits_raw:
             if not isinstance(c, dict):
                 continue
                 
-            # 💡 커밋 날짜(committedDate) 필터링 추가
             committed_date_str = c.get("committedDate")
             if committed_date_str and (start_dt or end_dt):
                 try:
@@ -155,8 +153,6 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
             if effective_author and author_login and author_login.lower() != effective_author.lower():
                 continue
-
-            my_commit_count += 1
 
             msg = (c.get("messageHeadline") or c.get("message") or "").strip()
             if not msg:
@@ -184,7 +180,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             for msg, stat in merged_commits.items()
         ]
 
-        # 💡 Pull Requests 필터링 추가
+        # 2. Pull Requests 필터링
         prs_raw = []
         prs_data = raw_graphql_data.get("pullRequests") or {}
         if isinstance(prs_data, dict):
@@ -216,11 +212,43 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
         clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
 
+        # 3. 💡 Issues 필터링 및 정제 추가
+        issues_raw = []
+        issues_data = raw_graphql_data.get("issues") or {}
+        if isinstance(issues_data, dict):
+            issues_raw = issues_data.get("nodes") or []
+
+        merged_issues = {}
+        for issue in issues_raw:
+            if isinstance(issue, dict):
+                issue_created_str = issue.get("createdAt")
+                if issue_created_str and (start_dt or end_dt):
+                    try:
+                        issue_dt = datetime.datetime.strptime(issue_created_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                        if start_dt and issue_dt < start_dt:
+                            continue
+                        if end_dt and issue_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
+                issue_author = (issue.get("author") or {}).get("login", "")
+                if effective_author and issue_author and issue_author.lower() != effective_author.lower():
+                    continue
+
+                title = (issue.get("title") or "").strip()
+                state = issue.get("state", "")
+                if title:
+                    key = f"[Issue] {title} (상태: {state})"
+                    merged_issues[key] = merged_issues.get(key, 0) + 1
+
+        clean_issues = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_issues.items()]
+
         return {
             "repo_name": repo_name,
             "tech_stacks": tech_stacks,
             "key_commits": clean_commits,
-            "key_prs_and_issues": clean_prs
+            "key_prs_and_issues": clean_prs + clean_issues  # PR과 Issue 항목 병합 전달
         }
     except Exception as e:
         print(f"Preprocessor Error: {e}")
@@ -452,6 +480,8 @@ class GithubResumeGenerateRequest(BaseModel):
     template_structure: Optional[Dict[str, Any]] = None  
     language: Optional[str] = "ko"
     analysis_data: Optional[Dict[str, Any]] = None
+    start_date: Optional[str] = None  # 💡 추가됨
+    end_date: Optional[str] = None    # 💡 추가됨
 
 @router.post("/github/analyze")
 async def analyze_repository_graphql(
@@ -561,18 +591,30 @@ async def generate_github_resume(
 
     try:
         analysis_data = payload.analysis_data or {}
-        projects_data = analysis_data.get("projects_data", [])
+        raw_projects_data = analysis_data.get("projects_data", [])
 
-        if not projects_data and analysis_data.get("repo_name"):
-            projects_data = [analysis_data]
+        if not raw_projects_data and analysis_data.get("repo_name"):
+            raw_projects_data = [analysis_data]
 
-        if not projects_data:
+        if not raw_projects_data:
             raise HTTPException(
                 status_code=400, 
                 detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
             )
 
-        # 1. 상위 documents 문서 생성
+        # 💡 핵심: AI 분석 및 이력서 생성 직전에도 start_date와 end_date 범위 내의 커밋/PR/이슈만 전처리하여 정제
+        projects_data = []
+        for repo in raw_projects_data:
+            target_author = repo.get("target_author", "")
+            cleaned_repo = preprocess_github_data(
+                repo, 
+                target_author=target_author, 
+                start_date=payload.start_date, 
+                end_date=payload.end_date
+            )
+            projects_data.append(cleaned_repo)
+
+        # (이하 기존 문서 생성 및 템플릿 구조화 코드 동일)
         doc_payload = {
             "member_id": payload.member_id,
             "title": payload.title,

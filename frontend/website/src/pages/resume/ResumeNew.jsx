@@ -297,7 +297,6 @@ const ResumeNew = () => {
       let currentTemplate = {};
 
       if (selectedGithubFrame === 'CUSTOM_SINGLE') {
-        // 💡 1개 커스텀 템플릿 선택 시 사용자가 구성한 컬럼을 단일 섹션 구조로 생성
         if (githubCustomCols.length === 0) {
           alert('최소 1개 이상의 컬럼 항목을 추가해 주세요.');
           setLoading(false);
@@ -329,7 +328,9 @@ const ResumeNew = () => {
           repo_name: selectedRepos.join(', '),
           template_structure: currentTemplate,
           language: language,
-          analysis_data: { projects_data: estimationResult.projects_data }
+          analysis_data: { projects_data: estimationResult.projects_data },
+          start_date: startDate || "",  // 💡 추가됨
+          end_date: endDate || ""      // 💡 추가됨
         })
       });
 
