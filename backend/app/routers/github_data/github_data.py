@@ -107,19 +107,21 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             elif "edges" in languages_data:
                 tech_stacks = [e.get("node", {}).get("name") for e in (languages_data.get("edges") or []) if e and e.get("node")]
 
-        # 날짜 범위 파싱
+        # 💡 강건한 날짜 범위 파싱
         start_dt = None
         end_dt = None
         if start_date:
             try:
                 start_dt = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Start date parse error: {e}")
         if end_date:
             try:
                 end_dt = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"End date parse error: {e}")
+
+        print(f"🔍 [Date Filter Active] start_dt: {start_dt}, end_dt: {end_dt}")
 
         # 1. 커밋 필터링
         commits_raw = []
@@ -132,6 +134,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     commits_raw = history.get("nodes") or []
 
         merged_commits = {}
+        filtered_commit_count = 0
         for c in commits_raw:
             if not isinstance(c, dict):
                 continue
@@ -139,14 +142,18 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             committed_date_str = c.get("committedDate")
             if committed_date_str and (start_dt or end_dt):
                 try:
-                    c_dt = datetime.datetime.strptime(committed_date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    # ISO 포맷 안전 파싱 (Z -> +00:00)
+                    clean_date_str = committed_date_str.replace('Z', '+00:00')
+                    c_dt = datetime.datetime.fromisoformat(clean_date_str)
                     if start_dt and c_dt < start_dt:
                         continue
                     if end_dt and c_dt > end_dt:
                         continue
-                except Exception:
+                except Exception as ex:
+                    print(f"Commit date filter exception for {committed_date_str}: {ex}")
                     pass
 
+            filtered_commit_count += 1
             author_info = c.get("author") or {}
             user_info = author_info.get("user") or {}
             author_login = user_info.get("login", "")
@@ -175,6 +182,8 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     "count": 1
                 }
 
+        print(f"✨ Total commits after date filter: {filtered_commit_count} (Merged unique: {len(merged_commits)})")
+
         clean_commits = [
             f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
             for msg, stat in merged_commits.items()
@@ -192,7 +201,8 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                 pr_created_str = pr.get("createdAt")
                 if pr_created_str and (start_dt or end_dt):
                     try:
-                        pr_dt = datetime.datetime.strptime(pr_created_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                        clean_date_str = pr_created_str.replace('Z', '+00:00')
+                        pr_dt = datetime.datetime.fromisoformat(clean_date_str)
                         if start_dt and pr_dt < start_dt:
                             continue
                         if end_dt and pr_dt > end_dt:
@@ -212,7 +222,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
         clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
 
-        # 3. 💡 Issues 필터링 및 정제 추가
+        # 3. Issues 필터링
         issues_raw = []
         issues_data = raw_graphql_data.get("issues") or {}
         if isinstance(issues_data, dict):
@@ -224,7 +234,8 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                 issue_created_str = issue.get("createdAt")
                 if issue_created_str and (start_dt or end_dt):
                     try:
-                        issue_dt = datetime.datetime.strptime(issue_created_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                        clean_date_str = issue_created_str.replace('Z', '+00:00')
+                        issue_dt = datetime.datetime.fromisoformat(clean_date_str)
                         if start_dt and issue_dt < start_dt:
                             continue
                         if end_dt and issue_dt > end_dt:
@@ -248,7 +259,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             "repo_name": repo_name,
             "tech_stacks": tech_stacks,
             "key_commits": clean_commits,
-            "key_prs_and_issues": clean_prs + clean_issues  # PR과 Issue 항목 병합 전달
+            "key_prs_and_issues": clean_prs + clean_issues
         }
     except Exception as e:
         print(f"Preprocessor Error: {e}")
