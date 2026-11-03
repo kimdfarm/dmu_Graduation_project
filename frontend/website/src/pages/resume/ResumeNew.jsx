@@ -245,7 +245,11 @@ const ResumeNew = () => {
       const estimateRes = await fetch(`${BASE_URL}/api/github/estimate-cost`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis_data: { projects_data: projectsData } })
+        body: JSON.stringify({ 
+          analysis_data: { projects_data: projectsData },
+          start_date: startDate || "",
+          end_date: endDate || ""
+        })
       });
 
       if (!estimateRes.ok) {
