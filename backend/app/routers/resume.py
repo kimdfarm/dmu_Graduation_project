@@ -365,8 +365,7 @@ async def create_section(resume_id: str, payload: SectionCreateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# [6] 섹션 업데이트
-# [6] 섹션 업데이트 (교정본 누락 방지 수정 버전)
+# resume.py 내 update_section 함수 수정
 @router.patch("/sections/{section_id}")
 async def update_section(section_id: str, payload: SectionUpdateRequest):
     try:
@@ -381,9 +380,14 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
             update_data["columns"] = payload.columns
             
         if payload.details is not None:
-            # 전달받은 details 내용을 보존하여 업데이트
             cleaned_details = [item.model_dump() for item in payload.details]
             update_data["details"] = cleaned_details
+            
+            # 💡 [핵심 해결] 원본 내용이 편집되었으므로 이전 AI 및 맞춤법 교정 캐시를 초기화하고 원본으로 리셋
+            update_data["spell_checked_text"] = None
+            update_data["ai_proofread_text"] = None
+            update_data["ai_style"] = None
+            update_data["selected_version"] = "ORIGINAL"
             
         if payload.selected_version is not None:
             update_data["selected_version"] = payload.selected_version
@@ -399,7 +403,6 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
         return response.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 # [7] 섹션 삭제
 @router.delete("/sections/{section_id}", status_code=status.HTTP_200_OK)
 async def delete_resume_section(section_id: str):

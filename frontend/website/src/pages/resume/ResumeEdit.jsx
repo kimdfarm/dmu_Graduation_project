@@ -104,39 +104,39 @@ const ResumeEdit = () => {
   };
 
   const serializeTableToDetails = (columns, rows) => {
-  return rows.map((row) => {
-    const titleCol = columns.find((col) => col.includes('질문') || col.includes('항목')) || columns[0];
-    const mainTitle = row.values[titleCol] || row.title || '자기소개서 항목';
+    return rows.map((row) => {
+      const titleCol = columns.find((col) => col.includes('질문') || col.includes('항목')) || columns[0];
+      const mainTitle = row.values[titleCol] || row.title || '자기소개서 항목';
 
-    const contentLines = [];
-    const columnValues = {}; // ← 추가
+      const contentLines = [];
+      const columnValues = {};
 
-    columns.forEach((col) => {
-      const val = (row.values[col] || '').trim();
-      if (!val) return;
+      columns.forEach((col) => {
+        const val = (row.values[col] || '').trim();
+        if (!val) return;
 
-      columnValues[col] = val; // ← 컬럼별 값 매핑 저장
+        columnValues[col] = val;
 
-      const formattedVal = val
-        .split('\n')
-        .map((line) => line.replace(/^[•\-\*\s]+/, '').trim())
-        .filter(Boolean)
-        .map((line) => `• ${line}`)
-        .join('\n');
+        const formattedVal = val
+          .split('\n')
+          .map((line) => line.replace(/^[•\-\*\s]+/, '').trim())
+          .filter(Boolean)
+          .map((line) => `• ${line}`)
+          .join('\n');
 
-      contentLines.push(`[${col}]\n${formattedVal}`);
+        contentLines.push(`[${col}]\n${formattedVal}`);
+      });
+
+      return {
+        id: row.id || crypto.randomUUID(),
+        title: mainTitle,
+        ai_columns: columns,
+        column_values: columnValues,
+        original_text: contentLines.join('\n\n'),
+        selected_version: 'ORIGINAL' // 💡 편집 후 저장 시 항상 원본 버전으로 초기화
+      };
     });
-
-    return {
-      id: row.id || crypto.randomUUID(),
-      title: mainTitle,
-      ai_columns: columns,       // ← ai_columns 복원
-      column_values: columnValues, // ← column_values 복원
-      original_text: contentLines.join('\n\n'),
-      selected_version: row.selected_version || 'ORIGINAL'
-    };
-  });
-};
+  };
 
   useEffect(() => {
     const fetchResumeDetail = async () => {

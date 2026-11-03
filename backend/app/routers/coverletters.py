@@ -384,6 +384,7 @@ async def create_section(cover_letter_id: str, payload: SectionCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # [6] 문항(섹션) 업데이트
+# coverletters.py 내 update_section 함수 수정
 @router.patch("/sections/{section_id}")
 async def update_section(section_id: str, payload: SectionUpdateRequest):
     try:
@@ -398,9 +399,8 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
             update_data["columns"] = payload.columns
             
         if payload.details is not None:
-            # 💡 [핵심 추가] 사용자가 내용을 수정하여 저장할 때:
-            # 1) spell_checked_text, ai_proofread_text를 None(null)으로 비움
-            # 2) selected_version을 'ORIGINAL'로 리셋
+            # 💡 [핵심 해결] 사용자가 내용을 수정하여 저장할 때:
+            # 1) 각 디테일 아이템의 spell_checked_text, ai_proofread_text를 비우고 버전을 'ORIGINAL'로 리셋
             cleaned_details = []
             for item in payload.details:
                 item_dict = item.model_dump()
@@ -410,10 +410,9 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
                 cleaned_details.append(item_dict)
 
             update_data["details"] = cleaned_details
-            # 섹션 레벨 버전도 ORIGINAL로 리셋
-            update_data["selected_version"] = "ORIGINAL"
             
-            # 💡 DB의 교정본 컬럼도 함께 초기화
+            # 💡 섹션 레벨의 버전 및 AI 교정/맞춤법 캐시 컬럼도 모두 초기화
+            update_data["selected_version"] = "ORIGINAL"
             update_data["spell_checked_text"] = None
             update_data["ai_proofread_text"] = None
 
@@ -432,7 +431,6 @@ async def update_section(section_id: str, payload: SectionUpdateRequest):
     except Exception as e:
         print(f"❌ 섹션 업데이트 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
 # [7] 문항(섹션) 삭제
 @router.delete("/sections/{section_id}", status_code=status.HTTP_200_OK)
 async def delete_cover_letter_section(section_id: str):
