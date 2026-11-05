@@ -582,9 +582,10 @@ Your task is to summarize and compress the given GitHub repository analysis data
 {template_info_str}
 
 CRITICAL RULES:
-1. Extract and preserve ONLY the technical details, architecture choices, tech stacks, and key achievements that fit into the template columns.
-2. Discard trivial, redundant, or minor commits (e.g., "fix typo", "formatting") that are irrelevant to resume highlights.
-3. Output MUST be valid JSON format containing the compressed object under the root.
+1. **Maintain separate repositories/projects as distinct items.** Do NOT merge multiple different repositories into a single summary.
+2. Extract and preserve technical details, architecture choices, tech stacks, and key achievements for EACH repository that fit into the template columns.
+3. Discard trivial, redundant, or minor commits (e.g., "fix typo", "formatting") that are irrelevant to resume highlights.
+4. Output MUST be valid JSON format containing the compressed object under the root.
 """
 
     # 2단계: 템플릿 맞춤형 청크별 AI 압축 수행
@@ -827,14 +828,21 @@ CRITICAL GOALS:
       "display_order": 1,
       "ai_columns": ["컬럼1", "컬럼2"],
       "details": [
-        {{
-          "id": "card_1_1",
+        { "id": "card_1",
           "title": "프로젝트/항목 제목",
           "column_values": {{
             "컬럼1": "내용...",
             "컬럼2": "내용..."
           }}
-        }}
+          ,
+          {
+          "id": "card_2",
+          "title": "또다른 프로젝트/항목 제목",
+          "column_values": {{
+            "컬럼1": "또다른 프로젝트의 내용...",
+            "컬럼2": "또다른 프로젝트의 내용..."
+          }}
+          ....
       ]
     }}
   ]
