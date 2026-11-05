@@ -538,8 +538,7 @@ def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
 def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_total_tokens: int = 5000) -> list:
     """
     1. 전체 데이터가 5000토큰 이내면 그대로 통과시킵니다.
-    2. 초과할 경우, template_sections의 컬럼/섹션 정보를 AI 프롬프트에 주입하여
-       이력서 작성에 필요한 핵심 데이터만 남기도록 지능적으로 압축합니다.
+    2. 초과할 경우, 각 청크의 데이터 크기 비율(비례 배분)에 맞춰 동적으로 토큰 예산을 할당하여 압축합니다.
     """
     raw_json = json.dumps(projects_data, ensure_ascii=False)
     total_tokens = len(raw_json) // 3
@@ -550,7 +549,7 @@ def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_
         print("✨ 전체 토큰이 안전 범위(5000 이내)이므로 원본 데이터를 그대로 사용합니다.")
         return projects_data
 
-    print(f"⚠️ 토큰 한도 초과! 템플릿 구조 기반 지능형 압축 및 분할을 시작합니다...")
+    print(f"⚠️ 토큰 한도 초과! 템플릿 구조 기반 지능형 압축 및 비례 분할을 시작합니다...")
 
     # 1단계: 대형 저장소 속성별 분할
     all_chunks = []
@@ -568,10 +567,19 @@ def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_
     if n_chunks == 0:
         return projects_data
         
-    budget_per_chunk = max(400, max_total_tokens // n_chunks)
-    print(f"📊 총 청크 수: {n_chunks}개 | 청크당 할당된 최대 토큰 예산: {budget_per_chunk}")
+    # 💡 각 청크별 실제 토큰 크기를 미리 계산
+    chunk_sizes = []
+    for chunk in all_chunks:
+        c_json = json.dumps(chunk, ensure_ascii=False)
+        chunk_sizes.append(len(c_json) // 3)
+    
+    total_chunk_tokens = sum(chunk_sizes)
+    if total_chunk_tokens == 0:
+        total_chunk_tokens = 1  # ZeroDivisionError 방지
 
-    # 💡 템플릿 섹션 및 컬럼 정보를 문자열로 변환하여 프롬프트에 활용
+    print(f"📊 총 청크 수: {n_chunks}개 | 전체 청크 합산 토큰: {total_chunk_tokens:,}")
+
+    # 템플릿 섹션 및 컬럼 정보 문자열 변환
     template_info_str = json.dumps(template_sections, ensure_ascii=False)
 
     compressed_projects = []
@@ -588,8 +596,16 @@ CRITICAL RULES:
 4. Output MUST be valid JSON format containing the compressed object under the root.
 """
 
-    # 2단계: 템플릿 맞춤형 청크별 AI 압축 수행
-    for idx, chunk in enumerate(all_chunks):
+    # 2단계: 각 청크의 크기 비율에 비례하여 동적 토큰 예산 할당 및 압축 수행
+    for idx, (chunk, c_size) in enumerate(zip(all_chunks, chunk_sizes)):
+        # 💡 비례 배분 공식 적용: (해당 청크 크기 / 전체 청크 크기 합) * max_total_tokens
+        proportional_budget = int(max_total_tokens * (c_size / total_chunk_tokens))
+        
+        # 최소 400 토큰은 보장하도록 설정
+        budget_per_chunk = max(400, proportional_budget)
+        
+        print(f"📦 청크 {idx+1}/{n_chunks} 크기: {c_size}토큰 | 할당된 비례 예산: {budget_per_chunk}토큰")
+        
         chunk_json = json.dumps(chunk, ensure_ascii=False)
         
         try:
@@ -621,7 +637,7 @@ CRITICAL RULES:
             print(f"⚠️ 청크 {idx+1} 템플릿 맞춤 압축 실패 (원본 유지): {e}")
             compressed_projects.append(chunk)
 
-    return compressed_projects
+        return compressed_projects
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
@@ -809,14 +825,15 @@ async def generate_github_resume(
 
         lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if payload.language == "ko" else "Please write everything in professional **English**."
 
-        model2_system_prompt = f"""You are an expert resume formatting and database structuring engine.
+        model2_system_prompt = f"""You are an expert developer resume formatting and database structuring engine.
 
 CRITICAL GOALS:
 1. Analyze the provided GitHub repository analysis data and distribute them into the requested template sections (`template_sections`).
-2. **Each Section must define its own unified `ai_columns` array at the section level** matching the provided template columns (e.g., ["Project Name", "Timeline", "Tech Stack", "Architecture & Impact"]).
-3. All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
-4. Never invent or hallucinate missing details; summarize strictly based on provided facts
-5. Language rule: {lang_instruction}
+2. **Each Section must define its own unified `ai_columns` array at the section level** matching the provided template columns.
+3. **DO NOT OMIT OR OVERSIMPLIFY DETAILS.** For each project or card, write rich, comprehensive descriptions covering architecture, technical challenges solved, specific features implemented, and measurable achievements based *strictly* on the provided commit/PR data. Avoid vague or one-line summaries.
+4. All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
+5. Never invent or hallucinate missing details; stick strictly to provided facts.
+6. Language rule: {lang_instruction}
 
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {{
@@ -832,16 +849,8 @@ CRITICAL GOALS:
           "id": "card_1",
           "title": "첫 번째 프로젝트 제목",
           "column_values": {{
-            "컬럼1": "내용...",
-            "컬럼2": "내용..."
-          }}
-        }},
-        {{
-          "id": "card_2",
-          "title": "두 번째 프로젝트 제목",
-          "column_values": {{
-            "컬럼1": "내용...",
-            "컬럼2": "내용..."
+            "컬럼1": "풍부하고 상세한 내용...",
+            "컬럼2": "풍부하고 상세한 내용..."
           }}
         }}
       ]
