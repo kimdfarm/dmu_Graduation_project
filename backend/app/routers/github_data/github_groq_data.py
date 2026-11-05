@@ -828,26 +828,26 @@ CRITICAL GOALS:
       "display_order": 1,
       "ai_columns": ["컬럼1", "컬럼2"],
       "details": [
-        { "id": "card_1",
-          "title": "프로젝트/항목 제목",
+        {{
+          "id": "card_1",
+          "title": "첫 번째 프로젝트 제목",
           "column_values": {{
             "컬럼1": "내용...",
             "컬럼2": "내용..."
           }}
-          ,
-          {
+        }},
+        {{
           "id": "card_2",
-          "title": "또다른 프로젝트/항목 제목",
+          "title": "두 번째 프로젝트 제목",
           "column_values": {{
-            "컬럼1": "또다른 프로젝트의 내용...",
-            "컬럼2": "또다른 프로젝트의 내용..."
+            "컬럼1": "내용...",
+            "컬럼2": "내용..."
           }}
-          ....
+        }}
       ]
     }}
   ]
 }}"""
-
         model2_user_prompt = f"""
 [템플릿 섹션 정의 목록]
 {json.dumps(template_sections, ensure_ascii=False)}
