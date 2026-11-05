@@ -823,7 +823,16 @@ async def generate_github_resume(
                 }
             ]
 
-        lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if payload.language == "ko" else "Please write everything in professional **English**."
+        if payload.language == "ko":
+            lang_instruction = (
+                "CRITICAL LANGUAGE RULE: You MUST write ALL descriptions, project summaries, "
+                "achievements, and text values in natural, professional **Korean (한국어)**. "
+                "Even if the original GitHub commit messages, PR titles, or repository descriptions are in English, "
+                "you must translate and re-synthesize them into professional Korean. "
+                "Technical stack names (e.g., Python, TypeScript, React) and proper nouns can remain as they are."
+            )
+        else:
+            lang_instruction = "Please write everything in professional **English**."
 
         model2_system_prompt = f"""You are an expert developer resume formatting and database structuring engine.
 
