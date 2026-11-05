@@ -1061,6 +1061,8 @@ def get_github_repositories(
 
 class EstimateCostRequest(BaseModel):
     analysis_data: Dict[str, Any]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 @router.post("/github/estimate-cost")
 def estimate_github_cost(payload: EstimateCostRequest):
