@@ -814,7 +814,8 @@ CRITICAL GOALS:
 1. Analyze the provided GitHub repository analysis data and distribute them into the requested template sections (`template_sections`).
 2. **Each Section must define its own unified `ai_columns` array at the section level** matching the provided template columns (e.g., ["Project Name", "Timeline", "Tech Stack", "Architecture & Impact"]).
 3. All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
-4. Language rule: {lang_instruction}
+4. Never invent or hallucinate missing details; summarize strictly based on provided facts
+5. Language rule: {lang_instruction}
 
 반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
 {{
