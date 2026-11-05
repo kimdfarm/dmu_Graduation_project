@@ -1,297 +1,949 @@
-import os
-import asyncio
-from typing import List, Dict
-from fastapi import APIRouter, HTTPException
+from concurrent.futures import ThreadPoolExecutor
+import json
+from random import random
+from typing import Optional, Dict, Any, List
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Query, Response
 from pydantic import BaseModel
 import httpx
-from dotenv import load_dotenv
-
-# 기존 설정된 supabase 클라이언트 가져오기
-from app.core.config import supabase
-# 💡 [변경 포인트] 최신 Google GenAI 라이브러리 임포트
+from supabase import Client
 from google import genai
-from google.genai import types
-
-load_dotenv()
+from google.genai import errors as genai_errors
+import time as py_time  # time 모듈을 py_time으로 별칭 지정
+import datetime  # from datetime import datetime 대신 모듈 전체 임포트
+from datetime import timedelta, timezone, time as dt_time
+import random
+from app.core.config import get_supabase, GEMINI_API_KEY, YOUR_GITHUB_CLIENT_ID, YOUR_GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI
+import requests
+import traceback
+import re
+import ast
 
 router = APIRouter(
-    prefix="/github",
-    tags=["GitHub Data (Resume Work Experience Template)"]
+    prefix="/api",
+    tags=["github-resumes"]
 )
 
-GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
+class GithubAuthRequest(BaseModel):
+    code: str
+    user_id: str | None = None
 
-# 💡 [변경 포인트] Gemini API 클라이언트 초기화
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-
-
-class AnalyzeRequest(BaseModel):
-    member_id: str          
-    github_username: str    
-    github_token: str       
-
-
-# 💡 [변경 포인트] Gemini 기반의 이력서 가공 함수
-async def analyze_rich_repo_with_gemini(username: str, repo_info: Dict) -> str:
-    if not gemini_client:
-        raise RuntimeError("GEMINI_API_KEY가 시스템에 설정되지 않았습니다.")
-
-    commit_str = "\n".join([f"- {c}" for c in repo_info['commits']]) if repo_info['commits'] else "최근 커밋 기록 없음"
-    issue_str = "\n".join([f"- [{i['state']}] {i['title']}" for i in repo_info['issues']]) if repo_info['issues'] else "최근 관련 이슈 없음"
-    pr_str = "\n".join([f"- [{p['state']}] {p['title']}" for p in repo_info['prs']]) if repo_info['prs'] else "최근 Pull Request 없음"
-
-    prompt = f"""
-    당신은 IT 전문 테크 채용 담당자이자 시니어 백엔드 엔지니어입니다.
-    개발자 '{username}'의 '{repo_info['name']}' 저장소 활동 로그를 기반으로, 
-    팩트(Fact)를 왜곡하지 않으면서 군더더기 없이 간결한 이력서용 '수행 업무 및 성과'를 작성해 주세요.
-
-    [저장소 메타데이터]
-    - 저장소 이름: {repo_info['name']}
-    - 사용 기술 스택: {repo_info['lang']}
-    - 프로젝트 설명: {repo_info['raw_desc']}
-
-    [★ 이력서 작성 필수 제약 조건 ★]
-    1. 종결어미 통제 (명사형/개조식 서술형)
-       - 모든 문장은 '~함', '~임', '~ 구축', '~ 완료', '~ 설계', '~ 구현'으로만 끝나야 합니다.
-       - '~하였습니다', '~했습니다', '~인 것으로 보입니다' 같은 구어체나 추측성 서술은 절대 금지합니다.
-
-    2. 오타 및 번역체 교정
-       - 데이터 '크로링'과 같은 번역 오류나 오타는 반드시 '크롤링(Crawling)'으로 올바르게 수정하여 기술하십시오.
-
-    3. 행동(Action) + 방식(How) + 결과(Result) 구조화
-       - 단순히 "무엇을 구현함"에 그치지 말고, 어떤 기술을 활용해서 어떻게 개선했는지 기술적 맥락을 담아 서술하십시오.
-
-    4. 중복 제거 및 압축 (최대 2개 제한)
-       - 비슷한 성과가 여러 번 나열되지 않도록 가장 핵심적인 기여 2가지만 선정해 팩트 위주로 압축 요약하십시오.
-
-    [출력 포맷 (반드시 지켜야 함)]
-    오직 아래 항목만 출력하고, 서론/결론/코드블록 마크다운 등 다른 부가적인 멘트는 일절 배제하고 핵심 기술 성과를 작성해 주세요.
-
-    [{repo_info['name']}에서의 활동 경력]
-    • [첫 번째 핵심 기술 성과 작성]
-    • [두 번째 핵심 기술 성과 작성]
-
-    [실제 개발 활동 로그]
-    1. 커밋 메시지 내역:
-    {commit_str}
-
-    2. 참여 및 생성한 이슈(Issue) 내역:
-    {issue_str}
-
-    3. 생성 및 처리한 풀 리퀘스트(PR) 내역:
-    {pr_str}
-    """
-
+def check_user_has_commits_in_repo(repo_full_name: str, github_id: str, token: str, headers: dict) -> bool:
     try:
-        # 비동기 환경에서 동기 SDK 호출 시 블로킹을 방지하기 위해 run_in_executor 사용
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: gemini_client.models.generate_content(
-                model="gemini-2.5-flash",  # 💡 속도와 가성비가 가장 뛰어난 최신 2.5 flash 모델 적용
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction="You are a professional Korean resume writer. Write only in Korean.",
-                    temperature=0.3
-                )
-            )
-        )
-        usage = response.usage_metadata
-        return response.text.strip() , usage
-    except Exception as e:
-        raise RuntimeError(f"Gemini API 호출 실패: {str(e)}")
+        # 해당 저장소의 커밋 목록을 내 아이디(author) 기준으로 조회해봄
+        commits_url = f"https://api.github.com/repos/{repo_full_name}/commits?author={github_id}&per_page=1"
+        res = requests.get(commits_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            commits = res.json()
+            # 내가 작성한 커밋이 1개라도 존재하면 True 반환
+            if isinstance(commits, list) and len(commits) > 0:
+                return True
+        return False
+    except Exception:
+        return False
 
 
-@router.post("/analyze")
-async def analyze_github_each_repo(request: AnalyzeRequest):
-    username = request.github_username
-    member_id = request.member_id
-    github_token = request.github_token
-
-    headers = {
-        "Authorization": f"Bearer {github_token}",
-        "Content-Type": "application/json",
+@router.post("/auth/github/callback")
+def github_callback(payload: GithubAuthRequest, response: Response):
+    token_url = "https://github.com/login/oauth/access_token"
+    headers = {"Accept": "application/json"}
+    data = {
+        "client_id": YOUR_GITHUB_CLIENT_ID,
+        "client_secret": YOUR_GITHUB_CLIENT_SECRET,
+        "code": payload.code,
+        "redirect_uri": GITHUB_REDIRECT_URI
     }
 
-    graphql_query = """
-    query($login: String!) {
-      user(login: $login) {
-        repositories(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes {
-            name
-            description
-            isFork
-            createdAt
-            updatedAt
-            url
-            owner { login __typename }
-            primaryLanguage { name }
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 10) {
-                    nodes { 
-                      message 
-                      author {
-                        name
-                        user {
-                          login
-                        }
-                      }
-                    }
-                  }
+    res = requests.post(token_url, headers=headers, data=data)
+    token_data = res.json()
+
+    if "error" in token_data or res.status_code != 200:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"GitHub Token 교환 실패: {token_data.get('error_description', '알 수 없는 오류')}"
+        )
+
+    access_token = token_data.get("access_token")
+
+    user_res = requests.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    github_user = user_res.json()
+
+    response.set_cookie(
+        key="github_access_token",
+        value=access_token,
+        httponly=True,
+        max_age=60 * 60 * 24 * 7,
+        samesite="none",
+        secure=True
+    )
+
+    return {
+        "status": "success",
+        "github_id": github_user.get("login"),
+        "github_avatar_url": github_user.get("avatar_url"),
+        "access_token": access_token
+    }
+
+def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "", start_date: str = None, end_date: str = None) -> dict:
+    try:
+        effective_author = target_author or raw_graphql_data.get("target_author", "")
+        is_fork = raw_graphql_data.get("isFork", False)
+        
+        repo_name = (
+            raw_graphql_data.get("name") 
+            or raw_graphql_data.get("repo_name") 
+            or raw_graphql_data.get("full_name") 
+            or default_repo_name 
+            or "프로젝트"
+        )
+
+        languages_data = raw_graphql_data.get("languages", {}) or {}
+        tech_stacks = []
+        if isinstance(languages_data, dict):
+            if "nodes" in languages_data:
+                tech_stacks = [n.get("name") for n in (languages_data.get("nodes") or []) if n and n.get("name")]
+            elif "edges" in languages_data:
+                tech_stacks = [e.get("node", {}).get("name") for e in (languages_data.get("edges") or []) if e and e.get("node")]
+
+        # 💡 강건한 날짜 범위 파싱
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except Exception as e:
+                print(f"Start date parse error: {e}")
+        if end_date:
+            try:
+                end_dt = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            except Exception as e:
+                print(f"End date parse error: {e}")
+
+        print(f"🔍 [Date Filter Active] start_dt: {start_dt}, end_dt: {end_dt}")
+
+        # 1. 커밋 필터링
+        commits_raw = []
+        default_branch = raw_graphql_data.get("defaultBranchRef") or {}
+        if isinstance(default_branch, dict):
+            target = default_branch.get("target") or {}
+            if isinstance(target, dict):
+                history = target.get("history") or {}
+                if isinstance(history, dict):
+                    commits_raw = history.get("nodes") or []
+
+        merged_commits = {}
+        filtered_commit_count = 0
+        for c in commits_raw:
+            if not isinstance(c, dict):
+                continue
+                
+            committed_date_str = c.get("committedDate")
+            if committed_date_str and (start_dt or end_dt):
+                try:
+                    # ISO 포맷 안전 파싱 (Z -> +00:00)
+                    clean_date_str = committed_date_str.replace('Z', '+00:00')
+                    c_dt = datetime.datetime.fromisoformat(clean_date_str)
+                    if start_dt and c_dt < start_dt:
+                        continue
+                    if end_dt and c_dt > end_dt:
+                        continue
+                except Exception as ex:
+                    print(f"Commit date filter exception for {committed_date_str}: {ex}")
+                    pass
+
+            filtered_commit_count += 1
+            author_info = c.get("author") or {}
+            user_info = author_info.get("user") or {}
+            author_login = user_info.get("login", "")
+
+            if effective_author and author_login and author_login.lower() != effective_author.lower():
+                continue
+
+            msg = (c.get("messageHeadline") or c.get("message") or "").strip()
+            if not msg:
+                continue
+
+            additions = c.get("additions", 0) or 0
+            deletions = c.get("deletions", 0) or 0
+
+            if additions > 5000: additions = 100
+            if deletions > 5000: deletions = 100
+
+            if msg in merged_commits:
+                merged_commits[msg]["additions"] += additions
+                merged_commits[msg]["deletions"] += deletions
+                merged_commits[msg]["count"] += 1
+            else:
+                merged_commits[msg] = {
+                    "additions": additions,
+                    "deletions": deletions,
+                    "count": 1
+                }
+
+        print(f"✨ Total commits after date filter: {filtered_commit_count} (Merged unique: {len(merged_commits)})")
+
+        clean_commits = [
+            f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
+            for msg, stat in merged_commits.items()
+        ]
+
+        # 2. Pull Requests 필터링
+        prs_raw = []
+        prs_data = raw_graphql_data.get("pullRequests") or {}
+        if isinstance(prs_data, dict):
+            prs_raw = prs_data.get("nodes") or []
+
+        merged_prs = {}
+        for pr in prs_raw:
+            if isinstance(pr, dict):
+                pr_created_str = pr.get("createdAt")
+                if pr_created_str and (start_dt or end_dt):
+                    try:
+                        clean_date_str = pr_created_str.replace('Z', '+00:00')
+                        pr_dt = datetime.datetime.fromisoformat(clean_date_str)
+                        if start_dt and pr_dt < start_dt:
+                            continue
+                        if end_dt and pr_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
+                pr_author = (pr.get("author") or {}).get("login", "")
+                if effective_author and pr_author and pr_author.lower() != effective_author.lower():
+                    continue
+
+                title = (pr.get("title") or "").strip()
+                state = pr.get("state", "")
+                if title:
+                    key = f"[PR] {title} (상태: {state})"
+                    merged_prs[key] = merged_prs.get(key, 0) + 1
+
+        clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
+
+        # 3. Issues 필터링
+        issues_raw = []
+        issues_data = raw_graphql_data.get("issues") or {}
+        if isinstance(issues_data, dict):
+            issues_raw = issues_data.get("nodes") or []
+
+        merged_issues = {}
+        for issue in issues_raw:
+            if isinstance(issue, dict):
+                issue_created_str = issue.get("createdAt")
+                if issue_created_str and (start_dt or end_dt):
+                    try:
+                        clean_date_str = issue_created_str.replace('Z', '+00:00')
+                        issue_dt = datetime.datetime.fromisoformat(clean_date_str)
+                        if start_dt and issue_dt < start_dt:
+                            continue
+                        if end_dt and issue_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
+                issue_author = (issue.get("author") or {}).get("login", "")
+                if effective_author and issue_author and issue_author.lower() != effective_author.lower():
+                    continue
+
+                title = (issue.get("title") or "").strip()
+                state = issue.get("state", "")
+                if title:
+                    key = f"[Issue] {title} (상태: {state})"
+                    merged_issues[key] = merged_issues.get(key, 0) + 1
+
+        clean_issues = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_issues.items()]
+
+        return {
+            "repo_name": repo_name,
+            "tech_stacks": tech_stacks,
+            "key_commits": clean_commits,
+            "key_prs_and_issues": clean_prs + clean_issues
+        }
+    except Exception as e:
+        print(f"Preprocessor Error: {e}")
+        return {
+            "repo_name": default_repo_name or "프로젝트",
+            "tech_stacks": [],
+            "key_commits": [],
+            "key_prs_and_issues": []
+        }
+    
+# Groq 클라이언트 대신 Google GenAI 클라이언트 초기화
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+try:
+    from json_repair import repair_json
+except ImportError:
+    repair_json = None
+
+
+def extract_and_clean_json(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", text.strip())
+    cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+    
+    start_idx = cleaned.find('{')
+    end_idx = cleaned.rfind('}')
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        return cleaned[start_idx:end_idx + 1]
+    return cleaned
+
+
+def safe_json_parse(json_str: str) -> dict:
+    cleaned_str = extract_and_clean_json(json_str)
+
+    if repair_json:
+        try:
+            return json.loads(repair_json(cleaned_str))
+        except Exception:
+            pass
+
+    try:
+        return json.loads(cleaned_str, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned_str)
+        cleaned = re.sub(r'(?<!\\)[\r\n]+', r'\\n', cleaned)
+        return json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        evaluated = ast.literal_eval(cleaned_str)
+        if isinstance(evaluated, dict):
+            return evaluated
+    except (ValueError, SyntaxError):
+        pass
+
+    raise ValueError("LLM 응답 JSON 파싱 실패")
+
+
+def normalize_github_resume_data(parsed_dict: dict) -> dict:
+    if not isinstance(parsed_dict, dict):
+        return {"doc_type": "RESUME", "sections": []}
+
+    raw_sections = parsed_dict.get("sections") or parsed_dict.get("data") or []
+    if isinstance(raw_sections, dict):
+        raw_sections = [raw_sections]
+
+    normalized_sections = []
+
+    for idx, sec in enumerate(raw_sections):
+        if not isinstance(sec, dict):
+            continue
+
+        section_title = (
+            sec.get("section_title") or 
+            sec.get("category") or 
+            sec.get("title") or 
+            "세부 정보"
+        )
+        section_type = sec.get("section_type") or "PROJECTS"
+        
+        raw_details = (
+            sec.get("details") or 
+            sec.get("items") or 
+            sec.get("contents") or 
+            []
+        )
+        if isinstance(raw_details, dict):
+            raw_details = [raw_details]
+
+        normalized_details = []
+        global_ai_columns = []
+
+        for d_idx, item in enumerate(raw_details):
+            if isinstance(item, dict):
+                card_id = str(item.get("id") or f"card_{idx + 1}_{d_idx + 1}")
+                item_title = str(item.get("title") or item.get("name") or "항목").strip()
+                
+                ai_columns = item.get("ai_columns") or sec.get("ai_columns") or ["항목", "내용"]
+                column_values = item.get("column_values") or {}
+
+                for col in ai_columns:
+                    if col not in global_ai_columns:
+                        global_ai_columns.append(col)
+
+                formatted_text_parts = []
+                for col in ai_columns:
+                    val = column_values.get(col, "")
+                    formatted_text_parts.append(f"[{col}]\n{val}")
+                
+                structured_text = "\n\n".join(formatted_text_parts)
+
+                if structured_text.strip():
+                    normalized_details.append({
+                        "id": card_id,
+                        "title": item_title,
+                        "original_text": structured_text.strip(),
+                        "ai_columns": ai_columns,
+                        "column_values": column_values,
+                        "selected_version": "ORIGINAL"
+                    })
+
+        if normalized_details:
+            normalized_sections.append({
+                "section_type": str(section_type),
+                "section_title": str(section_title).strip(),
+                "display_order": idx + 1,
+                "columns": global_ai_columns if global_ai_columns else ["항목", "내용"],
+                "details": normalized_details
+            })
+
+    return {
+        "doc_type": parsed_dict.get("doc_type", "RESUME"),
+        "sections": normalized_sections
+    }
+
+
+GRAPHQL_REPO_QUERY = """
+query GetRepoAnalytics($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    name
+    description
+    isFork
+    stargazerCount
+    forkCount
+    
+    languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
+      totalSize
+      edges {
+        size
+        node { name }
+      }
+    }
+    
+    defaultBranchRef {
+      target {
+        ... on Commit {
+          history(first: 100) {
+            nodes {
+              messageHeadline
+              committedDate
+              additions
+              deletions
+              author {
+                user {
+                  login
                 }
               }
-            }
-            issues(first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
-              nodes { title state }
-            }
-            pullRequests(first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
-              nodes { title state }
             }
           }
         }
       }
     }
-    """
+    
+    issues(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        title
+        state
+        createdAt
+        author {
+          login
+        }
+        labels(first: 5) {
+          nodes { name }
+        }
+      }
+    }
+    
+    pullRequests(first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        title
+        state
+        mergedAt
+        createdAt
+        additions
+        deletions
+        reviewDecision
+        author {
+          login
+        }
+        labels(first: 5) {
+          nodes { name }
+        }
+      }
+    }
+  }
+}
+"""
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            response = await client.post(
-                GITHUB_GRAPHQL_URL,
-                json={"query": graphql_query, "variables": {"login": username}},
-                headers=headers
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"GitHub API 통신 오류 (타임아웃 의심): {type(e).__name__} - {str(e)}"
-            )
+GEMINI_MODEL_NAME = "gemini-3.8-flash"
 
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"GitHub GraphQL API 호출 실패 (상태 코드: {response.status_code})"
-            )
+class RepoAnalyzeRequest(BaseModel):
+    github_id: str
+    repo_name: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    extraction_time: Optional[str] = None
 
-        result_data = response.json()
-        if "errors" in result_data:
-            raise HTTPException(status_code=400, detail=result_data["errors"][0]["message"])
+class GithubResumeGenerateRequest(BaseModel):
+    member_id: str
+    title: str
+    category: str
+    repo_name: str
+    template_columns: Optional[List[str]] = None
+    template_structure: Optional[Dict[str, Any]] = None  
+    language: Optional[str] = "ko"
+    analysis_data: Optional[Dict[str, Any]] = None
+    start_date: Optional[str] = None  # 💡 추가됨
+    end_date: Optional[str] = None    # 💡 추가됨
 
-        user_data = result_data.get("data", {}).get("user")
-        if not user_data:
-            raise HTTPException(status_code=404, detail="GitHub 유저를 찾을 수 없습니다.")
+@router.post("/github/analyze")
+async def analyze_repository_graphql(
+    payload: RepoAnalyzeRequest,
+    authorization: Optional[str] = Header(None)
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="GitHub Access Token이 필요합니다.")
+    
+    token = authorization.split(" ")[1]
 
-        repos_raw_data = user_data["repositories"]["nodes"]
-        if not repos_raw_data:
-            return {"message": "분석할 저장소가 없습니다.", "inserted_count": 0}
+    target_owner = payload.github_id
+    target_repo_name = payload.repo_name
 
-        valid_repos = []
+    if "/" in payload.repo_name:
+        parts = payload.repo_name.split("/", 1)
+        target_owner = parts[0]
+        target_repo_name = parts[1]
 
-        # 1차 필터링: 활동 내역이 존재하는 유효 저장소 추출
-        for repo in repos_raw_data:
-            repo_name = repo["name"]
-            is_fork = repo.get("isFork", False)
+    try:
+        async with httpx.AsyncClient(timeout=1200.0) as client:
+            all_commits = []
+            has_next_page = True
+            after_cursor = None
             
-            commit_messages = []
-            if repo.get("defaultBranchRef") and repo["defaultBranchRef"].get("target"):
-                commit_nodes = repo["defaultBranchRef"]["target"]["history"].get("nodes")
-                if commit_nodes:
-                    for c in commit_nodes:
-                        commit_author_login = None
-                        if c.get("author") and c["author"].get("user"):
-                            commit_author_login = c["author"]["user"].get("login")
-                        
-                        if (commit_author_login and commit_author_login.lower() == username.lower()) or \
-                           (c.get("author") and c["author"].get("name", "").lower() == username.lower()):
-                            commit_messages.append(c["message"])
+            start_dt = None
+            if payload.start_date:
+                try:
+                    start_dt = datetime.datetime.strptime(payload.start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except Exception:
+                    pass
 
-            issue_list = []
-            if repo.get("issues") and repo["issues"].get("nodes"):
-                issue_list = [{"title": i["title"], "state": i["state"]} for i in repo["issues"]["nodes"]]
+            for _ in range(3):
+                if not has_next_page:
+                    break
 
-            pr_list = []
-            if repo.get("pullRequests") and repo["pullRequests"].get("nodes"):
-                pr_list = [{"title": p["title"], "state": p["state"]} for p in repo["pullRequests"]["nodes"]]
+                response = await client.post(
+                    "https://api.github.com/graphql",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "query": GRAPHQL_REPO_QUERY,
+                        "variables": {
+                            "owner": target_owner,
+                            "name": target_repo_name,
+                            "afterCursor": after_cursor
+                        }
+                    }
+                )
+                
+                res_data = response.json()
+                if "errors" in res_data:
+                    print(f"GraphQL Error Details: {res_data['errors']}")
+                    break
+                
+                raw_data = res_data.get("data", {})
+                repo_analytics = raw_data.get("repository") or {}
 
-            if is_fork and not commit_messages and not issue_list and not pr_list:
+                if not repo_analytics:
+                    break
+
+                if not all_commits:
+                    base_repo_data = repo_analytics
+
+                history_data = repo_analytics.get("defaultBranchRef", {}).get("target", {}).get("history", {})
+                page_info = history_data.get("pageInfo", {})
+                nodes = history_data.get("nodes", [])
+
+                for node in nodes:
+                    all_commits.append(node)
+
+                if not page_info.get("hasNextPage"):
+                    break
+
+                after_cursor = page_info.get("endCursor")
+                has_next_page = page_info.get("hasNextPage", False)
+
+            if not all_commits and not base_repo_data.get("defaultBranchRef"):
+                raise HTTPException(status_code=422, detail=f"[{target_repo_name}] 분석할 커밋 데이터가 없습니다.")
+
+            if base_repo_data.get("defaultBranchRef") and base_repo_data["defaultBranchRef"].get("target"):
+                base_repo_data["defaultBranchRef"]["target"]["history"]["nodes"] = all_commits
+
+            base_repo_data["repo_name"] = base_repo_data.get("name") or target_repo_name
+            base_repo_data["target_author"] = target_owner
+
+            return base_repo_data
+
+    except Exception as e:
+        print(f"Analyze Repository Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"저장소 분석 중 서버 오류 발생: {str(e)}")
+
+@router.post("/resumes/github-generate")
+async def generate_github_resume(
+    payload: GithubResumeGenerateRequest,
+    db: Client = Depends(get_supabase)
+):
+    created_document_id = None
+
+    if not gemini_client:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GEMINI_API_KEY가 설정되지 않았습니다."
+        )
+
+    try:
+        analysis_data = payload.analysis_data or {}
+        raw_projects_data = analysis_data.get("projects_data", [])
+
+        if not raw_projects_data and analysis_data.get("repo_name"):
+            raw_projects_data = [analysis_data]
+
+        if not raw_projects_data:
+            raise HTTPException(
+                status_code=400, 
+                detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
+            )
+
+        # 💡 핵심: AI 분석 및 이력서 생성 직전에도 start_date와 end_date 범위 내의 커밋/PR/이슈만 전처리하여 정제
+        projects_data = []
+        for repo in raw_projects_data:
+            target_author = repo.get("target_author", "")
+            cleaned_repo = preprocess_github_data(
+                repo, 
+                target_author=target_author, 
+                start_date=payload.start_date, 
+                end_date=payload.end_date
+            )
+            projects_data.append(cleaned_repo)
+
+        # (이하 기존 문서 생성 및 템플릿 구조화 코드 동일)
+        doc_payload = {
+            "member_id": payload.member_id,
+            "title": payload.title,
+            "doc_type": "RESUME",
+            "category": payload.category
+        }
+        doc_res = db.table("documents").insert(doc_payload).execute()
+
+        if not doc_res.data:
+            raise HTTPException(status_code=500, detail="documents 테이블 저장 실패")
+
+        created_document_id = doc_res.data[0]["id"]
+
+        # 2. 프론트엔드에서 전달된 템플릿 전체 구조 가져오기 (savepile_resume.py와 동일한 스키마 구조 보장)
+        template_structure = payload.template_structure or {}
+        template_sections = template_structure.get("sections", [])
+        
+        if not template_sections and payload.template_columns:
+            template_sections = [
+                {
+                    "type": "PROJECTS",
+                    "title": "경력 및 주요 프로젝트 성과",
+                    "columns": payload.template_columns
+                }
+            ]
+
+        lang_instruction = "반드시 자연스러운 **한국어(Korean)**로 작성해 주세요." if payload.language == "ko" else "Please write everything in professional **English**."
+
+        model2_system_prompt = f"""You are an expert resume formatting and database structuring engine.
+
+CRITICAL GOALS:
+1. Analyze the provided GitHub repository analysis data and distribute them into the requested template sections (`template_sections`).
+2. **Each Section must define its own unified `ai_columns` array at the section level** matching the provided template columns (e.g., ["Project Name", "Timeline", "Tech Stack", "Architecture & Impact"]).
+3. All detail cards within that section **must share the exact same `ai_columns`**, acting like a uniform table where each card holds corresponding `column_values`.
+4. Language rule: {lang_instruction}
+
+반드시 아래의 **JSON 형식**으로만 응답하세요. 다른 설명이나 인사말은 절대 포함하지 마세요.
+{{
+  "doc_type": "RESUME",
+  "sections": [
+    {{
+      "section_type": "PROJECTS",
+      "section_title": "섹션 제목",
+      "display_order": 1,
+      "ai_columns": ["컬럼1", "컬럼2"],
+      "details": [
+        {{
+          "id": "card_1_1",
+          "title": "프로젝트/항목 제목",
+          "column_values": {{
+            "컬럼1": "내용...",
+            "컬럼2": "내용..."
+          }}
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+        model2_user_prompt = f"""
+[템플릿 섹션 정의 목록]
+{json.dumps(template_sections, ensure_ascii=False)}
+
+[깃허브 원본 프로젝트 분석 데이터]
+{json.dumps(projects_data, ensure_ascii=False)}
+
+위 데이터를 바탕으로 지정된 템플릿 섹션들의 구조와 컬럼에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
+"""
+        max_retries = 3
+        model2_res = None
+        for attempt in range(max_retries):
+            try:
+                model2_res = gemini_client.models.generate_content(
+                    model=GEMINI_MODEL_NAME,
+                    contents=f"System Prompt:\n{model2_system_prompt}\n\nUser Prompt:\n{model2_user_prompt}",
+                    config={
+                        "temperature": 0.1,
+                        "response_mime_type": "application/json",
+                    }
+                )
+
+                raw_content = model2_res.text or ""
+                clean_json_str = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE)
+
+                parsed_result = {}
+                if clean_json_str:
+                    parsed = safe_json_parse(clean_json_str)
+                    parsed_result = normalize_github_resume_data(parsed)
+
+                sections_data = parsed_result.get("sections", [])
+                
+                if not sections_data:
+                    sections_data = template_sections or [
+                        {
+                            "section_type": "PROJECTS",
+                            "section_title": "주요 프로젝트",
+                            "display_order": 1,
+                            "columns": ["프로젝트명", "주요 내용"],
+                            "details": [{
+                                "id": "card_1_1",
+                                "title": payload.repo_name or "GitHub Project",
+                                "ai_columns": ["프로젝트명", "주요 내용"],
+                                "column_values": {"프로젝트명": payload.repo_name or "GitHub Project", "주요 내용": "분석 데이터 기반 자동 생성"}
+                            }]
+                        }
+                    ]
+
+            except Exception as api_err:
+                err_str = str(api_err)
+                # 503 에러이거나 과부하 관련 에러인 경우에만 재시도 진행
+                if ("503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str) and attempt < max_retries - 1:
+                    sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5) # 2초, 4초 순으로 대기 시간 증가 + 지터
+                    print(f"⚠️ Gemini API 503 과부하 발생. {sleep_time:.1f}초 후 재시도합니다... ({attempt + 1}/{max_retries})")
+                    py_time.sleep(sleep_time)
+                    continue
+                else:
+                    # 마지막 시도였거나 다른 종류의 에러인 경우 그대로 예외 발생
+                    print(f"Gemini API 호출 실패: {api_err}")
+                    raise api_err
+
+        all_sections_list = []
+        for idx, sec in enumerate(sections_data):
+            if not isinstance(sec, dict):
                 continue
-
-            if not commit_messages and not issue_list and not pr_list:
-                continue
-
-            valid_repos.append({
-                "repo_data": repo,
-                "commits": commit_messages,
-                "issues": issue_list,
-                "prs": pr_list
+                
+            all_sections_list.append({
+                "document_id": created_document_id,
+                "section_type": sec.get("section_type", "PROJECTS"),
+                "section_title": sec.get("section_title", "세부 정보"),
+                "display_order": sec.get("display_order", idx + 1),
+                "columns": sec.get("columns", sec.get("ai_columns", ["항목", "내용"])),
+                "details": sec.get("details", [])
             })
 
-        # Gemini API 호출 안정성과 컨텍스트 관리를 위해 최근 활동 기준 상위 최대 10개만 분석
-        target_repos = valid_repos[:10]
-        careers_to_insert = []
+        if all_sections_list:
+            sec_res = db.table("document_sections").insert(all_sections_list).execute()
+            if not sec_res.data:
+                raise HTTPException(status_code=500, detail="document_sections 일괄 저장 실패")
 
-        for item in target_repos:
-            repo = item["repo_data"]
-            repo_name = repo["name"]
-            raw_desc = repo["description"] or "작성된 설명 없음"
-            start_date = repo["createdAt"].split("T")[0]
-            end_date = repo["updatedAt"].split("T")[0]
-            company_name = repo["owner"]["login"] if repo["owner"]["__typename"] == "Organization" else "Personal Project"
-            lang = repo["primaryLanguage"]["name"] if repo["primaryLanguage"] else "Unknown"
+        return {
+            "status": "success",
+            "id": created_document_id,
+            "title": payload.title,
+            "category": payload.category,
+            "total_sections": len(all_sections_list)
+        }
 
-            repo_rich_info = {
-                "name": repo_name,
-                "lang": lang,
-                "raw_desc": raw_desc,
-                "commits": item["commits"],
-                "issues": item["issues"],
-                "prs": item["prs"]
-            }
-
-            print(f"[{repo_name}] Gemini로 이력서 경력 항목 가공 중...")
-            
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        if created_document_id:
             try:
-                # 💡 [변경 포인트] Gemini 분석 호출
-                ai_resume_experience , usage = await analyze_rich_repo_with_gemini(username, repo_rich_info)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"AI 분석 처리 실패: {str(e)}")
+                db.table("documents").delete().eq("id", created_document_id).execute()
+            except Exception as rollback_err:
+                print(f"Rollback failed: {rollback_err}")
 
-            final_description = f"{ai_resume_experience}\n\n"
+        raise HTTPException(
+            status_code=500,
+            detail=f"GitHub 이력서 자동 생성 실패: {str(e)}"
+        )
 
-            career_data = {
-                "member_id": member_id,
-                "company_name": company_name,
-                "department": "Github", 
-                "job_title": "Software Engineer", 
-                "start_date": start_date,
-                "end_date": end_date,
-                "is_current": False,
-                "description": final_description,
-                "data_source": repo['url']
-            }
-            careers_to_insert.append(career_data)
-            print(f"[{repo_name}] 경력 항목 변환 완료. Gemini API 사용량: {usage.total_token_count}")
-            await asyncio.sleep(1)  # 분당 요청 한도(RPM) 안전성 관리를 위한 1초 대기
 
-        # Supabase 반영 (트랜잭션 세이프)
-        try:
-            # 💡 [보존 로직] 타 수동 입력 및 사진/파일 데이터를 위해 department='Github'만 선택 삭제
-            supabase.table("careers") \
-                .delete() \
-                .eq("member_id", member_id) \
-                .eq("department", "Github") \
-                .execute()
+
+def estimate_tokens_and_cost_v2(projects_data: list, start_date: str = None, end_date: str = None) -> tuple[int, int]:
+    total_chars = 0
+    for repo in projects_data:
+        target_author = repo.get("target_author", "")
+        cleaned = preprocess_github_data(repo, target_author=target_author, start_date=start_date, end_date=end_date)
+        text_blob = json.dumps(cleaned, ensure_ascii=False)
+        total_chars += len(text_blob)
+    
+    input_tokens = total_chars // 3
+    output_tokens = input_tokens * 2 
+    total_tokens = input_tokens * 2 + output_tokens
+    
+    return total_tokens, 0
+
+@router.get("/develop/github/repositories")
+def get_github_repositories(
+    github_id: str,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    months: Optional[int] = Query(None),
+    authorization: Optional[str] = Header(None)
+):
+    try:
+        if not start_date or not end_date:
+            return {"repositories": []}
+
+        token = authorization.replace("Bearer ", "").strip() if authorization else ""
+        headers = {
+            "Accept": "application/vnd.github.v3+json"
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        raw_repos = []
+
+        gh_url = f"https://api.github.com/users/{github_id}/repos?sort=updated&per_page=100"
+        response = requests.get(gh_url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            raw_repos.extend(response.json())
+
+        search_headers = {
+            "Accept": "application/vnd.github.v3+json"
+        }
+        if token:
+            search_headers["Authorization"] = f"Bearer {token}"
             
-            if careers_to_insert:
-                supabase.table("careers").insert(careers_to_insert).execute()
+        search_url = f"https://api.github.com/search/commits?q=author:{github_id}&sort=author-date&order=desc&per_page=30"
+        search_res = requests.get(search_url, headers=search_headers, timeout=10)
+
+        if search_res.status_code == 200:
+            search_data = search_res.json()
+            items = search_data.get("items", [])
+            contributed_repo_full_names = set()
+
+            for item in items:
+                repo_info = item.get("repository")
+                if repo_info and isinstance(repo_info, dict):
+                    full_name = repo_info.get("full_name")
+                    if full_name:
+                        contributed_repo_full_names.add(full_name)
+
+            for full_name in contributed_repo_full_names:
+                repo_detail_url = f"https://api.github.com/repos/{full_name}"
+                detail_res = requests.get(repo_detail_url, headers=headers, timeout=5)
+                if detail_res.status_code == 200:
+                    raw_repos.append(detail_res.json())
+
+        start_datetime = datetime.datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_datetime = datetime.datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+
+        filtered_repos = []
+        for repo in raw_repos:
+            if not repo or not isinstance(repo, dict):
+                continue
+                
+            # 1. 포크된 저장소인지 확인
+            is_fork = repo.get("fork", False)
             
-            return {
-                "status": "success",
-                "message": "기존 파일 및 사진 경력은 완전히 보존하고, Gemini(gemini-2.5-flash) 기반 Github 경력만 갱신했습니다.",
-                "inserted_count": len(careers_to_insert),
-                "return": careers_to_insert
+            # 2. 만약 포크 저장소라면, 해당 사용자가 실제로 기여했는지 확인하기 위한 추가 API 호출 또는 체크
+            # GitHub API 기본 리포 목록에는 내가 해당 포크에 커밋을 했는지 여부가 바로 안 나오므로,
+            # 포크 저장소인 경우 최근 커밋 작성자나 기여(Contributor) 정보를 가볍게 체크합니다.
+            if is_fork:
+                repo_full_name = repo.get("full_name")
+                # 해당 저장소에 내 아이디가 커밋 작성자로 포함되어 있는지 확인하는 함수 혹은 체크 로직
+                has_my_commit = check_user_has_commits_in_repo(repo_full_name, github_id, token, headers)
+                if not has_my_commit:
+                    # 포크인데 내가 활동한 기록이 없으면 목록에서 제외!
+                    continue
+
+            repo_item = {
+                "id": repo.get("id"),
+                "name": repo.get("name"),
+                "full_name": repo.get("full_name"),
+                "description": repo.get("description"),
+                "is_private": repo.get("private", False),
+                "stargazers_count": repo.get("stargazers_count", 0),
+                "language": repo.get("language"),
+                "created_at": repo.get("created_at"),
+                "pushed_at": repo.get("pushed_at"),
+                "updated_at": repo.get("updated_at"),
             }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Supabase 반영 중 오류 발생: {str(e)}")
+
+            pushed_at_str = repo.get("pushed_at") or repo.get("updated_at")
+            if pushed_at_str:
+                try:
+                    pushed_dt = datetime.datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    if start_datetime <= pushed_dt <= end_datetime:
+                        filtered_repos.append(repo_item)
+                except Exception:
+                    pass
+
+        unique_repos_dict = {repo["full_name"]: repo for repo in filtered_repos}
+        return {"repositories": list(unique_repos_dict.values())}
+
+    except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
+
+class EstimateCostRequest(BaseModel):
+    analysis_data: Dict[str, Any]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+@router.post("/github/estimate-cost")
+def estimate_github_cost(payload: EstimateCostRequest):
+    analysis_data = payload.analysis_data or {}
+    projects_data = analysis_data.get("projects_data", [])
+    
+    if not projects_data and analysis_data.get("repo_name"):
+        projects_data = [analysis_data]
+        
+    if not projects_data:
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        
+    total_chars = 0
+    for repo in projects_data:
+        target_author = repo.get("target_author", "")
+        # 💡 payload에서 받은 start_date와 end_date를 전달합니다!
+        cleaned = preprocess_github_data(
+            repo, 
+            target_author=target_author, 
+            start_date=payload.start_date, 
+            end_date=payload.end_date
+        )
+        text_blob = json.dumps(cleaned, ensure_ascii=False)
+        total_chars += len(text_blob)
+    
+    input_tokens = total_chars // 3
+    output_tokens = input_tokens 
+    total_tokens = input_tokens + output_tokens
+    
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "message": f"입력: {input_tokens:,}개 / 출력: {output_tokens:,}개 / 총 토큰: {total_tokens:,}개"
+    }

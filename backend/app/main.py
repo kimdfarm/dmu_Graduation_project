@@ -16,7 +16,7 @@ from app.routers.imageandfileupload.usegrog import router as usegrog_router
 from app.routers.imageandfileupload import savepile_resume
 from app.routers.setting.profilesetting import router as settings_router
 from app.routers.setting import educersetting
-from app.routers.github_data import github_data
+from app.routers.github_data import github_groq_data
 from app.routers import sections
 from app.routers.jobs import router as jobs_router
 from app.routers import coverletters
@@ -82,7 +82,7 @@ app.add_middleware(
 # 라우터 등록
 app.include_router(sign.router)
 app.include_router(login.router)
-app.include_router(github_data.router)
+app.include_router(github_groq_data.router)
 app.include_router(usegrog_router)
 app.include_router(settings_router)
 app.include_router(educersetting.router)

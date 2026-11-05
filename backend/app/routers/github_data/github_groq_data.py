@@ -87,7 +87,7 @@ def github_callback(payload: GithubAuthRequest, response: Response):
         "access_token": access_token
     }
 
-def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "") -> dict:
+def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", target_author: str = "", start_date: str = None, end_date: str = None) -> dict:
     try:
         effective_author = target_author or raw_graphql_data.get("target_author", "")
         is_fork = raw_graphql_data.get("isFork", False) # 포크 여부 확인
@@ -108,6 +108,23 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             elif "edges" in languages_data:
                 tech_stacks = [e.get("node", {}).get("name") for e in (languages_data.get("edges") or []) if e and e.get("node")]
 
+# 💡 강건한 날짜 범위 파싱
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except Exception as e:
+                print(f"Start date parse error: {e}")
+        if end_date:
+            try:
+                end_dt = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            except Exception as e:
+                print(f"End date parse error: {e}")
+
+        print(f"🔍 [Date Filter Active] start_dt: {start_dt}, end_dt: {end_dt}")     
+
+        # 1. 커밋 필터링
         commits_raw = []
         default_branch = raw_graphql_data.get("defaultBranchRef") or {}
         if isinstance(default_branch, dict):
@@ -118,21 +135,32 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     commits_raw = history.get("nodes") or []
 
         merged_commits = {}
-        my_commit_count = 0 # 내가 작성한 커밋 수 카운트
-
+        filtered_commit_count = 0
         for c in commits_raw:
             if not isinstance(c, dict):
                 continue
                 
+            committed_date_str = c.get("committedDate")
+            if committed_date_str and (start_dt or end_dt):
+                try:
+                    # ISO 포맷 안전 파싱 (Z -> +00:00)
+                    clean_date_str = committed_date_str.replace('Z', '+00:00')
+                    c_dt = datetime.datetime.fromisoformat(clean_date_str)
+                    if start_dt and c_dt < start_dt:
+                        continue
+                    if end_dt and c_dt > end_dt:
+                        continue
+                except Exception as ex:
+                    print(f"Commit date filter exception for {committed_date_str}: {ex}")
+                    pass
+
+            filtered_commit_count += 1
             author_info = c.get("author") or {}
             user_info = author_info.get("user") or {}
             author_login = user_info.get("login", "")
 
             if effective_author and author_login and author_login.lower() != effective_author.lower():
                 continue
-
-            # 내 커밋으로 인정된 경우 카운트 증가
-            my_commit_count += 1
 
             msg = (c.get("messageHeadline") or c.get("message") or "").strip()
             if not msg:
@@ -155,11 +183,14 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
                     "count": 1
                 }
 
+        print(f"✨ Total commits after date filter: {filtered_commit_count} (Merged unique: {len(merged_commits)})")
+
         clean_commits = [
             f"- {msg} (집중도/반복: {stat['count']}회, +{stat['additions']}/-{stat['deletions']}라인)"
             for msg, stat in merged_commits.items()
         ]
 
+        # 2. Pull Requests 필터링
         prs_raw = []
         prs_data = raw_graphql_data.get("pullRequests") or {}
         if isinstance(prs_data, dict):
@@ -168,6 +199,18 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
         merged_prs = {}
         for pr in prs_raw:
             if isinstance(pr, dict):
+                pr_created_str = pr.get("createdAt")
+                if pr_created_str and (start_dt or end_dt):
+                    try:
+                        clean_date_str = pr_created_str.replace('Z', '+00:00')
+                        pr_dt = datetime.datetime.fromisoformat(clean_date_str)
+                        if start_dt and pr_dt < start_dt:
+                            continue
+                        if end_dt and pr_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
                 pr_author = (pr.get("author") or {}).get("login", "")
                 if effective_author and pr_author and pr_author.lower() != effective_author.lower():
                     continue
@@ -180,11 +223,44 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
 
         clean_prs = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_prs.items()]
 
+        # 3. Issues 필터링
+        issues_raw = []
+        issues_data = raw_graphql_data.get("issues") or {}
+        if isinstance(issues_data, dict):
+            issues_raw = issues_data.get("nodes") or []
+
+        merged_issues = {}
+        for issue in issues_raw:
+            if isinstance(issue, dict):
+                issue_created_str = issue.get("createdAt")
+                if issue_created_str and (start_dt or end_dt):
+                    try:
+                        clean_date_str = issue_created_str.replace('Z', '+00:00')
+                        issue_dt = datetime.datetime.fromisoformat(clean_date_str)
+                        if start_dt and issue_dt < start_dt:
+                            continue
+                        if end_dt and issue_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
+                issue_author = (issue.get("author") or {}).get("login", "")
+                if effective_author and issue_author and issue_author.lower() != effective_author.lower():
+                    continue
+
+                title = (issue.get("title") or "").strip()
+                state = issue.get("state", "")
+                if title:
+                    key = f"[Issue] {title} (상태: {state})"
+                    merged_issues[key] = merged_issues.get(key, 0) + 1
+
+        clean_issues = [f"- {title}" + (f" (반복 {cnt}회)" if cnt > 1 else "") for title, cnt in merged_issues.items()]
+
         return {
             "repo_name": repo_name,
             "tech_stacks": tech_stacks,
             "key_commits": clean_commits,
-            "key_prs_and_issues": clean_prs
+            "key_prs_and_issues": clean_prs + clean_issues
         }
     except Exception as e:
         print(f"Preprocessor Error: {e}")
@@ -194,6 +270,7 @@ def preprocess_github_data(raw_graphql_data: dict, default_repo_name: str = "", 
             "key_commits": [],
             "key_prs_and_issues": []
         }
+            
 
 # Groq 클라이언트 초기화
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -401,6 +478,142 @@ query GetRepoAnalytics($owner: String!, $name: String!) {
 PRIMARY_MODEL_NAME = "openai/gpt-oss-120b"
 FALLBACK_MODEL_NAME = "qwen/qwen3.8-27b"
 
+def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
+    """
+    저장소 데이터가 너무 클 때, 속성 및 아이템 단위로 안전하게 쪼개어
+    여러 개의 청크(Chunk) 리스트로 반환합니다.
+    """
+    chunks = []
+    
+    current_chunk = {
+        "repo_name": repo_data.get("repo_name"),
+        "target_author": repo_data.get("target_author"),
+        "tech_stacks": repo_data.get("tech_stacks", []),
+        "key_commits": [],
+        "key_prs_and_issues": []
+    }
+    
+    def get_token_count(data: dict) -> int:
+        return len(json.dumps(data, ensure_ascii=False)) // 3
+
+    # 1. 커밋 아이템 분할
+    for commit in repo_data.get("key_commits", []):
+        test_chunk = dict(current_chunk)
+        test_chunk["key_commits"] = current_chunk["key_commits"] + [commit]
+        
+        if get_token_count(test_chunk) > max_tokens:
+            chunks.append(current_chunk)
+            current_chunk = {
+                "repo_name": f"{repo_data.get('repo_name')} (continuing)",
+                "target_author": repo_data.get("target_author"),
+                "tech_stacks": [],
+                "key_commits": [commit],
+                "key_prs_and_issues": []
+            }
+        else:
+            current_chunk["key_commits"].append(commit)
+
+    # 2. PR 및 이슈 아이템 분할
+    for pr_issue in repo_data.get("key_prs_and_issues", []):
+        test_chunk = dict(current_chunk)
+        test_chunk["key_prs_and_issues"] = current_chunk["key_prs_and_issues"] + [pr_issue]
+        
+        if get_token_count(test_chunk) > max_tokens:
+            chunks.append(current_chunk)
+            current_chunk = {
+                "repo_name": f"{repo_data.get('repo_name')} (continuing)",
+                "target_author": repo_data.get("target_author"),
+                "tech_stacks": [],
+                "key_commits": [],
+                "key_prs_and_issues": [pr_issue]
+            }
+        else:
+            current_chunk["key_prs_and_issues"].append(pr_issue)
+
+    if current_chunk["key_commits"] or current_chunk["key_prs_and_issues"] or current_chunk["tech_stacks"]:
+        chunks.append(current_chunk)
+
+    return chunks
+
+def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_total_tokens: int = 5000) -> list:
+    """
+    1. 전체 데이터의 토큰 수를 먼저 검사합니다.
+    2. 5000토큰 이내라면 변형 없이 원본 데이터를 그대로 반환하여 불필요한 연산을 방지합니다.
+    3. 5000토큰을 초과할 때만 저장소별로 쪼개고(split_repo_by_properties) AI 압축을 수행합니다.
+    """
+    # 전체 데이터의 대략적인 토큰 수 계산
+    raw_json = json.dumps(projects_data, ensure_ascii=False)
+    total_tokens = len(raw_json) // 3
+    
+    print(f"📊 [Token Check] 전체 프로젝트 데이터 추정 토큰: {total_tokens:,}개")
+    
+    # 💡 5000토큰 이내라면 전처리/분할 없이 즉시 원본 리턴 (성능 최적화)
+    if total_tokens <= max_total_tokens:
+        print("✨ 전체 토큰이 안전 범위(5000 이내)이므로 원본 데이터를 그대로 사용합니다.")
+        return projects_data
+
+    print(f"⚠️ 토큰 한도({max_total_tokens}) 초과! 대형 데이터 구조 보존 분할 및 AI 압축을 시작합니다...")
+
+    all_chunks = []
+    for repo in projects_data:
+        repo_json = json.dumps(repo, ensure_ascii=False)
+        repo_tokens = len(repo_json) // 3
+        
+        # 저장소 개별 크기가 크면 속성별로 분할, 작으면 그대로 둠
+        if repo_tokens > 2000:
+            chunks = split_repo_by_properties(repo, max_tokens=2000)
+            all_chunks.extend(chunks)
+        else:
+            all_chunks.append(repo)
+            
+    n_chunks = len(all_chunks)
+    if n_chunks == 0:
+        return projects_data
+        
+    budget_per_chunk = max(400, max_total_tokens // n_chunks)
+    print(f"📊 총 청크 수: {n_chunks}개 | 청크당 할당된 최대 토큰 예산: {budget_per_chunk}")
+
+    compressed_projects = []
+    system_prompt = """You are an expert developer data optimization engine.
+Summarize and compress the given GitHub repository analysis data chunk to be concise while preserving 100% of critical technical achievements, tech stacks, and key commits.
+Output MUST be valid JSON format containing the compressed object under the root.
+"""
+
+    for idx, chunk in enumerate(all_chunks):
+        chunk_json = json.dumps(chunk, ensure_ascii=False)
+        
+        try:
+            chat_completion = groq_client.chat.completions.create(
+                model=PRIMARY_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": chunk_json}
+                ],
+                temperature=0.1,
+                max_completion_tokens=budget_per_chunk,
+                response_format={"type": "json_object"}
+            )
+
+            content = chat_completion.choices[0].message.content or ""
+            parsed = safe_json_parse(content)
+            
+            if isinstance(parsed, dict):
+                if "repo_name" in parsed:
+                    compressed_projects.append(parsed)
+                elif "projects_data" in parsed and parsed["projects_data"]:
+                    compressed_projects.extend(parsed["projects_data"])
+                else:
+                    compressed_projects.append(parsed)
+            else:
+                compressed_projects.append(chunk)
+
+        except Exception as e:
+            print(f"⚠️ 청크 {idx+1} AI 압축 실패 (원본 유지): {e}")
+            compressed_projects.append(chunk)
+
+    return compressed_projects
+
+
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
     repo_name: str
@@ -526,16 +739,28 @@ async def generate_github_resume(
 
     try:
         analysis_data = payload.analysis_data or {}
-        projects_data = analysis_data.get("projects_data", [])
+        raw_projects_data = analysis_data.get("projects_data", [])
 
-        if not projects_data and analysis_data.get("repo_name"):
-            projects_data = [analysis_data]
+        if not raw_projects_data and analysis_data.get("repo_name"):
+            raw_projects_data = [analysis_data]
 
-        if not projects_data:
+        if not raw_projects_data:
             raise HTTPException(
                 status_code=400, 
                 detail="분석된 저장소 데이터(projects_data)가 존재하지 않습니다."
             )
+
+# 💡 핵심: AI 분석 및 이력서 생성 직전에도 start_date와 end_date 범위 내의 커밋/PR/이슈만 전처리하여 정제
+        projects_data = []
+        for repo in raw_projects_data:
+            target_author = repo.get("target_author", "")
+            cleaned_repo = preprocess_github_data(
+                repo, 
+                target_author=target_author, 
+                start_date=payload.start_date, 
+                end_date=payload.end_date
+            )
+            projects_data.append(cleaned_repo)
 
         # 1. 상위 documents 문서 생성
         doc_payload = {
@@ -554,7 +779,14 @@ async def generate_github_resume(
         # 2. 프론트엔드에서 전달된 템플릿 전체 구조 가져오기
         template_structure = payload.template_structure or {}
         template_sections = template_structure.get("sections", [])
-        
+        # 💡 3. 전체 토큰 확인 후 5,000토큰 초과 시 AI 지능형 압축 실행
+        projects_data_processing = ai_intelligent_preprocess(
+            projects_data=projects_data,
+            template_sections=template_sections,
+            max_target_tokens=5000
+        )
+
+
         if not template_sections and payload.template_columns:
             template_sections = [
                 {
@@ -602,7 +834,7 @@ CRITICAL GOALS:
 {json.dumps(template_sections, ensure_ascii=False)}
 
 [깃허브 원본 프로젝트 분석 데이터]
-{json.dumps(projects_data, ensure_ascii=False)}
+{json.dumps(projects_data_processing, ensure_ascii=False)}
 
 위 데이터를 바탕으로 지정된 템플릿 섹션들의 구조와 컬럼에 알맞은 내용을 표준화된 JSON 스키마 형태로 생성해 주세요.
 """
@@ -844,10 +1076,16 @@ def estimate_github_cost(payload: EstimateCostRequest):
     total_chars = 0
     for repo in projects_data:
         target_author = repo.get("target_author", "")
-        cleaned = preprocess_github_data(repo, target_author=target_author)
+        # 💡 payload에서 받은 start_date와 end_date를 전달합니다!
+        cleaned = preprocess_github_data(
+            repo, 
+            target_author=target_author, 
+            start_date=payload.start_date, 
+            end_date=payload.end_date
+        )
         text_blob = json.dumps(cleaned, ensure_ascii=False)
         total_chars += len(text_blob)
-    
+        
     input_tokens = total_chars // 3
     output_tokens = input_tokens 
     total_tokens = input_tokens + output_tokens
