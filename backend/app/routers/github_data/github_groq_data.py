@@ -537,29 +537,27 @@ def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
 
 def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_total_tokens: int = 5000) -> list:
     """
-    1. 전체 데이터의 토큰 수를 먼저 검사합니다.
-    2. 5000토큰 이내라면 변형 없이 원본 데이터를 그대로 반환하여 불필요한 연산을 방지합니다.
-    3. 5000토큰을 초과할 때만 저장소별로 쪼개고(split_repo_by_properties) AI 압축을 수행합니다.
+    1. 전체 데이터가 5000토큰 이내면 그대로 통과시킵니다.
+    2. 초과할 경우, template_sections의 컬럼/섹션 정보를 AI 프롬프트에 주입하여
+       이력서 작성에 필요한 핵심 데이터만 남기도록 지능적으로 압축합니다.
     """
-    # 전체 데이터의 대략적인 토큰 수 계산
     raw_json = json.dumps(projects_data, ensure_ascii=False)
     total_tokens = len(raw_json) // 3
     
     print(f"📊 [Token Check] 전체 프로젝트 데이터 추정 토큰: {total_tokens:,}개")
     
-    # 💡 5000토큰 이내라면 전처리/분할 없이 즉시 원본 리턴 (성능 최적화)
     if total_tokens <= max_total_tokens:
         print("✨ 전체 토큰이 안전 범위(5000 이내)이므로 원본 데이터를 그대로 사용합니다.")
         return projects_data
 
-    print(f"⚠️ 토큰 한도({max_total_tokens}) 초과! 대형 데이터 구조 보존 분할 및 AI 압축을 시작합니다...")
+    print(f"⚠️ 토큰 한도 초과! 템플릿 구조 기반 지능형 압축 및 분할을 시작합니다...")
 
+    # 1단계: 대형 저장소 속성별 분할
     all_chunks = []
     for repo in projects_data:
         repo_json = json.dumps(repo, ensure_ascii=False)
         repo_tokens = len(repo_json) // 3
         
-        # 저장소 개별 크기가 크면 속성별로 분할, 작으면 그대로 둠
         if repo_tokens > 2000:
             chunks = split_repo_by_properties(repo, max_tokens=2000)
             all_chunks.extend(chunks)
@@ -573,12 +571,23 @@ def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_
     budget_per_chunk = max(400, max_total_tokens // n_chunks)
     print(f"📊 총 청크 수: {n_chunks}개 | 청크당 할당된 최대 토큰 예산: {budget_per_chunk}")
 
+    # 💡 템플릿 섹션 및 컬럼 정보를 문자열로 변환하여 프롬프트에 활용
+    template_info_str = json.dumps(template_sections, ensure_ascii=False)
+
     compressed_projects = []
-    system_prompt = """You are an expert developer data optimization engine.
-Summarize and compress the given GitHub repository analysis data chunk to be concise while preserving 100% of critical technical achievements, tech stacks, and key commits.
-Output MUST be valid JSON format containing the compressed object under the root.
+    system_prompt = f"""You are an expert developer data optimization engine for resume generation.
+Your task is to summarize and compress the given GitHub repository analysis data so that it strictly aligns with the target template sections and columns provided below.
+
+[Target Template Structure & Columns]
+{template_info_str}
+
+CRITICAL RULES:
+1. Extract and preserve ONLY the technical details, architecture choices, tech stacks, and key achievements that fit into the template columns.
+2. Discard trivial, redundant, or minor commits (e.g., "fix typo", "formatting") that are irrelevant to resume highlights.
+3. Output MUST be valid JSON format containing the compressed object under the root.
 """
 
+    # 2단계: 템플릿 맞춤형 청크별 AI 압축 수행
     for idx, chunk in enumerate(all_chunks):
         chunk_json = json.dumps(chunk, ensure_ascii=False)
         
@@ -608,11 +617,10 @@ Output MUST be valid JSON format containing the compressed object under the root
                 compressed_projects.append(chunk)
 
         except Exception as e:
-            print(f"⚠️ 청크 {idx+1} AI 압축 실패 (원본 유지): {e}")
+            print(f"⚠️ 청크 {idx+1} 템플릿 맞춤 압축 실패 (원본 유지): {e}")
             compressed_projects.append(chunk)
 
     return compressed_projects
-
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
@@ -785,7 +793,7 @@ async def generate_github_resume(
         projects_data_processing = ai_intelligent_preprocess(
             projects_data=projects_data,
             template_sections=template_sections,
-            max_target_tokens=5000
+            max_total_tokens=5000
         )
 
 
