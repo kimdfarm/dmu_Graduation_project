@@ -630,6 +630,8 @@ class GithubResumeGenerateRequest(BaseModel):
     template_structure: Optional[Dict[str, Any]] = None  
     language: Optional[str] = "ko"
     analysis_data: Optional[Dict[str, Any]] = None
+    start_date: Optional[str] = None  # 💡 추가
+    end_date: Optional[str] = None    # 💡 추가
 
 @router.post("/github/analyze")
 async def analyze_repository_graphql(
