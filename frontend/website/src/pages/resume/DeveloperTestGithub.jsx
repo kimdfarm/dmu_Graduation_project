@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Loader2, Sparkles, Search, 
-  Calendar, CheckCircle2, Check, Globe
+  Calendar, CheckCircle2, Check, Globe, Columns, Plus, X
 } from 'lucide-react';
 import { GITHUB_FRAME_TEMPLATES } from '../../templates/githubTemplates';
 
@@ -30,6 +30,10 @@ const DeveloperTestGithub = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [language, setLanguage] = useState('ko');
 
+  // 💡 1개 커스텀 템플릿용 컬럼 구성 상태
+  const [githubCustomCols, setGithubCustomCols] = useState(['프로젝트명 및 역할', '참여 기간', '주요 기여 및 성과']);
+  const [githubColInput, setGithubColInput] = useState('');
+
   const [testGithubId, setTestGithubId] = useState(
     getCookie('github_id') || localStorage.getItem('github_id') || 'kimdfarm'
   );
@@ -49,7 +53,8 @@ const DeveloperTestGithub = () => {
   const [searchMode, setSearchMode] = useState('relative');
   const [years, setYears] = useState(0);
   const [months, setMonths] = useState(6);
-  const [skippedRepos, setSkippedRepos] = useState([]); // 정보 없음/에러로 건너뛴 저장소 상태 추가
+  const [skippedRepos, setSkippedRepos] = useState([]);
+
   const getInitialDates = () => {
     const today = new Date();
     const sixMonthsAgo = new Date();
@@ -68,6 +73,16 @@ const DeveloperTestGithub = () => {
   useEffect(() => {
     setEstimationResult(null);
   }, [selectedRepos, startDate, endDate, testGithubId, selectedFrame]);
+
+  // 💡 커스텀 컬럼 추가/삭제 핸들러
+  const handleAddGithubCol = () => {
+    const trimmed = githubColInput.trim();
+    if (!trimmed) return;
+    if (githubCustomCols.includes(trimmed)) { alert('이미 존재해 있는 컬럼 항목입니다.'); return; }
+    setGithubCustomCols(prev => [...prev, trimmed]);
+    setGithubColInput('');
+  };
+  const handleRemoveGithubCol = (idxRem) => setGithubCustomCols(prev => prev.filter((_, i) => i !== idxRem));
 
   const handleGithubIdChange = (newId) => {
     setTestGithubId(newId);
@@ -165,7 +180,7 @@ const DeveloperTestGithub = () => {
       setEstimationProgress({ current: 0, total: selectedRepos.length, currentRepo: '' });
 
       const projectsData = [];
-      const failedRepos = []; // 건너뛴 저장소 기록용
+      const failedRepos = [];
 
       for (let i = 0; i < selectedRepos.length; i++) {
         const repoName = selectedRepos[i];
@@ -191,15 +206,12 @@ const DeveloperTestGithub = () => {
           });
 
           if (!res.ok) {
-            // 에러 발생 시 전체 중단 대신 해당 저장소만 기록하고 건너뜀
             console.warn(`[${repoName}] 분석 데이터 부족 또는 에러 발생, 건너뜁니다.`);
             failedRepos.push(repoName);
             continue;
           }
 
           const data = await res.json();
-          
-          // 데이터 내부 유효성 체크 (커밋이나 스택 등이 완전히 비어있는 경우 체크 가능)
           projectsData.push(data);
         } catch (repoErr) {
           console.warn(`[${repoName}] 요청 실패로 건너뜁니다:`, repoErr);
@@ -207,7 +219,7 @@ const DeveloperTestGithub = () => {
         }
       }
 
-      setSkippedRepos(failedRepos); // 건너뛴 저장소 상태 저장
+      setSkippedRepos(failedRepos);
 
       if (projectsData.length === 0) {
         throw new Error("선택한 모든 저장소에 탐색 가능한 유효 데이터(커밋 등)가 없습니다.");
@@ -243,7 +255,8 @@ const DeveloperTestGithub = () => {
       setEstimationProgress({ current: 0, total: 0, currentRepo: '' });
     }
   };
-const handleDirectGenerateResume = async () => {
+
+  const handleDirectGenerateResume = async () => {
     if (!selectedFrame) {
       alert("이력서 프레임 템플릿을 선택해 주세요.");
       return;
@@ -264,8 +277,30 @@ const handleDirectGenerateResume = async () => {
       setLoading(true);
       setLoadingText(`[${testGithubId}] 2단계 심층 AI 분석 및 이력서 생성 중...`);
 
-      // 💡 GITHUB_FRAME_TEMPLATES에서 선택된 프레임 참조
-      const currentTemplate = GITHUB_FRAME_TEMPLATES[selectedFrame] || {};
+      // 💡 1개 커스텀 템플릿과 기존 GITHUB_FRAME_TEMPLATES 처리 분기
+      let currentTemplate = {};
+
+      if (selectedFrame === 'CUSTOM_SINGLE') {
+        if (githubCustomCols.length === 0) {
+          alert('최소 1개 이상의 컬럼 항목을 추가해 주세요.');
+          setLoading(false);
+          return;
+        }
+        currentTemplate = {
+          name: '1개 커스텀 템플릿',
+          category: category,
+          sections: [
+            {
+              section_type: 'CUSTOM',
+              title: '주요 개발 프로젝트 및 성과',
+              columns: [...githubCustomCols],
+              display_order: 1
+            }
+          ]
+        };
+      } else {
+        currentTemplate = GITHUB_FRAME_TEMPLATES[selectedFrame] || {};
+      }
 
       const generateRes = await fetch(`${BASE_URL}/api/resumes/github-generate`, {
         method: 'POST',
@@ -277,7 +312,9 @@ const handleDirectGenerateResume = async () => {
           repo_name: selectedRepos.join(', '),
           template_structure: currentTemplate, 
           language: language,
-          analysis_data: { projects_data: estimationResult.projects_data }
+          analysis_data: { projects_data: estimationResult.projects_data },
+          start_date: startDate || "",
+          end_date: endDate || ""
         })
       });
 
@@ -441,6 +478,29 @@ const handleDirectGenerateResume = async () => {
               GitHub 심층 분석 템플릿 선택 <span className="text-emerald-400 text-[10px]">(필수 선택)</span>
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              
+              {/* 💡 1개 커스텀 템플릿 옵션 카드 추가 */}
+              <button
+                type="button"
+                onClick={() => setSelectedFrame('CUSTOM_SINGLE')}
+                className={`p-4 text-left rounded-2xl border transition-all text-xs flex flex-col justify-between gap-3 ${
+                  selectedFrame === 'CUSTOM_SINGLE'
+                    ? 'bg-emerald-950/40 border-emerald-500 text-white ring-1 ring-emerald-500 shadow-lg shadow-emerald-500/10'
+                    : 'bg-[#0a1024] border-emerald-950/80 text-slate-400 hover:border-emerald-800/60'
+                }`}
+              >
+                <div className="space-y-1.5">
+                  <p className="font-bold text-slate-100 text-xs leading-snug break-words flex-1">1개 커스텀 템플릿</p>
+                  <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight">사용자가 지정한 단일 빈 섹션에 원하는 컬럼 열을 자유롭게 구성하여 생성합니다.</p>
+                </div>
+                <div>
+                  <span className="inline-block text-[10px] px-2.5 py-0.5 rounded-md bg-[#070b19] border border-emerald-950 text-emerald-300 font-semibold">
+                    사용자 정의 (1개 섹션)
+                  </span>
+                </div>
+              </button>
+
+              {/* 기존 GitHub 프레임 템플릿 목록 */}
               {Object.entries(GITHUB_FRAME_TEMPLATES).map(([key, tpl]) => (
                 <button
                   key={key}
@@ -465,6 +525,48 @@ const handleDirectGenerateResume = async () => {
               ))}
             </div>
           </div>
+
+          {/* 💡 '1개 커스텀 템플릿' 선택 시 활성화되는 컬럼 구성 영역 */}
+          {selectedFrame === 'CUSTOM_SINGLE' && (
+            <div className="space-y-4 p-5 bg-[#0a1024] border border-emerald-500/60 rounded-2xl shadow-md animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <Columns className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold text-emerald-300">단일 섹션 내 컬럼(Column) 열 구성</h3>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                선택하신 1개 커스텀 템플릿의 단일 섹션에 들어갈 세부 열 항목들을 자유롭게 추가하거나 삭제해 주세요.
+              </p>
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2 w-full">
+                  <input
+                    type="text"
+                    placeholder="추가할 컬럼 항목명 (예: 주요 기술 스택)"
+                    value={githubColInput}
+                    onChange={(e) => setGithubColInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddGithubCol(); } }}
+                    className="w-full sm:flex-1 px-4 py-3 text-xs text-white bg-[#070b19] border border-emerald-950/80 rounded-xl focus:outline-none focus:border-emerald-500 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddGithubCol}
+                    className="w-full sm:w-auto px-4 py-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-800/40 flex items-center justify-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 컬럼 추가
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {githubCustomCols.map((col, cIdx) => (
+                    <span key={cIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#070b19] border border-emerald-900/60 text-emerald-300 text-xs rounded-lg font-medium">
+                      📌 {col}
+                      <button type="button" onClick={() => handleRemoveGithubCol(cIdx)} className="hover:text-rose-400">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* GITHUB 활동 분석 영역 */}
           <div className="space-y-6 pt-4 border-t border-emerald-950/60">
@@ -666,22 +768,21 @@ const handleDirectGenerateResume = async () => {
                         <strong className="text-yellow-400 font-bold">{(estimationResult.total_tokens ?? 0).toLocaleString()} 토큰</strong>
                       </p>
                       
-                      {/* 탐색 통계 및 정보 없는 저장소 안내 영역 */}
-                    <div className="mt-3 pt-3 border-t border-emerald-950/80 space-y-1.5 text-[11px] text-slate-300">
-                      <p className="flex items-center justify-between text-emerald-400">
-                        <span>✅ 성공적으로 탐색한 저장소:</span>
-                        <span className="font-bold">{estimationResult.success_count}개</span>
-                      </p>
-                      <p className="flex items-center justify-between text-rose-400">
-                        <span>⚠️ 정보가 없어 건너뛴 저장소:</span>
-                        <span className="font-bold">{skippedRepos.length}개</span>
-                      </p>
-                      {skippedRepos.length > 0 && (
-                        <p className="text-slate-400 font-mono text-[10px] truncate">
-                          제외된 저장소: {skippedRepos.join(', ')}
+                      <div className="mt-3 pt-3 border-t border-emerald-950/80 space-y-1.5 text-[11px] text-slate-300">
+                        <p className="flex items-center justify-between text-emerald-400">
+                          <span>✅ 성공적으로 탐색한 저장소:</span>
+                          <span className="font-bold">{estimationResult.success_count}개</span>
                         </p>
-                      )}
-                    </div>
+                        <p className="flex items-center justify-between text-rose-400">
+                          <span>⚠️ 정보가 없어 건너뛴 저장소:</span>
+                          <span className="font-bold">{skippedRepos.length}개</span>
+                        </p>
+                        {skippedRepos.length > 0 && (
+                          <p className="text-slate-400 font-mono text-[10px] truncate">
+                            제외된 저장소: {skippedRepos.join(', ')}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
