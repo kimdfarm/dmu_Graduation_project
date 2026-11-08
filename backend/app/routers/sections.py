@@ -49,7 +49,7 @@ import json
 # ------------------------------------------------------------------
 # Helper 1: 기존 섹션 컬럼과 AI 모드 권장 컬럼을 결합하여 통일된 use_columns 도출 (col_max 적용)
 # ------------------------------------------------------------------
-def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_texts: list, col_max: int = 6) -> list:
+def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_texts: list) -> list:
     mode_defaults = {
         "STAR": ["Situation", "Task", "Action", "Result"],
         "IMPACT": ["Core Challenge", "Implemented Solution", "Quantitative Impact"],
@@ -59,33 +59,30 @@ def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_tex
     
     default_cols = mode_defaults.get(mode, ["지원 동기", "핵심 역량", "입사 후 포부"])
     
-    combined_base = []
-    for col in existing_columns:
-        if col and col not in ["질문", "답변"] and col not in combined_base:
-            combined_base.append(col)
-            
-    for col in default_cols:
-        if col not in combined_base:
-            combined_base.append(col)
-
-    if not sample_texts:
-        return combined_base[:col_max]
+    # 정제된 샘플 텍스트 생성 (뭉텅이 텍스트 통째로 전달 방지)
+    formatted_samples = [text[:300] for text in sample_texts] if sample_texts else []
 
     prompt = f"""
-    너는 전문 데이터 스키마 설계 및 자기소개서 컨설턴트이다.
-    현재 '{mode}' 모드로 자기소개서 카드들을 AI 교정 및 재구성하려고 한다.
+    너는 전문 데이터 스키마 설계 및 자기소개서 수석 컨설턴트이다.
+    현재 '{mode}' 모드로 자기소개서 카드들을 분석하여, 모든 카드에 공통으로 적용할 **가장 구체적이고 직관적인 분석 컬럼 이름 목록(JSON 배열)**을 결정해야 한다.
+
+    [🚨 절대 준수해야 할 엄격한 주의 사항]
+    1. **통채로 가져오기 금지 (`default_cols` 및 `existing_columns` 복사 금지):** 
+       - 참고용 권장 컬럼(`{default_cols}`)이나 기존에 정의된 컬럼(`{existing_columns}`)의 이름을 **그대로 베껴서 가져오거나 통째로 나열해서는 절대 안 된다.**
+       - 기존 컬럼이나 권장 컬럼에 의존하지 말고, 아래 원문 샘플의 실제 내용과 맥락을 깊이 분석하여 **새롭고 직관적이며 전문적인 컬럼명**을 직접 창조·재구성하라.
+    2. **추상적인 단어 전면 금지:** 
+       - `질문`, `답변`, `내용`, `성장`, `종합 평가`처럼 너무 추상적이거나 뭉뚱그린 단어는 절대 생성하지 마라.
+    3. **자기소개서 전용 논리적 구조 확보:** 
+       - 지원자의 동기, 역량, 문제 해결 과정, 입사 후 포부 등이 논리적으로 돋보일 수 있는 명사형 구문으로 컬럼명을 구성하라.
+    4. **개수 제한 없음:** 
+       - 카드의 내용 분할 및 분석에 필요한 만큼 유연하게 컬럼 개수를 결정하라.
+
+    [참고 데이터]
+    - 모드 참고 권장 목록: {default_cols}
+    - 기존 정의된 컬럼 목록: {existing_columns}
+    - 원문 카드 데이터 샘플들: {formatted_samples}
     
-    1. 해당 모드 참고 권장 컬럼: {default_cols}
-    2. 기존에 정의된 컬럼들: {existing_columns}
-    3. 병합된 후보 컬럼 풀: {combined_base}
-    4. 원문 샘플 텍스트: {sample_texts[:2]}
-    
-    위 정보들을 바탕으로, 이 섹션의 **모든 카드에 공통으로 적용할 가장 이상적이고 일관된 3~{col_max}개의 분석 컬럼 이름 목록(JSON 배열)**을 결정해 줘.
-    반드시 아래의 **JSON 형식**으로만 응답하며, 다른 설명은 절대 포함하지 마세요.
-    
-    [언어 규칙 (Language Rule)]
-    - `기존에 정의된 컬럼들` 또는 `참고 권장 컬럼`에 사용된 언어(한국어 또는 영어 등)를 최우선으로 따르세요.
-    - 만약 기존 정의된 컬럼이나 권장 컬럼이 비어있다면, `원문 샘플 텍스트`의 작성 언어(한국어면 한국어, 영어면 영어)와 동일한 언어로 컬럼명을 생성하세요.
+    위 정보들의 '단어'를 그대로 복사하지 말고, 오직 원문 샘플의 내용을 바탕으로 재창조된 최적의 컬럼 리스트를 JSON 형식으로만 응답하라.
     
     {{
       "unified_columns": ["컬럼1", "컬럼2", "컬럼3"]
@@ -96,10 +93,10 @@ def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_tex
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
-                {"role": "system", "content": "너는 오직 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
+                {"role": "system", "content": "너는 오직 순수 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.5,
+            temperature=0.4, # 약간의 창의성을 주어 기존 단어를 그대로 복사하는 현상 방지
         )
         content = response.choices[0].message.content.strip()
         if content.startswith("```"):
@@ -108,16 +105,22 @@ def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_tex
                 content = content[4:]
             content = content.strip()
             
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0)
+            
         result = json.loads(content)
         columns = result.get("unified_columns", [])
         if columns and isinstance(columns, list):
-            # 반환된 컬럼도 col_max 개수만큼 안전하게 잘라줍니다.
-            return columns[:col_max]
+            # col_max 제한을 완전히 삭제하고 AI가 도출한 리스트를 그대로 반환
+            return columns
     except Exception as e:
         print(f"AI Column Unification Error: {e}")
 
-    return combined_base[:col_max] if combined_base else default_cols[:col_max]
-
+    # 예외 발생 시 기존 컬럼 풀에서 불필요한 값 제외 후 반환
+    fallback_base = [c for c in existing_columns if c and c not in ["질문", "답변"]]
+    return fallback_base if fallback_base else default_cols
 # ------------------------------------------------------------------
 # Helper 2: 공통 맞춤법 교정
 # ------------------------------------------------------------------
@@ -604,70 +607,80 @@ class ResumeAIResponseItem(BaseModel):
 # ------------------------------------------------------------------
 # 이력서 모드별 동적 컬럼 도출 Helper
 # ------------------------------------------------------------------
-def derive_resume_unified_columns_with_ai(mode: str, existing_columns: list, sample_texts: list, col_max: int = 5) -> list:
+def derive_resume_unified_columns_with_ai(mode: str, existing_columns: list, sample_texts: list) -> list:
     mode_defaults = {
-        "PROJECT": ["프로젝트명", "기간 및 인원", "서비스 개요", "담당 역할", "기술 스택"],
+        "PROJECT": ["프로젝트명 및 개요", "담당 역할 및 기여도", "사용 기술 스택", "핵심 구현 기능", "트러블슈팅 및 성과"],
         "IMPACT": ["Core Challenge", "Implemented Solution", "Quantitative Impact", "Key Metric"],
         "TECH": ["Technology Stack", "Technical Challenges", "Architecture & Implementation", "Troubleshooting"],
         "COMP": ["Core Skills", "Key Experience", "Problem Solving", "Collaboration"]
     }
     
-    default_cols = mode_defaults.get(mode, ["프로젝트명", "주요 역할", "사용 기술", "성과"])
+    default_cols = mode_defaults.get(mode, ["프로젝트명", "담당 역할", "사용 기술", "주요 성과"])
     
-    combined_base = []
-    for col in existing_columns:
-        if col and col not in ["질문", "답변"] and col not in combined_base:
-            combined_base.append(col)
-            
-    for col in default_cols:
-        if col not in combined_base:
-            combined_base.append(col)
-
-    if not sample_texts:
-        return combined_base[:col_max]
+    # 정제된 샘플 텍스트 생성
+    formatted_samples = [text[:300] for text in sample_texts] if sample_texts else []
 
     prompt = f"""
-    너는 전문 데이터 스키마 설계 및 이력서(경력기술서) 컨설턴트이다.
-    현재 '{mode}' 모드로 이력서 카드(프로젝트/경력 항목)들을 AI 교정 및 재구성하려고 한다.
+    너는 시니어 개발자이자 전문 이력서/경력기술서 컨설턴트이다.
+    현재 '{mode}' 모드로 이력서 카드들을 분석하여, 모든 카드에 공통으로 적용할 **가장 구체적이고 실무적인 분석 컬럼 이름 목록(JSON 배열)**을 결정해야 한다.
+
+    [🚨 절대 준수해야 할 엄격한 주의 사항]
+    1. **통채로 가져오기 금지 (`default_cols` 및 `existing_columns` 복사 금지):** 
+       - 참고용 권장 컬럼(`{default_cols}`)이나 기존에 정의된 컬럼(`{existing_columns}`)의 이름을 **그대로 베껴서 가져오거나 통째로 나열해서는 절대 안 된다.**
+       - 기존 컬럼이나 권장 컬럼에 의존하지 말고, 아래 원문 샘플의 실제 내용과 맥락을 깊이 분석하여 **새롭고 직관적이며 전문적인 컬럼명**을 직접 창조·재구성하라.
+    2. **추상적인 단어 전면 금지:** 
+       - `프로젝트`, `역활`, `역할`, `성장`, `내용`, `종합 평가`처럼 너무 추상적이거나 뭉뚱그린 단어는 절대 생성하지 마라.
+    3. **실무적 구체성 확보:** 
+       - 개발자의 기술적 깊이, 아키텍처 구현, 트러블슈팅, 구체적 기여도가 낱낱이 드러날 수 있는 명사형 구문으로 컬럼명을 구성하라. (예: "핵심 구현 아키텍처", "기술적 난관 및 해결 과정", "정량적 성과 및 기여도")
+    4. **개수 제한 없음:** 
+       - 카드의 내용 분할에 필요한 만큼 유연하게 컬럼 개수를 결정하라.
+
+    [참고 데이터]
+    - 모드 참고 권장 목록: {default_cols}
+    - 기존 정의된 컬럼 목록: {existing_columns}
+    - 원문 카드 데이터 샘플들: {formatted_samples}
     
-    1. 해당 모드 참고 권장 컬럼: {default_cols}
-    2. 기존에 정의된 컬럼들: {existing_columns}
-    3. 병합된 후보 컬럼 풀: {combined_base}
-    4. 원문 샘플 텍스트: {sample_texts[:2]}
+    위 정보들의 '단어'를 그대로 복사하지 말고, 오직 원문 샘플의 내용을 바탕으로 재창조된 최적의 컬럼 리스트를 JSON 형식으로만 응답하라.
     
-    위 정보들을 바탕으로, 이 섹션의 **모든 이력서 카드에 공통으로 적용할 가장 이상적이고 일관된 3~{col_max}개의 분석 컬럼 이름 목록(JSON 배열)**을 결정해 줘.
-    반드시 아래의 **JSON 형식**으로만 응답하며, 다른 설명은 절대 포함하지 마세요.
-    언어는 기존의 정의된 컬럼 언어로 통일하시오.
     {{
-      "unified_columns": ["컬럼1", "컬럼2", "컬럼3"]
+      "unified_columns": ["컬럼1", "컬럼2", "컬럼3", "컬럼4"]
     }}
     """
 
     try:
         response = groq_client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="openai/gpt-oss-120b", 
             messages=[
-                {"role": "system", "content": "너는 오직 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
+                {"role": "system", "content": "너는 오직 순수 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.5,
+            temperature=0.4, # 약간의 창의성을 주어 기존 단어를 그대로 복사하는 현상 방지
         )
         content = response.choices[0].message.content.strip()
-        if content.startswith("```"):
+        
+        if "```" in content:
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
             content = content.strip()
             
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0)
+            
         result = json.loads(content)
         columns = result.get("unified_columns", [])
         if columns and isinstance(columns, list):
-            return columns[:col_max]
+            # col_max 제한을 완전히 삭제하고 AI가 가져온 리스트를 그대로 반환
+            return columns
+            
     except Exception as e:
-        print(f"Resume AI Column Unification Error: {e}")
+        print(f"❌ Resume AI Column Unification Error: {e}")
 
-    return combined_base[:col_max] if combined_base else default_cols[:col_max]
-
+    # 예외 발생 시 기존 결합 풀 반환
+    fallback_base = [c for c in existing_columns if c and c not in ["질문", "답변", "프로젝트", "역활", "역할"]]
+    return fallback_base if fallback_base else default_cols
 
 # ------------------------------------------------------------------
 # 단일 이력서 카드 개별 교정 헬퍼
@@ -791,8 +804,7 @@ async def resume_ai_proofread_section(
     use_columns = derive_resume_unified_columns_with_ai(
         mode=current_style, 
         existing_columns=combined_base_cols, 
-        sample_texts=sample_texts,
-        col_max=col_max
+        sample_texts=sample_texts
     )
 
     cached_map = {}
