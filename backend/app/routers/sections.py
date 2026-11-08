@@ -99,7 +99,7 @@ def derive_unified_columns_with_ai(mode: str, existing_columns: list, sample_tex
                 {"role": "system", "content": "너는 오직 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
+            temperature=0.5,
         )
         content = response.choices[0].message.content.strip()
         if content.startswith("```"):
@@ -141,7 +141,7 @@ def run_spell_check_llm(text: str) -> str:
                 {"role": "system", "content": "너는 한국어 맞춤법 및 문법 교정 전문가이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
+            temperature=0.3,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -206,7 +206,7 @@ def run_batch_coverletter_ai_proofread_llm(details: list, mode: str = "STAR", ta
                 {"role": "system", "content": "너는 여러 개의 자소서 카드를 지정된 컬럼에 맞추어 일괄 처리하고 정확히 JSON 배열 형식으로만 반환하는 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
+            temperature=0.7,
         )
         content = response.choices[0].message.content.strip()
         
@@ -426,7 +426,7 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
                 {"role": "system", "content": "너는 원문의 사실 관계를 절대 왜곡하지 않고 지정된 컬럼에 정확히 분류하는 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,  
+            temperature=0.7,  
         )
         content = response.choices[0].message.content.strip()
         
@@ -650,7 +650,7 @@ def derive_resume_unified_columns_with_ai(mode: str, existing_columns: list, sam
                 {"role": "system", "content": "너는 오직 JSON 형식으로만 응답하는 데이터 스키마 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
+            temperature=0.5,
         )
         content = response.choices[0].message.content.strip()
         if content.startswith("```"):
@@ -714,7 +714,7 @@ def run_single_resume_card_ai_proofread_llm(card_id: str, original_text: str, mo
                 {"role": "system", "content": "너는 원문의 사실 관계를 절대 왜곡하거나 창작하지 않고 지정된 컬럼에 정확히 분류하는 엄격한 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
+            temperature=0.7,
         )
         content = response.choices[0].message.content.strip()
         
