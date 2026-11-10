@@ -479,12 +479,7 @@ PRIMARY_MODEL_NAME = "openai/gpt-oss-120b"
 FALLBACK_MODEL_NAME = "qwen/qwen3.8-27b"
 
 def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
-    """
-    저장소 데이터가 너무 클 때, 속성 및 아이템 단위로 안전하게 쪼개어
-    여러 개의 청크(Chunk) 리스트로 반환합니다.
-    """
     chunks = []
-    
     current_chunk = {
         "repo_name": repo_data.get("repo_name"),
         "target_author": repo_data.get("target_author"),
@@ -493,10 +488,10 @@ def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
         "key_prs_and_issues": []
     }
     
+    # 💡 한글/특수문자 고려: 1토큰 ≒ 약 2자 (보수적 계산)
     def get_token_count(data: dict) -> int:
-        return len(json.dumps(data, ensure_ascii=False)) // 3
+        return len(json.dumps(data, ensure_ascii=False)) // 2
 
-    # 1. 커밋 아이템 분할
     for commit in repo_data.get("key_commits", []):
         test_chunk = dict(current_chunk)
         test_chunk["key_commits"] = current_chunk["key_commits"] + [commit]
@@ -513,7 +508,6 @@ def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
         else:
             current_chunk["key_commits"].append(commit)
 
-    # 2. PR 및 이슈 아이템 분할
     for pr_issue in repo_data.get("key_prs_and_issues", []):
         test_chunk = dict(current_chunk)
         test_chunk["key_prs_and_issues"] = current_chunk["key_prs_and_issues"] + [pr_issue]
@@ -536,12 +530,8 @@ def split_repo_by_properties(repo_data: dict, max_tokens: int = 2000) -> list:
     return chunks
 
 def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_total_tokens: int = 5000) -> list:
-    """
-    1. 전체 데이터가 5000토큰 이내면 그대로 통과시킵니다.
-    2. 초과할 경우, 각 청크의 데이터 크기 비율(비례 배분)에 맞춰 동적으로 토큰 예산을 할당하여 압축합니다.
-    """
     raw_json = json.dumps(projects_data, ensure_ascii=False)
-    total_tokens = len(raw_json) // 3
+    total_tokens = len(raw_json) // 3  # 보수적 계산
     
     print(f"📊 [Token Check] 전체 프로젝트 데이터 추정 토큰: {total_tokens:,}개")
     
@@ -551,7 +541,6 @@ def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_
 
     print(f"⚠️ 토큰 한도 초과! 템플릿 구조 기반 지능형 압축 및 비례 분할을 시작합니다...")
 
-    # 1단계: 대형 저장소 속성별 분할
     all_chunks = []
     for repo in projects_data:
         repo_json = json.dumps(repo, ensure_ascii=False)
@@ -567,22 +556,14 @@ def ai_intelligent_preprocess(projects_data: list, template_sections: list, max_
     if n_chunks == 0:
         return projects_data
         
-    # 💡 각 청크별 실제 토큰 크기를 미리 계산
-    chunk_sizes = []
-    for chunk in all_chunks:
-        c_json = json.dumps(chunk, ensure_ascii=False)
-        chunk_sizes.append(len(c_json) // 3)
-    
-    total_chunk_tokens = sum(chunk_sizes)
-    if total_chunk_tokens == 0:
-        total_chunk_tokens = 1  # ZeroDivisionError 방지
+    chunk_sizes = [len(json.dumps(c, ensure_ascii=False)) // 2 for c in all_chunks]
+    total_chunk_tokens = sum(chunk_sizes) or 1
 
     print(f"📊 총 청크 수: {n_chunks}개 | 전체 청크 합산 토큰: {total_chunk_tokens:,}")
 
-    # 템플릿 섹션 및 컬럼 정보 문자열 변환
     template_info_str = json.dumps(template_sections, ensure_ascii=False)
-
     compressed_projects = []
+    
     system_prompt = f"""You are an expert developer data optimization engine for resume generation.
 Your task is to summarize and compress the given GitHub repository analysis data so that it strictly aligns with the target template sections and columns provided below.
 
@@ -590,22 +571,17 @@ Your task is to summarize and compress the given GitHub repository analysis data
 {template_info_str}
 
 CRITICAL RULES:
-1. **Maintain separate repositories/projects as distinct items.** Do NOT merge multiple different repositories into a single summary.
+1. Maintain separate repositories/projects as distinct items. Do NOT merge multiple different repositories into a single summary.
 2. Extract and preserve technical details, architecture choices, tech stacks, and key achievements for EACH repository that fit into the template columns.
 3. Discard trivial, redundant, or minor commits (e.g., "fix typo", "formatting") that are irrelevant to resume highlights.
 4. Output MUST be valid JSON format containing the compressed object under the root.
 """
 
-    # 2단계: 각 청크의 크기 비율에 비례하여 동적 토큰 예산 할당 및 압축 수행
     for idx, (chunk, c_size) in enumerate(zip(all_chunks, chunk_sizes)):
-        # 💡 비례 배분 공식 적용: (해당 청크 크기 / 전체 청크 크기 합) * max_total_tokens
         proportional_budget = int(max_total_tokens * (c_size / total_chunk_tokens))
-        
-        # 최소 400 토큰은 보장하도록 설정
         budget_per_chunk = max(400, proportional_budget)
         
         print(f"📦 청크 {idx+1}/{n_chunks} 크기: {c_size}토큰 | 할당된 비례 예산: {budget_per_chunk}토큰")
-        
         chunk_json = json.dumps(chunk, ensure_ascii=False)
         
         try:
@@ -637,7 +613,8 @@ CRITICAL RULES:
             print(f"⚠️ 청크 {idx+1} 템플릿 맞춤 압축 실패 (원본 유지): {e}")
             compressed_projects.append(chunk)
 
-        return compressed_projects
+    # 💡 return 위치 수정: 모든 루프가 끝난 후 한 번만 반환
+    return compressed_projects
 
 class RepoAnalyzeRequest(BaseModel):
     github_id: str
