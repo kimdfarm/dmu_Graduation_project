@@ -333,9 +333,14 @@ const CoverLetterDownload = () => {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
+            .print-area { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
           }
           .cover-section { page-break-inside: avoid; break-inside: avoid; }
-          td, th, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
+          .cover-table { page-break-inside: auto; break-inside: auto; }
+          .cover-table tr { page-break-inside: avoid; break-inside: avoid; }
+          .cover-item { page-break-inside: avoid; break-inside: avoid; }
+          .cover-heading { page-break-after: avoid; break-after: avoid; }
+          td, th, div, p { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
@@ -390,11 +395,29 @@ const CoverLetterDownload = () => {
         @media print {
           body { background: #ffffff !important; }
           .no-print { display: none !important; }
-          .print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
+          .print-area {
+            display: block !important;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+          .cover-table { page-break-inside: auto !important; break-inside: auto !important; }
+          .cover-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
+          .cover-item { page-break-inside: avoid !important; break-inside: avoid !important; }
+          .cover-heading { page-break-after: avoid !important; break-after: avoid !important; }
         }
         .cover-paper { background-color: #ffffff !important; color: #111827 !important; }
-        .cover-section { page-break-inside: avoid !important; break-inside: avoid !important; }
-        .cover-paper td, .cover-paper th, .cover-paper div, .cover-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
+        .cover-section { page-break-inside: avoid; break-inside: avoid; }
+        .cover-table { page-break-inside: auto; break-inside: auto; }
+        .cover-table tr { page-break-inside: avoid; break-inside: avoid; }
+        .cover-item { page-break-inside: avoid; break-inside: avoid; }
+        .cover-heading { page-break-after: avoid; break-after: avoid; }
+        .cover-paper td, .cover-paper th, .cover-paper div, .cover-paper p {
+          word-break: keep-all !important;
+          word-wrap: break-word !important;
+        }
       `}</style>
 
       {/* 상단 헤더 */}
@@ -605,8 +628,8 @@ const CoverLetterDownload = () => {
                 <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
                   기본사항
                 </h2>
-                <div className="grid grid-cols-12 gap-2 items-stretch">
-                  <div className="col-span-9">
+                <div className="flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
                     <table className="w-full border-collapse border border-gray-400 text-xs !bg-white">
                       <tbody>
                         <tr>
@@ -632,7 +655,7 @@ const CoverLetterDownload = () => {
                       </tbody>
                     </table>
                   </div>
-                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden aspect-[3/4] max-h-[120px]">
+                  <div className="w-[96px] h-[112px] shrink-0 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden">
                     {avatarSrc ? (
                       <img
                         src={avatarSrc}
@@ -650,50 +673,50 @@ const CoverLetterDownload = () => {
               {/* 자기소개서 세부 문항 (표 양식) */}
               <div className="space-y-4">
                 {activeSections.map((sec, sIdx) => (
-                  <div key={sec.id} className="space-y-2 cover-section">
-                    <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  <div key={sec.id} className="space-y-2">
+                    <h2 className="cover-heading text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
                       {sec.section_title || `문항 ${sIdx + 1}`}
                     </h2>
 
                     {sec.rows && sec.rows.map((row, rIdx) => {
-  const validCols = (sec.columns || []).filter(
-    (col) => String(row.values?.[col] || '').trim().length > 0
-  );
-  if (validCols.length === 0) return null;
+                      const validCols = (sec.columns || []).filter(
+                        (col) => String(row.values?.[col] || '').trim().length > 0
+                      );
+                      if (validCols.length === 0) return null;
 
-  return (
-    <table key={row.id} className="w-full border-collapse border border-gray-400 text-xs !bg-white mb-2">
-      <tbody>
-        {sec.rows.length > 1 && (
-          <tr className="bg-gray-100">
-            <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
-              {sec.section_title || `문항 ${sIdx + 1}`} #{rIdx + 1}
-            </th>
-          </tr>
-        )}
-        {validCols.map((col) => {
-          const val = String(row.values[col] || '').trim();
-          return (
-            <tr key={col}>
-              <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
-                {col}
-              </th>
-              <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top whitespace-pre-line leading-relaxed break-words">
-                {val}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-})}
+                      return (
+                        <table key={row.id} className="cover-table w-full border-collapse border border-gray-400 text-xs !bg-white mb-2">
+                          <tbody>
+                            {sec.rows.length > 1 && (
+                              <tr className="bg-gray-100">
+                                <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
+                                  {sec.section_title || `문항 ${sIdx + 1}`} #{rIdx + 1}
+                                </th>
+                              </tr>
+                            )}
+                            {validCols.map((col) => {
+                              const val = String(row.values[col] || '').trim();
+                              return (
+                                <tr key={col}>
+                                  <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
+                                    {col}
+                                  </th>
+                                  <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top whitespace-pre-line leading-relaxed break-words">
+                                    {val}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
 
               {/* 하단 확인 및 서명란 */}
-              <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 cover-section">
+              <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 cover-item">
                 <p className="text-gray-700">위의 기재사항은 사실과 다름이 없음을 확인합니다.</p>
                 <p className="font-semibold text-gray-900">
                   <span>{new Date().toLocaleDateString('ko-KR')}</span>
@@ -734,11 +757,11 @@ const CoverLetterDownload = () => {
               </div>
 
               <div className="space-y-5">
-                <h2 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>자기소개서 세부 문항</h2>
+                <h2 className="cover-heading text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>자기소개서 세부 문항</h2>
                 
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-3 cover-section">
-                    <h3 className="text-xs font-bold px-2.5 py-1.5 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  <div key={sec.id} className="space-y-3">
+                    <h3 className="cover-heading text-xs font-bold px-2.5 py-1.5 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
                       {sec.section_title || '문항 내용'}
                     </h3>
 
@@ -749,7 +772,7 @@ const CoverLetterDownload = () => {
                           if (!val) return null;
 
                           return (
-                            <div key={col} className="space-y-1">
+                            <div key={col} className="cover-item space-y-1">
                               <span className="text-xs font-bold text-gray-800 block">[{col}]</span>
                               <div className="text-xs text-gray-700 space-y-1 pl-2 whitespace-pre-line leading-relaxed">
                                 {val}
@@ -781,8 +804,8 @@ const CoverLetterDownload = () => {
 
               <div className="space-y-4 pt-2">
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-2 font-sans cover-section">
-                    <h3 className="text-xs font-bold uppercase tracking-wide border-b border-gray-300 pb-0.5" style={{ color: currentTheme.hex }}>
+                  <div key={sec.id} className="space-y-2 font-sans">
+                    <h3 className="cover-heading text-xs font-bold uppercase tracking-wide border-b border-gray-300 pb-0.5" style={{ color: currentTheme.hex }}>
                       {sec.section_title || 'Cover Letter Statement'}
                     </h3>
 
@@ -792,7 +815,7 @@ const CoverLetterDownload = () => {
                           const val = row.values[col] || '';
                           if (!val) return null;
                           return (
-                            <div key={col} className="space-y-1">
+                            <div key={col} className="cover-item space-y-1">
                               <span className="font-bold text-[11px] underline block" style={{ color: currentTheme.hex }}>{col}</span>
                               <div className="text-gray-900 text-[11px] leading-relaxed whitespace-pre-line pl-1">{val}</div>
                             </div>
@@ -845,17 +868,17 @@ const CoverLetterDownload = () => {
                 </div>
 
                 <div className="col-span-8 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Motivation & Statements</h3>
+                  <h3 className="cover-heading text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Motivation & Statements</h3>
                   {activeSections.map((sec) => (
-                    <div key={sec.id} className="space-y-2 p-3 rounded border cover-section" style={{ backgroundColor: `${currentTheme.hex}08`, borderColor: `${currentTheme.hex}30` }}>
-                      <h4 className="text-xs font-bold" style={{ color: currentTheme.hex }}>{sec.section_title || 'Section Title'}</h4>
+                    <div key={sec.id} className="space-y-2 p-3 rounded border" style={{ backgroundColor: `${currentTheme.hex}08`, borderColor: `${currentTheme.hex}30` }}>
+                      <h4 className="cover-heading text-xs font-bold" style={{ color: currentTheme.hex }}>{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
                         <div key={row.id} className="text-xs space-y-1.5 pl-1">
                           {(sec.columns || []).map((col) => {
                             const val = row.values[col] || '';
                             if (!val) return null;
                             return (
-                              <div key={col} className="space-y-0.5">
+                              <div key={col} className="cover-item space-y-0.5">
                                 <span className="font-bold text-[11px]" style={{ color: currentTheme.hex }}>[{col}]</span>
                                 <div className="text-slate-700 pl-2 leading-relaxed text-[11px] whitespace-pre-line" style={{ borderLeft: `2px solid ${currentTheme.hex}60` }}>
                                   {val}
@@ -916,10 +939,10 @@ const CoverLetterDownload = () => {
               </div>
 
               <div className="space-y-2">
-                <h2 className="text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>志望動機 및 자기소개 상세</h2>
+                <h2 className="cover-heading text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>志望動機 및 자기소개 상세</h2>
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1 cover-section">
-                    <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
+                  <div key={sec.id} className="space-y-1">
+                    <div className="cover-heading bg-gray-100 font-bold border border-black p-1 text-xs">
                       ■ {sec.section_title || '세부사항'}
                     </div>
                     {sec.rows && sec.rows.length > 0 && (
@@ -930,7 +953,7 @@ const CoverLetterDownload = () => {
                               const val = row.values[col] || '';
                               if (!val) return null;
                               return (
-                                <div key={col} className="space-y-0.5">
+                                <div key={col} className="cover-item space-y-0.5">
                                   <span className="font-bold text-black block">【 {col} 】</span>
                                   <p className="whitespace-pre-line leading-relaxed pl-2 text-gray-800">{val}</p>
                                 </div>
