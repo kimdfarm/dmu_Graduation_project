@@ -723,50 +723,57 @@ const ResumeDownload = () => {
 
               {/* 기본사항 */}
               <div className="space-y-1.5 resume-section">
-                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
-                  기본사항
-                </h2>
-                <div className="grid grid-cols-12 gap-2 items-stretch">
-                  <div className="col-span-9">
-                    <table className="w-full border-collapse border border-gray-400 text-xs !bg-white">
-                      <tbody>
-                        <tr>
-                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">성명</th>
-                          <td className="border border-gray-400 px-2.5 py-1.5 font-semibold">{profile.name || '-'}</td>
-                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">생년월일</th>
-                          <td className="border border-gray-400 px-2.5 py-1.5">
-                            {profile.birth_date ? `${profile.birth_date} (${profile.gender === 'M' ? '남' : '여'})` : '-'}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">연락처</th>
-                          <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
-                            {[profile.phone_number, profile.email].filter(Boolean).join(' / ') || '-'}
-                          </td>
-                        </tr>
-                        <tr>
-                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">주소</th>
-                          <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
-                            {profile.address ? `${profile.address} ${profile.detail_address || ''}`.trim() : '-'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden aspect-[3/4] max-h-[125px]">
-                    {profile.avatar_url ? (
-                      <img
-                        src={profile.avatar_url}
-                        alt="프로필"
-                        crossOrigin="anonymous"
-                        className="w-full h-full object-cover object-top"
-                      />
-                    ) : (
-                      <User className="w-9 h-9 text-gray-400" />
-                    )}
-                  </div>
-                </div>
-              </div>
+  <h2
+    className="text-xs font-bold px-2 py-1 rounded"
+    style={{
+      color: currentTheme.hex,
+      backgroundColor: `${currentTheme.hex}12`,
+      borderLeft: `4px solid ${currentTheme.hex}`
+    }}
+  >
+    기본사항
+  </h2>
+  <div className="flex items-start gap-4">
+    <div className="flex-1 min-w-0">
+      <table className="w-full border-collapse border border-gray-400 text-xs !bg-white">
+        <tbody>
+          <tr>
+            <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">성명</th>
+            <td className="border border-gray-400 px-2.5 py-1.5 font-semibold">{profile.name || '-'}</td>
+            <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">생년월일</th>
+            <td className="border border-gray-400 px-2.5 py-1.5">
+              {profile.birth_date ? `${profile.birth_date} (${profile.gender === 'M' ? '남' : '여'})` : '-'}
+            </td>
+          </tr>
+          <tr>
+            <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">연락처</th>
+            <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
+              {[profile.phone_number, profile.email].filter(Boolean).join(' / ') || '-'}
+            </td>
+          </tr>
+          <tr>
+            <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">주소</th>
+            <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
+              {profile.address ? `${profile.address} ${profile.detail_address || ''}`.trim() : '-'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div className="w-[96px] h-[112px] shrink-0 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden">
+      {profile.avatar_url ? (
+        <img
+          src={profile.avatar_url}
+          alt="프로필"
+          crossOrigin="anonymous"
+          className="w-full h-full object-cover object-top"
+        />
+      ) : (
+        <User className="w-9 h-9 text-gray-400" />
+      )}
+    </div>
+  </div>
+</div>
 
               {/* 학력사항 */}
               {educations.length > 0 && (
