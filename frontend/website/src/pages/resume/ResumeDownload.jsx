@@ -2,17 +2,17 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas';
-import { 
-  ArrowLeft, Image as ImageIcon, Code, Printer, 
+import {
+  ArrowLeft, Image as ImageIcon, Code, Printer,
   GripVertical, ChevronUp, ChevronDown, Loader2, Mail, Phone, MapPin,
-  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User
+  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User, Building2
 } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'ORIGINAL') => {
-  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
-    ? [...secColumns] 
+  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0
+    ? [...secColumns]
     : [];
 
   if (!details) {
@@ -33,7 +33,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
 
     if (typeof cardObj === 'object' && cardObj !== null) {
       const versionToUse = cardObj.selected_version || defaultVersion;
-      
+
       let textToParse = '';
       if (versionToUse === 'AI') {
         textToParse = cardObj.ai_proofread_text || cardObj.original_text || '';
@@ -45,7 +45,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
 
       if (textToParse && typeof textToParse === 'string') {
         const blocks = textToParse.split('\n\n');
-        
+
         blocks.forEach((block) => {
           const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
           if (lines.length === 0) return;
@@ -71,7 +71,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
 
                 const targetCol = detectedColumns.find(c => c.includes('성과') || c.includes('업무') || c.includes('내용')) || detectedColumns[0] || '상세 내용';
                 addColumn(targetCol);
-                
+
                 const currentVal = rowValues[targetCol] || '';
                 rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
               }
@@ -81,7 +81,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
       } else {
         Object.entries(cardObj).forEach(([k, v]) => {
           if (['id', 'selected_version', 'ai_proofread_text', 'spell_checked_text', 'original_text'].includes(k)) return;
-          
+
           if (k === 'title') {
             const titleCol = '프로젝트명';
             addColumn(titleCol);
@@ -123,9 +123,61 @@ const ResumeDownload = () => {
 
   const [resume, setResume] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
-  const [selectedStyle, setSelectedStyle] = useState('KR');
+  const [selectedStyle, setSelectedStyle] = useState('KR_V2');
   const [accentColor, setAccentColor] = useState('emerald');
-  
+
+  // 한국형 v2 입사지원서 추가 필드 상태
+  const [krV2Meta, setKrV2Meta] = useState({
+    companyName: 'OO주식회사',
+    targetRole: '프론트엔드',
+    militaryService: '육군병장 만기 전역',
+    veteranStatus: '비대상',
+    portfolio: 'GitHub, Notion 외',
+    coreCompetencies: [
+      'React, TypeScript, JavaScript 등 모던 프론트엔드 기술 스택을 활용한 웹 애플리케이션 설계 및 구현 역량 보유.',
+      'RESTful API / GraphQL 연동, 상태 관리 및 컴포넌트 모듈화를 통한 유지보수성과 확장성 고려 개발 경험.',
+      '자료구조, 알고리즘, 컴퓨터구조, 네트워크 등 컴퓨터공학 기초 이론을 바탕으로 한 문제 해결 및 성능 개선 역량.',
+      '협업 도구(Git, Jira, Notion 등) 및 팀 프로젝트 경험을 바탕으로 한 원활한 커뮤니케이션과 일정 관리 능력.'
+    ].join('\n'),
+    techStack: {
+      languages: 'JavaScript (ES6+), TypeScript, Python, Java, C/C++',
+      frameworks: 'React, Next.js, Tailwind CSS, FastAPI, Spring Boot',
+      server: 'Node.js, PostgreSQL, Supabase, SQLite',
+      tooling: 'Git, GitHub, Docker, Vercel, Render',
+      environment: 'Windows, Linux, VS Code, IntelliJ IDEA',
+      etc: 'REST API, GraphQL, Figma'
+    },
+    activities: [
+      { period: '2024.03 ~ 2024.07', org: '컴퓨터공학부', role: '사무보조 및 실습실 관리', type: '근로장학생' },
+      { period: '2024.07 ~ 2024.08', org: 'OO기업', role: '업무보조 및 자료정리', type: '현장실습' }
+    ],
+    trainings: [
+      { period: '2023.02.12 ~ 2023.02.19', course: 'SW/클라우드 역량 강화 교육 (56시간)', institution: '동양미래대학교' }
+    ],
+    awards: [
+      { title: '캡스톤디자인 / 학술제 우수상', org: '동양미래대학교', date: '2025.11.01' }
+    ],
+    computerSkills: {
+      ms: 'Word (상), Excel (중), PPT (상)',
+      graphic: 'Figma (중), Photoshop (중)',
+      hwp: '한글 (상)',
+      language: 'TOEIC (보유 시 기입), OPIc (보유 시 기입)'
+    },
+    selfIntro: {
+      growth: '',
+      personality: '',
+      schoolLife: '',
+      motivation: ''
+    },
+    consent: {
+      agreedCollection: true,
+      agreedThirdParty: true,
+      recipientCompany: '지원 기업명 기입',
+      dateStr: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '년 ').replace(/\./g, '월 ').replace(/ $/, '일'),
+      signerName: ''
+    }
+  });
+
   const colorThemes = {
     emerald: { name: '에메랄드 그린', hex: '#059669' },
     indigo: { name: '모던 인디고', hex: '#4f46e5' },
@@ -154,6 +206,7 @@ const ResumeDownload = () => {
   const userId = localStorage.getItem('userId');
 
   const mainStyleOptions = [
+    { id: 'KR_V2', country: '대한민국 v2', flag: '🇰🇷', name: '한국어 입사지원서 v2', desc: '기본사항·핵심역량·기술스택·프로젝트·학력/활동/자격·자소서·동의서 통합 서식', icon: Building2, badge: 'v2 신규' },
     { id: 'KR', country: '대한민국', flag: '🇰🇷', name: '한국 모던 이력서', desc: '깔끔한 구분선과 구조화된 프로페셔널 서식', icon: Globe2, badge: '표준' },
     { id: 'US', country: '미국 / 북미', flag: '🇺🇸', name: '미국 ATS 최적화 Resume', desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식', icon: FileText, badge: 'ATS' },
     { id: 'EU', country: '유럽 연합', flag: '🇪🇺', name: '유럽형 2단 Curriculum Vitae', desc: '좌측 프로필 사이드바와 우측 경력 분리 2단 레이아웃', icon: Layout, badge: 'CV' },
@@ -185,6 +238,13 @@ const ResumeDownload = () => {
             address: data.address || '',
             detail_address: data.detail_address || ''
           });
+          setKrV2Meta((prev) => ({
+            ...prev,
+            consent: {
+              ...prev.consent,
+              signerName: data.name || prev.consent.signerName
+            }
+          }));
         }
 
         const eduRes = await fetch(`${BASE_URL}/api/profile-settings/educations/${userId}`);
@@ -204,6 +264,9 @@ const ResumeDownload = () => {
 
         const resumeData = await resumeRes.json();
         setResume(resumeData);
+        if (resumeData.category) {
+          setKrV2Meta((prev) => ({ ...prev, targetRole: resumeData.category }));
+        }
 
         const queryParams = new URLSearchParams(location.search);
 
@@ -292,10 +355,10 @@ const ResumeDownload = () => {
     if (!printRef.current) return;
     setDownloadingFormat('png');
     try {
-      const canvas = await html2canvas(printRef.current, { 
-        scale: 2, 
-        useCORS: true, 
-        backgroundColor: '#ffffff' 
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff'
       });
       const image = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -333,7 +396,7 @@ const ResumeDownload = () => {
             }
           }
           .resume-section { page-break-inside: avoid; break-inside: avoid; }
-          td, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
+          td, div, th { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
@@ -369,6 +432,47 @@ const ResumeDownload = () => {
     };
   });
 
+  // 한국어 v2 프로젝트 항목 추출(실제 섹션 데이터가 있으면 활용하고, 없으면 기본 3개 슬롯 제공)
+  const v2Projects = (() => {
+    const flattened = [];
+    activeSections.forEach((sec) => {
+      if (sec.rows && sec.rows.length > 0) {
+        sec.rows.forEach((row, rIdx) => {
+          const cols = sec.columns || [];
+          const getVal = (keywords) => {
+            const foundKey = cols.find((c) => keywords.some((k) => c.includes(k)));
+            return foundKey ? row.values[foundKey] || '' : '';
+          };
+          flattened.push({
+            id: row.id || `${sec.id}_${rIdx}`,
+            title: row.values['프로젝트명'] || getVal(['제목', '프로젝트', '역할', '카테고리']) || sec.section_title || `프로젝트 ${flattened.length + 1}`,
+            period: getVal(['기간', '일자', '날짜', '기여도']) || '0000.00.00 ~ 0000.00.00',
+            team: getVal(['인력', '구성', '팀']) || '',
+            purpose: getVal(['목적', '개요']) || '',
+            tasks: getVal(['업무', '역할', '성과', '상세', '내용']) || Object.values(row.values).filter(Boolean).join('\n'),
+            stack: getVal(['언어', '개발환경', '기술', '스택']) || '',
+            lessons: getVal(['느낀', '회고', '배운']) || '',
+            link: getVal(['링크', 'URL', 'GitHub', '깃허브']) || ''
+          });
+        });
+      }
+    });
+
+    if (flattened.length > 0) return flattened;
+
+    return [1, 2, 3].map((num) => ({
+      id: `empty-proj-${num}`,
+      title: `프로젝트 ${num} : `,
+      period: '0000.00.00 ~ 0000.00.00 / 기여도 00%',
+      team: '',
+      purpose: '',
+      tasks: '',
+      stack: '',
+      lessons: '',
+      link: ''
+    }));
+  })();
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#070b19] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
@@ -380,7 +484,7 @@ const ResumeDownload = () => {
 
   return (
     <div className="min-h-screen bg-[#070b19] text-slate-100 p-6 md:p-10 font-sans">
-      
+
       <style>{`
         @page { size: A4 portrait; margin: 8mm; }
         @media print {
@@ -390,12 +494,12 @@ const ResumeDownload = () => {
         }
         .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
         .resume-section { page-break-inside: avoid !important; break-inside: avoid !important; }
-        .resume-paper td, .resume-paper div, .resume-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
+        .resume-paper td, .resume-paper th, .resume-paper div, .resume-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
       `}</style>
 
       {/* 상단 헤더 */}
       <div className="max-w-7xl mx-auto flex items-center justify-between mb-6 no-print bg-[#0f152d] px-6 py-4 rounded-3xl border border-emerald-950/60 shadow-xl">
-        <button 
+        <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 px-4 py-2.5 bg-[#0a1024] hover:bg-emerald-950/40 text-emerald-300 border border-emerald-950/80 rounded-xl text-xs font-bold transition-all shadow-sm"
         >
@@ -408,16 +512,16 @@ const ResumeDownload = () => {
       </div>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+
         {/* 좌측 제어 패널 */}
         <div className="lg:col-span-5 space-y-6 no-print">
-          
+
           {/* 국가별 양식 선택 패널 */}
           <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-emerald-950/60 pb-4">
               <h2 className="text-sm font-bold text-white flex items-center gap-2">
                 <Globe2 className="w-4 h-4 text-emerald-400" />
-                국가별 양식 선택 (4종)
+                국가별 양식 선택 (5종)
               </h2>
             </div>
 
@@ -438,7 +542,7 @@ const ResumeDownload = () => {
                 <ChevronIcon className="w-4 h-4 text-emerald-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 gap-2.5 pt-1">
               {mainStyleOptions.map((style) => {
                 const IconComponent = style.icon;
@@ -478,6 +582,91 @@ const ResumeDownload = () => {
             </div>
           </div>
 
+          {/* 한국어 v2 전용 세부 항목 편집 패널 */}
+          {selectedStyle === 'KR_V2' && (
+            <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 shadow-xl space-y-4">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-emerald-400" />
+                한국어 입사지원서 v2 항목 입력
+              </h2>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">회사명</label>
+                  <input
+                    type="text"
+                    value={krV2Meta.companyName}
+                    onChange={(e) => setKrV2Meta({ ...krV2Meta, companyName: e.target.value })}
+                    className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">지원직무</label>
+                  <input
+                    type="text"
+                    value={krV2Meta.targetRole}
+                    onChange={(e) => setKrV2Meta({ ...krV2Meta, targetRole: e.target.value })}
+                    className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">병역사항</label>
+                  <input
+                    type="text"
+                    value={krV2Meta.militaryService}
+                    onChange={(e) => setKrV2Meta({ ...krV2Meta, militaryService: e.target.value })}
+                    className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">보훈대상 / 포트폴리오</label>
+                  <input
+                    type="text"
+                    value={krV2Meta.portfolio}
+                    onChange={(e) => setKrV2Meta({ ...krV2Meta, portfolio: e.target.value })}
+                    className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">핵심역량 (줄바꿈으로 구분)</label>
+                <textarea
+                  rows={4}
+                  value={krV2Meta.coreCompetencies}
+                  onChange={(e) => setKrV2Meta({ ...krV2Meta, coreCompetencies: e.target.value })}
+                  className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-emerald-950/60">
+                <p className="text-[11px] font-bold text-emerald-300">자기소개서 문항 작성</p>
+                {[
+                  { key: 'growth', label: '성장배경' },
+                  { key: 'personality', label: '성격 장단점' },
+                  { key: 'schoolLife', label: '학교생활 / 대내외 활동' },
+                  { key: 'motivation', label: '지원동기 및 입사 후 포부' }
+                ].map((item) => (
+                  <div key={item.key}>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">{item.label}</label>
+                    <textarea
+                      rows={2}
+                      value={krV2Meta.selfIntro[item.key]}
+                      onChange={(e) =>
+                        setKrV2Meta({
+                          ...krV2Meta,
+                          selfIntro: { ...krV2Meta.selfIntro, [item.key]: e.target.value }
+                        })
+                      }
+                      placeholder={`${item.label} 내용을 입력하세요...`}
+                      className="w-full bg-[#0a1024] border border-emerald-950/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 문서 강조 색상 선택 패널 */}
           <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 shadow-xl space-y-4">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
@@ -501,7 +690,7 @@ const ResumeDownload = () => {
             </div>
           </div>
 
-          {/* 저장 & 내보내기 버튼 */}
+          {/* 저장 & 내보내기 버튼 (PNG, HTML, PDF/인쇄) */}
           <div className="bg-[#0f152d] border border-emerald-950/60 rounded-3xl p-6 shadow-xl space-y-4">
             <h2 className="text-sm font-bold text-white">이력서 저장 & 내보내기</h2>
             <div className="grid grid-cols-3 gap-2.5">
@@ -577,12 +766,408 @@ const ResumeDownload = () => {
 
         </div>
 
-        {/* 뷰어 영역 (4종 템플릿에 동적 색상 테마 및 조건부 렌더링 적용) */}
+        {/* 뷰어 영역 (한국어 v2 + 기존 4종 템플릿) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
-          
+
+          {/* 0. 한국어 입사지원서 v2 (KR_V2) */}
+          {selectedStyle === 'KR_V2' && (
+            <div
+              ref={printRef}
+              className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
+            >
+              {/* 상단 타이틀 및 지원직무 */}
+              <div className="pb-3 flex items-end justify-between" style={{ borderBottom: `2px solid ${currentTheme.hex}` }}>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: currentTheme.hex }}>입사지원서 (v2)</p>
+                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                    {krV2Meta.companyName || '회사명'} 입사지원서
+                  </h1>
+                </div>
+                <div className="text-xs font-bold px-3 py-1 rounded-md border" style={{ borderColor: currentTheme.hex, color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10` }}>
+                  지원직무 : {krV2Meta.targetRole || '프론트엔드'}
+                </div>
+              </div>
+
+              {/* 1. 기본사항 + 증명사진 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  기본사항
+                </h2>
+                <div className="grid grid-cols-12 gap-2 items-stretch">
+                  <div className="col-span-9">
+                    <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                      <tbody>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 w-[85px] text-left font-bold">성명</th>
+                          <td className="border border-gray-400 px-2 py-1.5 font-semibold">{profile.name || '성명 입력'}</td>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 w-[85px] text-left font-bold">생년월일</th>
+                          <td className="border border-gray-400 px-2 py-1.5">{profile.birth_date || '0000.00.00 (만 00세)'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 text-left font-bold">연락처</th>
+                          <td colSpan={3} className="border border-gray-400 px-2 py-1.5">
+                            {[profile.phone_number, profile.email].filter(Boolean).join(' / ') || '010-0000-0000 / email@example.com'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 text-left font-bold">병역사항</th>
+                          <td className="border border-gray-400 px-2 py-1.5">{krV2Meta.militaryService}</td>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 text-left font-bold">보훈대상</th>
+                          <td className="border border-gray-400 px-2 py-1.5">{krV2Meta.veteranStatus}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 text-left font-bold">포트폴리오</th>
+                          <td colSpan={3} className="border border-gray-400 px-2 py-1.5">{krV2Meta.portfolio}</td>
+                        </tr>
+                        {(profile.address || profile.detail_address) && (
+                          <tr>
+                            <th className="border border-gray-400 bg-gray-100 px-2 py-1.5 text-left font-bold">주소</th>
+                            <td colSpan={3} className="border border-gray-400 px-2 py-1.5">{profile.address} {profile.detail_address}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex flex-col items-center justify-center p-1.5 min-h-[115px]">
+                    {profile.avatar_url ? (
+                      <img src={profile.avatar_url} alt="증명사진" className="w-full h-full object-cover max-h-[125px]" />
+                    ) : (
+                      <span className="text-[11px] text-gray-500 font-medium">사진 (3x4cm)</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. 핵심역량 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  핵심역량 <span className="font-normal text-[10px] text-gray-600">(지원직무 관련 핵심역량 3~4가지 정리)</span>
+                </h2>
+                <div className="border border-gray-400 p-3 text-[11px] space-y-1 bg-white">
+                  {krV2Meta.coreCompetencies.split('\n').filter(Boolean).map((line, i) => (
+                    <p key={i} className="flex items-start gap-1.5 leading-relaxed">
+                      <span style={{ color: currentTheme.hex }}>-</span>
+                      <span>{line.replace(/^-\s*/, '')}</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. 기술스택 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  기술스택 <span className="font-normal text-[10px] text-gray-600">(자신있는 기술 또는 직무에 필요한 역량 우선 배치)</span>
+                </h2>
+                <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border border-gray-400 px-2 py-1 w-[155px] text-left font-bold">구분</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left font-bold">Skill</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">Programming Languages</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.languages}</td></tr>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">Framework / Library</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.frameworks}</td></tr>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">Server / DB</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.server}</td></tr>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">Tooling / DevOps</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.tooling}</td></tr>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">Environment</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.environment}</td></tr>
+                    <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">ETC</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.techStack.etc}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 4. 프로젝트 경험 */}
+              <div className="space-y-2">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  프로젝트 경험 <span className="font-normal text-[10px] text-gray-600">(혼자 혹은 팀 구성으로 수행한 프로젝트 최신순 작성)</span>
+                </h2>
+                {v2Projects.map((proj, idx) => (
+                  <div key={proj.id} className="resume-section">
+                    <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                      <tbody>
+                        <tr className="bg-gray-100">
+                          <th colSpan={2} className="border border-gray-400 px-2 py-1 text-left font-bold">
+                            {proj.title.startsWith('프로젝트') ? proj.title : `프로젝트 ${idx + 1} : ${proj.title}`}
+                          </th>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 w-[125px] text-left">작업 기간 / 기여도</th>
+                          <td className="border border-gray-400 px-2 py-1">{proj.period}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">인력 구성</th>
+                          <td className="border border-gray-400 px-2 py-1">{proj.team || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">프로젝트 목적</th>
+                          <td className="border border-gray-400 px-2 py-1 whitespace-pre-line">{proj.purpose || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">주요업무 및 상세역할</th>
+                          <td className="border border-gray-400 px-2 py-1 whitespace-pre-line">{proj.tasks || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">사용언어 및 개발환경</th>
+                          <td className="border border-gray-400 px-2 py-1 whitespace-pre-line">{proj.stack || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">느낀 점</th>
+                          <td className="border border-gray-400 px-2 py-1 whitespace-pre-line">{proj.lessons || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">프로젝트 링크</th>
+                          <td className="border border-gray-400 px-2 py-1 break-all">{proj.link || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+
+              {/* 5. 학력사항 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  학력사항
+                </h2>
+                <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border border-gray-400 px-2 py-1 text-left">기간</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">학교명</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">전공/계열</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">학점/상태</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">소재지</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {educations.length > 0 ? (
+                      educations.map((edu) => (
+                        <tr key={edu.id}>
+                          <td className="border border-gray-400 px-2 py-1">{edu.period || edu.graduation_date || '-'}</td>
+                          <td className="border border-gray-400 px-2 py-1 font-semibold">{edu.school_name}</td>
+                          <td className="border border-gray-400 px-2 py-1">{edu.major || '-'}</td>
+                          <td className="border border-gray-400 px-2 py-1">{edu.gpa ? `${edu.gpa} (${edu.status || ''})` : (edu.status || '-')}</td>
+                          <td className="border border-gray-400 px-2 py-1">{edu.location || '-'}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="border border-gray-400 px-2 py-1">2024.03 ~ 2027.02</td>
+                        <td className="border border-gray-400 px-2 py-1 font-semibold">동양미래대학교</td>
+                        <td className="border border-gray-400 px-2 py-1">컴퓨터소프트웨어공학과</td>
+                        <td className="border border-gray-400 px-2 py-1">재학 / 졸업예정</td>
+                        <td className="border border-gray-400 px-2 py-1">서울 구로구</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 6. 대내외활동 / 교육사항 / 수상경력 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  대내외활동
+                </h2>
+                <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border border-gray-400 px-2 py-1 text-left w-[140px]">기간</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">기관/조직</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left">주요활동</th>
+                      <th className="border border-gray-400 px-2 py-1 text-left w-[95px]">구분</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {krV2Meta.activities.map((act, idx) => (
+                      <tr key={idx}>
+                        <td className="border border-gray-400 px-2 py-1">{act.period}</td>
+                        <td className="border border-gray-400 px-2 py-1">{act.org}</td>
+                        <td className="border border-gray-400 px-2 py-1">{act.role}</td>
+                        <td className="border border-gray-400 px-2 py-1">{act.type}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 resume-section">
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                    교육사항 / 해외연수
+                  </h2>
+                  <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-400 px-2 py-1 text-left">기간</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">교육명</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">기관</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {krV2Meta.trainings.map((tr, idx) => (
+                        <tr key={idx}>
+                          <td className="border border-gray-400 px-2 py-1">{tr.period}</td>
+                          <td className="border border-gray-400 px-2 py-1">{tr.course}</td>
+                          <td className="border border-gray-400 px-2 py-1">{tr.institution}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                    수상경력
+                  </h2>
+                  <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-400 px-2 py-1 text-left">대회/상명</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">수여기관</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">일자</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {krV2Meta.awards.map((aw, idx) => (
+                        <tr key={idx}>
+                          <td className="border border-gray-400 px-2 py-1">{aw.title}</td>
+                          <td className="border border-gray-400 px-2 py-1">{aw.org}</td>
+                          <td className="border border-gray-400 px-2 py-1">{aw.date}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 7. 컴퓨터 활용 / 외국어 / 자격증 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 resume-section">
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                    OA 및 외국어 능력
+                  </h2>
+                  <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                    <tbody>
+                      <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 w-[75px] text-left">MS Office</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.computerSkills.ms}</td></tr>
+                      <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">디자인/툴</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.computerSkills.graphic}</td></tr>
+                      <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">한글</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.computerSkills.hwp}</td></tr>
+                      <tr><th className="border border-gray-400 bg-gray-50 px-2 py-1 text-left">외국어</th><td className="border border-gray-400 px-2 py-1">{krV2Meta.computerSkills.language}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="space-y-1">
+                  <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                    자격증 (최신순)
+                  </h2>
+                  <table className="w-full border-collapse border border-gray-400 text-[11px] !bg-white">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-400 px-2 py-1 text-left">자격증명</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">발급기관</th>
+                        <th className="border border-gray-400 px-2 py-1 text-left">취득일</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {certificates.length > 0 ? (
+                        certificates.map((cert) => (
+                          <tr key={cert.id}>
+                            <td className="border border-gray-400 px-2 py-1 font-semibold">{cert.certificate_name}</td>
+                            <td className="border border-gray-400 px-2 py-1">{cert.issuer || '-'}</td>
+                            <td className="border border-gray-400 px-2 py-1">{cert.acquisition_date}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="border border-gray-400 px-2 py-1">정보처리산업기사 (준비/보유)</td>
+                          <td className="border border-gray-400 px-2 py-1">한국산업인력공단</td>
+                          <td className="border border-gray-400 px-2 py-1">0000.00.00</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 8. 자기소개서 */}
+              <div className="space-y-2">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  자기소개서
+                </h2>
+                {[
+                  {
+                    title: '성장배경',
+                    guide: '흥미와 관심분야, 지속 시도/성취 경험, 전공 진학 후 관심 분야 및 취업 준비 목표',
+                    value: krV2Meta.selfIntro.growth
+                  },
+                  {
+                    title: '성격 장단점',
+                    guide: '직무·조직생활 장점 및 발휘 사례, 단점 인지 및 보완·개선 노력',
+                    value: krV2Meta.selfIntro.personality
+                  },
+                  {
+                    title: '학교생활 / 대내외 활동',
+                    guide: '전공 이론·실습 역량, 기억에 남는 팀 과제 및 문제 해결 경험, 학업 외 활동',
+                    value: krV2Meta.selfIntro.schoolLife
+                  },
+                  {
+                    title: '지원동기 및 입사 후 포부',
+                    guide: '관심 산업·직무 이해, 지원기업 동기, 직무 준비 과정 및 입사 후 기여 목표',
+                    value: krV2Meta.selfIntro.motivation
+                  }
+                ].map((secItem, idx) => (
+                  <div key={idx} className="border border-gray-400 p-2.5 text-[11px] space-y-1 bg-white resume-section">
+                    <p className="font-bold text-gray-900">{idx + 1}. {secItem.title}</p>
+                    <p className="text-[10px] text-gray-500">{secItem.guide}</p>
+                    <p className="whitespace-pre-line text-gray-800 pt-1 min-h-[36px]">
+                      {secItem.value || '내용을 입력하세요.'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* 9. 개인정보 수집 및 이용 동의서 */}
+              <div className="space-y-1.5 resume-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  개인정보 수집 및 이용 동의서
+                </h2>
+                <table className="w-full border-collapse border border-gray-400 text-[10.5px] !bg-white">
+                  <tbody>
+                    <tr>
+                      <th className="border border-gray-400 bg-gray-100 px-2 py-1 w-[120px] text-left">수집·이용 목적</th>
+                      <td className="border border-gray-400 px-2 py-1">채용 전형 및 취업 추천 진행</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-400 bg-gray-100 px-2 py-1 text-left">수집 항목</th>
+                      <td className="border border-gray-400 px-2 py-1">성명, 생년월일, 주소, 연락처, 이메일, 학력사항, 경력·프로젝트, 자격증</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-400 bg-gray-100 px-2 py-1 text-left">보유·이용 기간</th>
+                      <td className="border border-gray-400 px-2 py-1">개인정보 수집 및 이용 목적 달성 시까지</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-400 bg-gray-100 px-2 py-1 text-left">제3자 제공</th>
+                      <td className="border border-gray-400 px-2 py-1">지원 기업({krV2Meta.consent.recipientCompany})에 채용 심사를 목적으로 제공</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div className="border border-gray-400 p-2.5 text-[11px] flex flex-wrap items-center justify-between gap-2 bg-gray-50">
+                  <div className="flex items-center gap-4">
+                    <span>개인정보 수집·이용 동의: <strong>[☑ 동의함] [☐ 동의하지 않음]</strong></span>
+                    <span>제3자 제공 동의: <strong>[☑ 동의함] [☐ 동의하지 않음]</strong></span>
+                  </div>
+                  <div className="text-right font-semibold">
+                    <span>{krV2Meta.consent.dateStr}</span>
+                    <span className="ml-4">성명 : {krV2Meta.consent.signerName || profile.name || 'O O O'} (서명 또는 인)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 1. 한국 모던 이력서 (KR) */}
           {selectedStyle === 'KR' && (
-            <div 
+            <div
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[12mm] text-left leading-relaxed flex flex-col space-y-6 font-sans"
             >
@@ -590,7 +1175,7 @@ const ResumeDownload = () => {
                 <div className="space-y-2 flex-1">
                   <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">{profile.name || '김동혁'}</h1>
                   <p className="text-sm font-bold" style={{ color: currentTheme.hex }}>{resume?.category || 'SW 개발자 이력서'}</p>
-                  
+
                   <div className="text-xs text-gray-600 space-y-1 pt-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       {profile.birth_date && <span>생년월일: {profile.birth_date} ({profile.gender === 'M' ? '남' : '여'})</span>}
@@ -644,7 +1229,7 @@ const ResumeDownload = () => {
 
               <div className="space-y-5">
                 <h2 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>주요 경력 및 프로젝트</h2>
-                
+
                 {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-3 resume-section">
                     <h3 className="text-xs font-bold px-2.5 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
@@ -683,7 +1268,7 @@ const ResumeDownload = () => {
 
           {/* 2. 미국 ATS 최적화 (US) */}
           {selectedStyle === 'US' && (
-            <div 
+            <div
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[12mm] text-left leading-normal flex flex-col space-y-4 font-serif"
             >
@@ -714,7 +1299,7 @@ const ResumeDownload = () => {
                 <h2 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
                   PROFESSIONAL EXPERIENCE & PROJECTS
                 </h2>
-                
+
                 {activeSections.map((sec) => (
                   <div key={sec.id} className="space-y-2.5 font-sans resume-section">
                     <h3 className="text-xs font-bold uppercase tracking-wide border-b border-gray-200 pb-0.5" style={{ color: currentTheme.hex }}>
@@ -784,7 +1369,7 @@ const ResumeDownload = () => {
 
           {/* 3. 유럽 2단 Curriculum Vitae (EU) */}
           {selectedStyle === 'EU' && (
-            <div 
+            <div
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-slate-800 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
             >
@@ -877,7 +1462,7 @@ const ResumeDownload = () => {
 
           {/* 4. 일본 정규 履歴書 (JP) */}
           {selectedStyle === 'JP' && (
-            <div 
+            <div
               ref={printRef}
               className="print-area resume-paper w-[210mm] !bg-white !text-black shadow-2xl border border-gray-300 p-[8mm] text-left leading-normal flex flex-col space-y-4 font-sans"
             >
