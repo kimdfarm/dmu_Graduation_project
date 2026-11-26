@@ -730,13 +730,18 @@ const ResumeDownload = () => {
                       </tbody>
                     </table>
                   </div>
-                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden min-h-[100px]">
-                    {profile.avatar_url ? (
-                      <img src={profile.avatar_url} alt="프로필" className="w-full h-full object-cover max-h-[115px]" />
-                    ) : (
-                      <User className="w-9 h-9 text-gray-400" />
-                    )}
-                  </div>
+                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden aspect-[3/4] max-h-[125px]">
+  {profile.avatar_url ? (
+    <img
+      src={profile.avatar_url}
+      alt="프로필"
+      crossOrigin="anonymous"
+      className="w-full h-full object-cover object-top"
+    />
+  ) : (
+    <User className="w-9 h-9 text-gray-400" />
+  )}
+</div>
                 </div>
               </div>
 
