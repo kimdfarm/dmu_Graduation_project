@@ -332,9 +332,14 @@ const ResumeDownload = () => {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
+            .print-area { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
           }
           .resume-section { page-break-inside: avoid; break-inside: avoid; }
-          td, th, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
+          .resume-table { page-break-inside: auto; break-inside: auto; }
+          .resume-table tr { page-break-inside: avoid; break-inside: avoid; }
+          .resume-item { page-break-inside: avoid; break-inside: avoid; }
+          .resume-heading { page-break-after: avoid; break-after: avoid; }
+          td, th, div, p { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
@@ -383,32 +388,34 @@ const ResumeDownload = () => {
     <div className="min-h-screen bg-[#070b19] text-slate-100 p-6 md:p-10 font-sans">
       
       <style>{`
-  @page { size: A4 portrait; margin: 8mm; }
-  @media print {
-    body { background: #ffffff !important; }
-    .no-print { display: none !important; }
-    .print-area {
-      display: block !important;
-      width: 100% !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      box-shadow: none !important;
-      border: none !important;
-    }
-    .resume-table { page-break-inside: auto !important; break-inside: auto !important; }
-    .resume-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
-    .resume-heading { page-break-after: avoid !important; break-after: avoid !important; }
-  }
-  .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
-  .resume-section { page-break-inside: avoid; break-inside: avoid; }
-  .resume-table { page-break-inside: auto; break-inside: auto; }
-  .resume-table tr { page-break-inside: avoid; break-inside: avoid; }
-  .resume-heading { page-break-after: avoid; break-after: avoid; }
-  .resume-paper td, .resume-paper th, .resume-paper div, .resume-paper p {
-    word-break: keep-all !important;
-    word-wrap: break-word !important;
-  }
-`}</style>
+        @page { size: A4 portrait; margin: 8mm; }
+        @media print {
+          body { background: #ffffff !important; }
+          .no-print { display: none !important; }
+          .print-area {
+            display: block !important;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+          .resume-table { page-break-inside: auto !important; break-inside: auto !important; }
+          .resume-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
+          .resume-item { page-break-inside: avoid !important; break-inside: avoid !important; }
+          .resume-heading { page-break-after: avoid !important; break-after: avoid !important; }
+        }
+        .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
+        .resume-section { page-break-inside: avoid; break-inside: avoid; }
+        .resume-table { page-break-inside: auto; break-inside: auto; }
+        .resume-table tr { page-break-inside: avoid; break-inside: avoid; }
+        .resume-item { page-break-inside: avoid; break-inside: avoid; }
+        .resume-heading { page-break-after: avoid; break-after: avoid; }
+        .resume-paper td, .resume-paper th, .resume-paper div, .resume-paper p {
+          word-break: keep-all !important;
+          word-wrap: break-word !important;
+        }
+      `}</style>
 
       {/* 상단 헤더 */}
       <div className="max-w-7xl mx-auto flex items-center justify-between mb-6 no-print bg-[#0f152d] px-6 py-4 rounded-3xl border border-emerald-950/60 shadow-xl">
@@ -660,11 +667,11 @@ const ResumeDownload = () => {
               )}
 
               <div className="space-y-5">
-                <h2 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>주요 경력 및 프로젝트</h2>
+                <h2 className="resume-heading text-sm font-bold uppercase tracking-wider pb-1" style={{ color: currentTheme.hex, borderBottom: `2px solid ${currentTheme.hex}30` }}>주요 경력 및 프로젝트</h2>
                 
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-3 resume-section">
-                    <h3 className="text-xs font-bold px-2.5 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  <div key={sec.id} className="space-y-3">
+                    <h3 className="resume-heading text-xs font-bold px-2.5 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10`, borderLeft: `4px solid ${currentTheme.hex}` }}>
                       {sec.section_title || '세부 정보'}
                     </h3>
 
@@ -677,7 +684,7 @@ const ResumeDownload = () => {
                           const lines = val.split('\n').filter(Boolean);
 
                           return (
-                            <div key={col} className="space-y-1">
+                            <div key={col} className="resume-item space-y-1">
                               <span className="text-xs font-bold text-gray-800 block">[{col}]</span>
                               <div className="text-xs text-gray-700 space-y-0.5 pl-2">
                                 {lines.map((line, idx) => (
@@ -747,17 +754,17 @@ const ResumeDownload = () => {
                     </table>
                   </div>
                   <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden aspect-[3/4] max-h-[125px]">
-  {profile.avatar_url ? (
-    <img
-      src={profile.avatar_url}
-      alt="프로필"
-      crossOrigin="anonymous"
-      className="w-full h-full object-cover object-top"
-    />
-  ) : (
-    <User className="w-9 h-9 text-gray-400" />
-  )}
-</div>
+                    {profile.avatar_url ? (
+                      <img
+                        src={profile.avatar_url}
+                        alt="프로필"
+                        crossOrigin="anonymous"
+                        className="w-full h-full object-cover object-top"
+                      />
+                    ) : (
+                      <User className="w-9 h-9 text-gray-400" />
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -816,73 +823,72 @@ const ResumeDownload = () => {
               )}
 
               {/* 주요 경력 / 프로젝트 / 역량 섹션 (입사지원서 표 양식) */}
-              {/* 주요 경력 / 프로젝트 / 역량 섹션 (입사지원서 표 양식) */}
-<div className="space-y-4">
-  {activeSections.map((sec) => (
-    <div key={sec.id} className="space-y-2">
-      <h2
-        className="resume-heading text-xs font-bold px-2 py-1 rounded"
-        style={{
-          color: currentTheme.hex,
-          backgroundColor: `${currentTheme.hex}12`,
-          borderLeft: `4px solid ${currentTheme.hex}`
-        }}
-      >
-        {sec.section_title || '세부 정보'}
-      </h2>
+              <div className="space-y-4">
+                {activeSections.map((sec) => (
+                  <div key={sec.id} className="space-y-2">
+                    <h2
+                      className="resume-heading text-xs font-bold px-2 py-1 rounded"
+                      style={{
+                        color: currentTheme.hex,
+                        backgroundColor: `${currentTheme.hex}12`,
+                        borderLeft: `4px solid ${currentTheme.hex}`
+                      }}
+                    >
+                      {sec.section_title || '세부 정보'}
+                    </h2>
 
-      {sec.rows && sec.rows.map((row, rIdx) => {
-        const validCols = (sec.columns || []).filter((col) => row.values[col]);
-        if (validCols.length === 0) return null;
+                    {sec.rows && sec.rows.map((row, rIdx) => {
+                      const validCols = (sec.columns || []).filter((col) => row.values[col]);
+                      if (validCols.length === 0) return null;
 
-        return (
-          <table
-            key={row.id}
-            className="resume-table w-full border-collapse border border-gray-400 text-xs !bg-white mb-2"
-          >
-            <tbody>
-              {sec.rows.length > 1 && (
-                <tr className="bg-gray-100">
-                  <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
-                    {sec.section_title} #{rIdx + 1}
-                  </th>
-                </tr>
-              )}
-              {validCols.map((col) => {
-                const val = row.values[col] || '';
-                const lines = val.split('\n').filter(Boolean);
-                return (
-                  <tr key={col}>
-                    <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
-                      {col}
-                    </th>
-                    <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top">
-                      {lines.length > 1 ? (
-                        <div className="space-y-0.5">
-                          {lines.map((line, idx) => (
-                            <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
-                              <span className="shrink-0" style={{ color: currentTheme.hex }}>-</span>
-                              <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="leading-relaxed">{val.replace(/^[•\-\*\s]+/, '')}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        );
-      })}
-    </div>
-  ))}
-</div>
+                      return (
+                        <table
+                          key={row.id}
+                          className="resume-table w-full border-collapse border border-gray-400 text-xs !bg-white mb-2"
+                        >
+                          <tbody>
+                            {sec.rows.length > 1 && (
+                              <tr className="bg-gray-100">
+                                <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
+                                  {sec.section_title} #{rIdx + 1}
+                                </th>
+                              </tr>
+                            )}
+                            {validCols.map((col) => {
+                              const val = row.values[col] || '';
+                              const lines = val.split('\n').filter(Boolean);
+                              return (
+                                <tr key={col}>
+                                  <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
+                                    {col}
+                                  </th>
+                                  <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top">
+                                    {lines.length > 1 ? (
+                                      <div className="space-y-0.5">
+                                        {lines.map((line, idx) => (
+                                          <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
+                                            <span className="shrink-0" style={{ color: currentTheme.hex }}>-</span>
+                                            <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="leading-relaxed">{val.replace(/^[•\-\*\s]+/, '')}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
 
               {/* 하단 확인 및 서명란 */}
-              <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 resume-section">
+              <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 resume-item">
                 <p className="text-gray-700">위의 기재사항은 사실과 다름이 없음을 확인합니다.</p>
                 <p className="font-semibold text-gray-900">
                   <span>{new Date().toLocaleDateString('ko-KR')}</span>
@@ -922,13 +928,13 @@ const ResumeDownload = () => {
               )}
 
               <div className="space-y-3.5">
-                <h2 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
+                <h2 className="resume-heading text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}` }}>
                   PROFESSIONAL EXPERIENCE & PROJECTS
                 </h2>
                 
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-2.5 font-sans resume-section">
-                    <h3 className="text-xs font-bold uppercase tracking-wide border-b border-gray-200 pb-0.5" style={{ color: currentTheme.hex }}>
+                  <div key={sec.id} className="space-y-2.5 font-sans">
+                    <h3 className="resume-heading text-xs font-bold uppercase tracking-wide border-b border-gray-200 pb-0.5" style={{ color: currentTheme.hex }}>
                       {sec.section_title || 'Projects & Achievements'}
                     </h3>
 
@@ -942,7 +948,7 @@ const ResumeDownload = () => {
 
                       return (
                         <div key={row.id} className="text-xs space-y-1">
-                          <div className="flex justify-between items-baseline font-bold text-black">
+                          <div className="resume-heading flex justify-between items-baseline font-bold text-black">
                             <span className="text-[12px]">{mainTitle}</span>
                             {periodText && <span className="text-[11px] font-mono text-gray-600 italic font-normal">{periodText}</span>}
                           </div>
@@ -956,7 +962,7 @@ const ResumeDownload = () => {
                               const lines = val.split('\n').filter(Boolean);
 
                               return (
-                                <div key={col} className="space-y-0.5">
+                                <div key={col} className="resume-item space-y-0.5">
                                   {lines.map((line, idx) => (
                                     <p key={idx} className="text-gray-800 text-[11px] leading-relaxed flex items-start gap-1.5">
                                       <span className="shrink-0" style={{ color: currentTheme.hex }}>•</span>
@@ -1055,10 +1061,10 @@ const ResumeDownload = () => {
                 </div>
 
                 <div className="col-span-8 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Projects & Work Experience</h3>
+                  <h3 className="resume-heading text-xs font-bold uppercase tracking-wider pb-0.5" style={{ color: currentTheme.hex, borderBottom: `1px solid ${currentTheme.hex}40` }}>Projects & Work Experience</h3>
                   {activeSections.map((sec) => (
-                    <div key={sec.id} className="space-y-2 p-3 rounded-xl border resume-section" style={{ backgroundColor: `${currentTheme.hex}08`, borderColor: `${currentTheme.hex}30` }}>
-                      <h4 className="text-xs font-bold" style={{ color: currentTheme.hex }}>{sec.section_title || 'Section Title'}</h4>
+                    <div key={sec.id} className="space-y-2 p-3 rounded-xl border" style={{ backgroundColor: `${currentTheme.hex}08`, borderColor: `${currentTheme.hex}30` }}>
+                      <h4 className="resume-heading text-xs font-bold" style={{ color: currentTheme.hex }}>{sec.section_title || 'Section Title'}</h4>
                       {sec.rows && sec.rows.map((row) => (
                         <div key={row.id} className="text-xs space-y-1.5 pl-1">
                           {(sec.columns || []).map((col) => {
@@ -1067,7 +1073,7 @@ const ResumeDownload = () => {
                             const lines = val.split('\n').filter(Boolean);
 
                             return (
-                              <div key={col} className="space-y-0.5">
+                              <div key={col} className="resume-item space-y-0.5">
                                 <span className="font-bold text-[11px]" style={{ color: currentTheme.hex }}>[{col}]</span>
                                 <div className="text-slate-700 pl-2 leading-relaxed text-[11px] space-y-0.5" style={{ borderLeft: `2px solid ${currentTheme.hex}60` }}>
                                   {lines.map((line, idx) => (
@@ -1159,10 +1165,10 @@ const ResumeDownload = () => {
               </div>
 
               <div className="space-y-2">
-                <h2 className="text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>경력 및 프로젝트 (職歴・プロジェクト)</h2>
+                <h2 className="resume-heading text-xs font-bold text-black border-l-2 pl-1.5 py-0.5" style={{ borderColor: currentTheme.hex }}>경력 및 프로젝트 (職歴・プロジェクト)</h2>
                 {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-1 resume-section">
-                    <div className="bg-gray-100 font-bold border border-black p-1 text-xs">
+                  <div key={sec.id} className="space-y-1">
+                    <div className="resume-heading bg-gray-100 font-bold border border-black p-1 text-xs">
                       ■ {sec.section_title || '세부사항'}
                     </div>
                     {sec.rows && sec.rows.length > 0 && (
@@ -1173,7 +1179,7 @@ const ResumeDownload = () => {
                               const val = row.values[col] || '';
                               if (!val) return null;
                               return (
-                                <div key={col} className="space-y-0.5">
+                                <div key={col} className="resume-item space-y-0.5">
                                   <span className="font-bold text-black block">[{col}]</span>
                                   <p className="whitespace-pre-line leading-relaxed pl-2 text-gray-800">{val}</p>
                                 </div>
