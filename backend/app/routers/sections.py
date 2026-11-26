@@ -386,6 +386,47 @@ async def spell_check_section(
     ]
 
 
+import re
+
+
+def _clean_missing_fact_value(val: Any) -> str:
+    """원문에 없는 내용을 설명하는 코멘트/안내 문구가 들어가면 빈 문자열로 치환"""
+    if not isinstance(val, str):
+        return ""
+    cleaned = val.strip()
+    if not cleaned:
+        return ""
+
+    # 누락/미제공/불명확 안내 문구 패턴
+    missing_patterns = [
+        r"제공되지\s*않",
+        r"언급되지\s*않",
+        r"명시되지\s*않",
+        r"포함되지\s*않",
+        r"나타나지\s*않",
+        r"확인되지\s*않",
+        r"알\s*수\s*없",
+        r"파악되지\s*않",
+        r"없음\.?$",
+        r"부족합니다\.?$",
+        r"정량적\s*성과.*수치.*제공",
+        r"kpi.*제공",
+    ]
+    for pat in missing_patterns:
+        if re.search(pat, cleaned, flags=re.IGNORECASE):
+            return ""
+    return cleaned
+
+
+def _format_proofread_text(target_columns: list, normalized_vals: Dict[str, str]) -> str:
+    """내용이 있는 컬럼 위주로 ai_proofread_text를 조합 (전부 비어 있으면 빈 문자열 반환)"""
+    parts = []
+    for col in target_columns:
+        v = (normalized_vals.get(col) or "").strip()
+        if v:
+            parts.append(f"[{col}]\n{v}")
+    return "\n\n".join(parts)
+
 def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str, target_columns: list) -> dict:
     mode_descriptions = {
         "STAR": "STAR 기법(Situation, Task, Action, Result) 흐름에 맞추어 내용 분류",
@@ -395,16 +436,15 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
     }
     mode_desc = mode_descriptions.get(mode, mode_descriptions["STAR"])
 
-    # 💡 왜곡 방지 및 팩트 기반 추출을 강조한 프롬프트
-    # 💡 수정된 프롬프트: 말투 윤문은 허용하되 환각/왜곡 방지
     prompt = f"""
     너는 자기소개서 전문 윤문 및 데이터 분류 컨설턴트이다.
     전달받은 1개의 자기소개서 카드 내용을 "{mode}" 모드({mode_desc})에 맞추어 분석하고 재구성하라.
 
     [핵심 작성 원칙 (모드스러운 톤 & 철저한 팩트 보존)]
-    1. **세련된 모드형 윤문:** 원문의 구리거나 어색한 구어체, 비문, 정돈되지 않은 말투는 인사담당자가 선호하는 프로페셔널하고 정돈된 '자소서 모드' 톤으로 자연스럽고 매끄럽게 다듬어라. 오타와 맞춤법도 완벽하게 교정할 것.
-    2. **절대적 환각 및 왜곡 방지:** 말투는 세련되게 바꾸되, **원문에 존재하지 않는 새로운 사실, 경험, 프로젝트, 수치, 기술 등을 임의로 지어내거나 과장해서는 절대 안 된다.** 오직 원문에 담긴 사실만을 기반으로 다듬을 것.
-    3. **정확한 컬럼 분할:** 모든 컬럼에 동일한 전체 원문을 복사해 넣지 말고, 각 컬럼의 의미에 맞는 내용만 정확히 발췌 및 정돈하여 담아라. 해당하는 내용이 없다면 빈 문자열("")을 반환할 것.
+    1. **세련된 모드형 윤문:** 원문의 어색한 구어체, 비문, 정돈되지 않은 말투는 인사담당자가 선호하는 깔끔한 자소서 톤으로 자연스럽게 다듬고 맞춤법도 교정하라.
+    2. **절대적 환각 및 왜곡 방지:** 원문에 없는 사실, 경험, 프로젝트, 수치, 성과 등을 절대 지어내거나 과장하지 마라.
+    3. **누락 항목 코멘트 절대 금지:** 원문에 해당 컬럼에 들어갈 내용이 없다면, "제공되지 않음", "언급되지 않음", "수치가 없음" 같은 설명/코멘트/평가 문장을 **절대 적지 말고 반드시 빈 문자열("")**로 남겨라. 내용이 없으면 아무 말도 쓰지 마라.
+    4. **정확한 컬럼 분할:** 모든 컬럼에 전체 원문을 중복 복사하지 말고, 각 컬럼 성격에 맞는 내용만 발췌해 담아라.
 
     [공통 지정 컬럼 목록]
     {target_columns}
@@ -413,8 +453,8 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
     반드시 아래의 **JSON 형식**으로만 응답하며, 마크다운 코드 블록(```)이나 다른 설명, 인사말은 절대 포함하지 마세요.
     {{
       "column_values": {{
-        "{target_columns[0]}": "모드스럽게 윤문된 내용...",
-        "{target_columns[1] if len(target_columns) > 1 else target_columns[0]}": "모드스럽게 윤문된 내용..."
+        "{target_columns[0]}": "모드스럽게 윤문된 내용 또는 \"\"",
+        "{target_columns[1] if len(target_columns) > 1 else target_columns[0]}": "모드스럽게 윤문된 내용 또는 \"\""
       }}
     }}
 
@@ -426,22 +466,26 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
-                {"role": "system", "content": "너는 원문의 사실 관계를 절대 왜곡하지 않고 지정된 컬럼에 정확히 분류하는 데이터 프로세서이다."},
+                {"role": "system", "content": "너는 원문에 없는 사실을 지어내거나 누락 안내 문구를 절대 작성하지 않고, 빈 항목은 빈 문자열(\"\")로만 반환하는 엄격한 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,  
+            temperature=0.4,
         )
         content = response.choices[0].message.content.strip()
-        
-        if content.startswith("```"):
+
+        if "```" in content:
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
             content = content.strip()
 
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0)
+
         parsed = json.loads(content)
         raw_vals = parsed.get("column_values", {})
-        
+
         for col in target_columns:
             val = raw_vals.get(col, "")
             if not val:
@@ -449,24 +493,20 @@ def run_single_card_ai_proofread_llm(card_id: str, original_text: str, mode: str
                     if k.lower() == col.lower() or col.lower() in k.lower():
                         val = v
                         break
-            normalized_vals[col] = val
+            normalized_vals[col] = _clean_missing_fact_value(val)
 
     except Exception as e:
         print(f"Single Card AI Proofread Error (id: {card_id}): {e}")
         if target_columns:
             normalized_vals[target_columns[0]] = original_text
 
-    formatted_parts = [f"[{col}]\n{normalized_vals.get(col, '')}" for col in target_columns]
-    
     return {
         "id": card_id,
-        "ai_proofread_text": "\n\n".join(formatted_parts),
+        "ai_proofread_text": _format_proofread_text(target_columns, normalized_vals),
         "ai_columns": target_columns,
         "column_values": normalized_vals
     }
-# ------------------------------------------------------------------
-# Endpoint 3: [자기소개서 전용] 1번 고정된 컬럼 기반으로 개별 카드 순회 교정 엔드포인트
-# ------------------------------------------------------------------
+
 # ------------------------------------------------------------------
 # Endpoint 3: [자기소개서 전용] 1번 고정된 컬럼 기반으로 개별 카드 순회 교정 엔드포인트
 # ------------------------------------------------------------------
@@ -694,15 +734,15 @@ def run_single_resume_card_ai_proofread_llm(card_id: str, original_text: str, mo
     }
     mode_desc = mode_descriptions.get(mode, mode_descriptions["PROJECT"])
 
-    # 💡 왜곡 및 과장 방지를 위한 엄격한 제약 지침 추가
     prompt = f"""
     너는 이력서 및 경력기술서 전문 윤문 데이터 프로세서이다.
     전달받은 1개의 이력서 카드 원문을 "{mode}" 모드({mode_desc})에 맞추어 분석하고 재구성하라.
 
     [핵심 작성 원칙 (모드스러운 톤 & 철저한 팩트 보존)]
-    1. **프로페셔널 이력서 모드 윤문:** 원문의 투박하고 정돈되지 않은 말투는 이력서에 어울리는 깔끔한 개조식 또는 전문 비즈니스 톤('~함', '~기여' 등)으로 세련되게 다듬어라.
-    2. **환각 및 과장 금지:** 말투만 전문적으로 윤문할 뿐, **원문에 명시된 사실, 기술명, 수치(%, 기간, 인원 등)만을 활용해야 한다.** 존재하지 않는 성과나 스택을 창작하거나 부풀리지 마라.
-    3. **핵심 데이터 보존:** 원문의 구체적인 수치나 기술 스택이 누락되지 않도록 주의하며, 각 컬럼 성격에 맞게 내용을 나누어 담아라.
+    1. **프로페셔널 이력서 모드 윤문:** 원문의 투박한 말투는 이력서에 어울리는 깔끔한 개조식 또는 전문 비즈니스 톤으로 세련되게 다듬어라.
+    2. **환각 및 과장 금지:** 원문에 명시된 사실, 기술명, 수치(%, 기간, 인원 등)만 사용하고, 없는 성과나 지표를 만들어내지 마라.
+    3. **누락 항목 코멘트 절대 금지:** 원문에 해당 컬럼에 맞는 내용이 없으면 "정량적 성과나 KPI에 대한 구체적 수치가 제공되지 않음", "제공되지 않음", "명시되지 않음" 같은 설명/코멘트를 **절대 적지 말고 반드시 빈 문자열("")**로 남겨라. 해당 정보가 없으면 아무 글자도 쓰지 마라.
+    4. **핵심 데이터 보존:** 원문에 실제로 있는 수치나 기술 스택은 누락 없이 알맞은 컬럼에 담아라.
 
     [공통 지정 컬럼 형식]
     {target_columns}
@@ -711,8 +751,8 @@ def run_single_resume_card_ai_proofread_llm(card_id: str, original_text: str, mo
     반드시 아래의 **JSON 형식**으로만 응답하며, 마크다운 코드 블록(```)이나 다른 설명, 인사말은 절대 포함하지 마세요.
     {{
       "column_values": {{
-        "{target_columns[0]}": "모드스럽게 정돈된 내용...",
-        "{target_columns[1] if len(target_columns) > 1 else target_columns[0]}": "모드스럽게 정돈된 내용..."
+        "{target_columns[0]}": "모드스럽게 정돈된 내용 또는 \"\"",
+        "{target_columns[1] if len(target_columns) > 1 else target_columns[0]}": "모드스럽게 정돈된 내용 또는 \"\""
       }}
     }}
 
@@ -724,22 +764,26 @@ def run_single_resume_card_ai_proofread_llm(card_id: str, original_text: str, mo
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
-                {"role": "system", "content": "너는 원문의 사실 관계를 절대 왜곡하거나 창작하지 않고 지정된 컬럼에 정확히 분류하는 엄격한 데이터 프로세서이다."},
+                {"role": "system", "content": "너는 원문에 없는 사실을 지어내거나 누락 안내 문구를 절대 작성하지 않고, 빈 항목은 빈 문자열(\"\")로만 반환하는 엄격한 데이터 프로세서이다."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            temperature=0.4,
         )
         content = response.choices[0].message.content.strip()
-        
-        if content.startswith("```"):
+
+        if "```" in content:
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
             content = content.strip()
 
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0)
+
         parsed = json.loads(content)
         raw_vals = parsed.get("column_values", {})
-        
+
         for col in target_columns:
             val = raw_vals.get(col, "")
             if not val:
@@ -747,21 +791,20 @@ def run_single_resume_card_ai_proofread_llm(card_id: str, original_text: str, mo
                     if k.lower() == col.lower() or col.lower() in k.lower():
                         val = v
                         break
-            normalized_vals[col] = val
+            normalized_vals[col] = _clean_missing_fact_value(val)
 
     except Exception as e:
         print(f"Single Resume Card AI Proofread Error (id: {card_id}): {e}")
         if target_columns:
             normalized_vals[target_columns[0]] = original_text
 
-    formatted_parts = [f"[{col}]\n{normalized_vals.get(col, '')}" for col in target_columns]
-    
     return {
         "id": card_id,
-        "ai_proofread_text": "\n\n".join(formatted_parts),
+        "ai_proofread_text": _format_proofread_text(target_columns, normalized_vals),
         "ai_columns": target_columns,
         "column_values": normalized_vals
     }
+
 # ------------------------------------------------------------------
 # 이력서 전용 AI 교정 엔드포인트 (모드별 그룹핑 저장 지원)
 # ------------------------------------------------------------------
