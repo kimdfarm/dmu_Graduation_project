@@ -387,17 +387,27 @@ const ResumeDownload = () => {
   @media print {
     body { background: #ffffff !important; }
     .no-print { display: none !important; }
-    .print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
-    
-    /* 긴 섹션은 1페이지 하단부터 바로 채우고, 행(tr) 단위만 중간 잘림 방지 */
+    .print-area {
+      display: block !important;
+      width: 100% !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
     .resume-table { page-break-inside: auto !important; break-inside: auto !important; }
     .resume-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
     .resume-heading { page-break-after: avoid !important; break-after: avoid !important; }
   }
+  .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
   .resume-section { page-break-inside: avoid; break-inside: avoid; }
-.resume-table { page-break-inside: auto; break-inside: auto; }
-.resume-table tr { page-break-inside: avoid; break-inside: avoid; }
-.resume-heading { page-break-after: avoid; break-after: avoid; }
+  .resume-table { page-break-inside: auto; break-inside: auto; }
+  .resume-table tr { page-break-inside: avoid; break-inside: avoid; }
+  .resume-heading { page-break-after: avoid; break-after: avoid; }
+  .resume-paper td, .resume-paper th, .resume-paper div, .resume-paper p {
+    word-break: keep-all !important;
+    word-wrap: break-word !important;
+  }
 `}</style>
 
       {/* 상단 헤더 */}
@@ -806,59 +816,70 @@ const ResumeDownload = () => {
               )}
 
               {/* 주요 경력 / 프로젝트 / 역량 섹션 (입사지원서 표 양식) */}
-              <div className="space-y-4">
-                {activeSections.map((sec) => (
-                  <div key={sec.id} className="space-y-2 resume-section">
-                    <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
-                      {sec.section_title || '세부 정보'}
-                    </h2>
+              {/* 주요 경력 / 프로젝트 / 역량 섹션 (입사지원서 표 양식) */}
+<div className="space-y-4">
+  {activeSections.map((sec) => (
+    <div key={sec.id} className="space-y-2">
+      <h2
+        className="resume-heading text-xs font-bold px-2 py-1 rounded"
+        style={{
+          color: currentTheme.hex,
+          backgroundColor: `${currentTheme.hex}12`,
+          borderLeft: `4px solid ${currentTheme.hex}`
+        }}
+      >
+        {sec.section_title || '세부 정보'}
+      </h2>
 
-                    {sec.rows && sec.rows.map((row, rIdx) => {
-                      const validCols = (sec.columns || []).filter((col) => row.values[col]);
-                      if (validCols.length === 0) return null;
+      {sec.rows && sec.rows.map((row, rIdx) => {
+        const validCols = (sec.columns || []).filter((col) => row.values[col]);
+        if (validCols.length === 0) return null;
 
-                      return (
-                        <table key={row.id} className="w-full border-collapse border border-gray-400 text-xs !bg-white mb-2">
-                          <tbody>
-                            {sec.rows.length > 1 && (
-                              <tr className="bg-gray-100">
-                                <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
-                                  {sec.section_title} #{rIdx + 1}
-                                </th>
-                              </tr>
-                            )}
-                            {validCols.map((col) => {
-                              const val = row.values[col] || '';
-                              const lines = val.split('\n').filter(Boolean);
-                              return (
-                                <tr key={col}>
-                                  <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
-                                    {col}
-                                  </th>
-                                  <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top">
-                                    {lines.length > 1 ? (
-                                      <div className="space-y-0.5">
-                                        {lines.map((line, idx) => (
-                                          <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
-                                            <span className="shrink-0" style={{ color: currentTheme.hex }}>-</span>
-                                            <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <span className="leading-relaxed">{val.replace(/^[•\-\*\s]+/, '')}</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
+        return (
+          <table
+            key={row.id}
+            className="resume-table w-full border-collapse border border-gray-400 text-xs !bg-white mb-2"
+          >
+            <tbody>
+              {sec.rows.length > 1 && (
+                <tr className="bg-gray-100">
+                  <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
+                    {sec.section_title} #{rIdx + 1}
+                  </th>
+                </tr>
+              )}
+              {validCols.map((col) => {
+                const val = row.values[col] || '';
+                const lines = val.split('\n').filter(Boolean);
+                return (
+                  <tr key={col}>
+                    <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
+                      {col}
+                    </th>
+                    <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top">
+                      {lines.length > 1 ? (
+                        <div className="space-y-0.5">
+                          {lines.map((line, idx) => (
+                            <div key={idx} className="flex items-start gap-1.5 leading-relaxed">
+                              <span className="shrink-0" style={{ color: currentTheme.hex }}>-</span>
+                              <span>{line.replace(/^[•\-\*\s]+/, '')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="leading-relaxed">{val.replace(/^[•\-\*\s]+/, '')}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        );
+      })}
+    </div>
+  ))}
+</div>
 
               {/* 하단 확인 및 서명란 */}
               <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 resume-section">
