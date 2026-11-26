@@ -5,14 +5,14 @@ import html2canvas from 'html2canvas';
 import { 
   ArrowLeft, Image as ImageIcon, Code, Printer, 
   GripVertical, ChevronUp, ChevronDown, Loader2, Mail, Phone, MapPin,
-  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User
+  CheckCircle2, Globe2, FileText, Layout, Award, ChevronDown as ChevronIcon, User, Building2
 } from 'lucide-react';
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'ORIGINAL') => {
-  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0 
-    ? [...secColumns] 
+  let detectedColumns = Array.isArray(secColumns) && secColumns.length > 0
+    ? [...secColumns]
     : [];
 
   if (!details) {
@@ -33,7 +33,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
 
     if (typeof cardObj === 'object' && cardObj !== null) {
       const versionToUse = cardObj.selected_version || defaultVersion;
-      
+
       let textToParse = '';
       if (versionToUse === 'AI') {
         textToParse = cardObj.ai_proofread_text || cardObj.original_text || '';
@@ -44,8 +44,9 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
       }
 
       if (textToParse && typeof textToParse === 'string') {
-        const blocks = textToParse.split('\n\n');
-        
+        const normalizedText = textToParse.replace(/\r\n/g, '\n');
+        const blocks = normalizedText.split('\n\n');
+
         blocks.forEach((block) => {
           const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
           if (lines.length === 0) return;
@@ -55,7 +56,7 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
             addColumn(keyName);
             rowValues[keyName] = lines
               .slice(1)
-              .map((l) => l.replace(/^[•\-\*\s]+/, ''))
+              .map((l) => l.replace(/^[•\-*\s]+/, ''))
               .join('\n');
           } else {
             lines.forEach((line) => {
@@ -66,12 +67,15 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
                 addColumn(k);
                 rowValues[k] = v;
               } else {
-                const cleanLine = line.replace(/^[•\-\*\s]+/, '').trim();
+                const cleanLine = line.replace(/^[•\-*\s]+/, '').trim();
                 if (!cleanLine) return;
 
-                const targetCol = detectedColumns.find(c => c.includes('내용') || c.includes('답변') || c.includes('질문')) || detectedColumns[0] || '상세 내용';
+                const targetCol =
+                  detectedColumns.find((c) => c.includes('내용') || c.includes('답변') || c.includes('질문')) ||
+                  detectedColumns[0] ||
+                  '상세 내용';
                 addColumn(targetCol);
-                
+
                 const currentVal = rowValues[targetCol] || '';
                 rowValues[targetCol] = currentVal ? `${currentVal}\n${cleanLine}` : cleanLine;
               }
@@ -80,8 +84,10 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
         });
       } else {
         Object.entries(cardObj).forEach(([k, v]) => {
-          if (['id', 'selected_version', 'ai_proofread_text', 'spell_checked_text', 'original_text'].includes(k)) return;
-          
+          if (['id', 'selected_version', 'ai_proofread_text', 'spell_checked_text', 'original_text'].includes(k)) {
+            return;
+          }
+
           if (k === 'title') {
             const titleCol = '문항 제목';
             addColumn(titleCol);
@@ -105,14 +111,22 @@ const parseDetailsToTableSchema = (details, secColumns = [], defaultVersion = 'O
     }
 
     extractedRows.push({
-      id: cardObj.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString()),
-      values: rowValues
+      id:
+        cardObj?.id ||
+        (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString()),
+      values: rowValues,
     });
   });
 
   if (detectedColumns.length === 0) detectedColumns = ['상세 내용'];
 
   return { columns: detectedColumns, rows: extractedRows };
+};
+
+const resolveAvatarUrl = (avatarUrl) => {
+  if (!avatarUrl) return '';
+  if (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:')) return avatarUrl;
+  return `${BASE_URL}${avatarUrl.startsWith('/') ? '' : '/'}${avatarUrl}`;
 };
 
 const CoverLetterDownload = () => {
@@ -123,8 +137,8 @@ const CoverLetterDownload = () => {
 
   const [coverLetter, setCoverLetter] = useState(null);
   const [orderedSections, setOrderedSections] = useState([]);
-  const [selectedStyle, setSelectedStyle] = useState('KR');
-  const [accentColor, setAccentColor] = useState('indigo'); // 💡 자기소개서 기본 강조 색상 (인디고)
+  const [selectedStyle, setSelectedStyle] = useState('KR_V2');
+  const [accentColor, setAccentColor] = useState('indigo');
 
   const colorThemes = {
     indigo: { name: '모던 인디고', hex: '#4f46e5' },
@@ -154,6 +168,7 @@ const CoverLetterDownload = () => {
 
   const mainStyleOptions = [
     { id: 'KR', country: '대한민국', flag: '🇰🇷', name: '한국 모던 자기소개서', desc: '깔끔한 구분선과 구조화된 프로페셔널 서식', icon: Globe2, badge: '표준' },
+    { id: 'KR_V2', country: '대한민국 v2', flag: '🇰🇷', name: '한국 입사지원서형 자기소개서 v2', desc: '인적사항 및 문항별 상세 내용을 격자형 표로 구성한 서식', icon: Building2, badge: 'v2' },
     { id: 'US', country: '미국 / 북미', flag: '🇺🇸', name: '미국 ATS 최적화 Cover Letter', desc: '텍스트 파싱 및 불릿포인트 중심의 ATS 최적화 서식', icon: FileText, badge: 'ATS' },
     { id: 'EU', country: '유럽 연합', flag: '🇪🇺', name: '유럽형 2단 Cover Letter', desc: '좌측 프로필 사이드바와 우측 문항 분리 2단 레이아웃', icon: Layout, badge: 'CV' },
     { id: 'JP', country: '일본', flag: '🇯🇵', name: '일본 정규 志望動機서', desc: '격자 그리드 형태의 규격화된 테이블 레이아웃', icon: Award, badge: '정규' }
@@ -320,7 +335,7 @@ const CoverLetterDownload = () => {
             }
           }
           .cover-section { page-break-inside: avoid; break-inside: avoid; }
-          td, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
+          td, th, div { word-break: keep-all !important; overflow-wrap: break-word !important; }
         </style>
       </head>
       <body style="background-color: #f3f4f6; padding: 1rem; display: flex; justify-content: center; font-family: sans-serif;">
@@ -356,6 +371,8 @@ const CoverLetterDownload = () => {
     };
   });
 
+  const avatarSrc = resolveAvatarUrl(profile.avatar_url);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#07051E] flex flex-col items-center justify-center text-slate-300 gap-3 font-sans">
@@ -377,7 +394,7 @@ const CoverLetterDownload = () => {
         }
         .cover-paper { background-color: #ffffff !important; color: #111827 !important; }
         .cover-section { page-break-inside: avoid !important; break-inside: avoid !important; }
-        .cover-paper td, .cover-paper div, .cover-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
+        .cover-paper td, .cover-paper th, .cover-paper div, .cover-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
       `}</style>
 
       {/* 상단 헤더 */}
@@ -404,7 +421,7 @@ const CoverLetterDownload = () => {
             <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <Globe2 className="w-5 h-5 text-indigo-400" />
-                국가별 양식 선택 (4종)
+                국가별 양식 선택 (5종)
               </h2>
             </div>
 
@@ -465,7 +482,7 @@ const CoverLetterDownload = () => {
             </div>
           </div>
 
-          {/* 💡 문서 강조 색상 선택 패널 추가 */}
+          {/* 문서 강조 색상 선택 패널 */}
           <div className="bg-[#0f0c31] border border-indigo-900/50 rounded-xl p-5 shadow-xl space-y-4">
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <span>🎨 문서 강조 색상 선택 (제출용)</span>
@@ -564,9 +581,128 @@ const CoverLetterDownload = () => {
 
         </div>
 
-        {/* 뷰어 영역 (4종 템플릿에 동적 색상 테마 적용) */}
+        {/* 뷰어 영역 (한국 v2 자기소개서 + 기존 4종 템플릿) */}
         <div className="lg:col-span-7 flex justify-center overflow-x-auto p-2">
           
+          {/* 0. 한국 입사지원서형 자기소개서 v2 (KR_V2) */}
+          {selectedStyle === 'KR_V2' && (
+            <div 
+              ref={printRef}
+              className="print-area cover-paper w-[210mm] !bg-white !text-gray-900 shadow-2xl border border-gray-300 p-[10mm] text-left leading-normal flex flex-col space-y-5 font-sans"
+            >
+              {/* 상단 타이틀 및 자기소개서 제목 */}
+              <div className="pb-2.5 flex items-end justify-between gap-4" style={{ borderBottom: `2px solid ${currentTheme.hex}` }}>
+                <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">자 기 소 개 서</h1>
+                {coverLetter?.title && (
+                  <span className="text-xs font-bold px-2.5 py-1 rounded border truncate max-w-[320px]" style={{ borderColor: currentTheme.hex, color: currentTheme.hex, backgroundColor: `${currentTheme.hex}10` }}>
+                    {coverLetter.title}
+                  </span>
+                )}
+              </div>
+
+              {/* 기본사항 */}
+              <div className="space-y-1.5 cover-section">
+                <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                  기본사항
+                </h2>
+                <div className="grid grid-cols-12 gap-2 items-stretch">
+                  <div className="col-span-9">
+                    <table className="w-full border-collapse border border-gray-400 text-xs !bg-white">
+                      <tbody>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">성명</th>
+                          <td className="border border-gray-400 px-2.5 py-1.5 font-semibold">{profile.name || '-'}</td>
+                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 w-[85px] text-left font-bold">생년월일</th>
+                          <td className="border border-gray-400 px-2.5 py-1.5">
+                            {profile.birth_date ? `${profile.birth_date} (${profile.gender === 'M' ? '남' : '여'})` : '-'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">연락처</th>
+                          <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
+                            {[profile.phone_number, profile.email].filter(Boolean).join(' / ') || '-'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-100 px-2.5 py-1.5 text-left font-bold">주소</th>
+                          <td colSpan={3} className="border border-gray-400 px-2.5 py-1.5">
+                            {profile.address ? `${profile.address} ${profile.detail_address || ''}`.trim() : '-'}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="col-span-3 border border-gray-400 bg-gray-50 flex items-center justify-center overflow-hidden aspect-[3/4] max-h-[120px]">
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt="프로필"
+                        crossOrigin="anonymous"
+                        className="w-full h-full object-cover object-top"
+                      />
+                    ) : (
+                      <User className="w-9 h-9 text-gray-400" />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 자기소개서 세부 문항 (표 양식) */}
+              <div className="space-y-4">
+                {activeSections.map((sec, sIdx) => (
+                  <div key={sec.id} className="space-y-2 cover-section">
+                    <h2 className="text-xs font-bold px-2 py-1 rounded" style={{ color: currentTheme.hex, backgroundColor: `${currentTheme.hex}12`, borderLeft: `4px solid ${currentTheme.hex}` }}>
+                      {sec.section_title || `문항 ${sIdx + 1}`}
+                    </h2>
+
+                    {sec.rows && sec.rows.map((row, rIdx) => {
+  const validCols = (sec.columns || []).filter(
+    (col) => String(row.values?.[col] || '').trim().length > 0
+  );
+  if (validCols.length === 0) return null;
+
+  return (
+    <table key={row.id} className="w-full border-collapse border border-gray-400 text-xs !bg-white mb-2">
+      <tbody>
+        {sec.rows.length > 1 && (
+          <tr className="bg-gray-100">
+            <th colSpan={2} className="border border-gray-400 px-2.5 py-1 text-left font-bold text-gray-800">
+              {sec.section_title || `문항 ${sIdx + 1}`} #{rIdx + 1}
+            </th>
+          </tr>
+        )}
+        {validCols.map((col) => {
+          const val = String(row.values[col] || '').trim();
+          return (
+            <tr key={col}>
+              <th className="border border-gray-400 bg-gray-50 px-2.5 py-1.5 w-[135px] text-left font-bold align-top text-gray-800">
+                {col}
+              </th>
+              <td className="border border-gray-400 px-2.5 py-1.5 text-gray-800 align-top whitespace-pre-line leading-relaxed break-words">
+                {val}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+})}
+                  </div>
+                ))}
+              </div>
+
+              {/* 하단 확인 및 서명란 */}
+              <div className="pt-3 border-t border-gray-400 text-xs text-right space-y-1.5 cover-section">
+                <p className="text-gray-700">위의 기재사항은 사실과 다름이 없음을 확인합니다.</p>
+                <p className="font-semibold text-gray-900">
+                  <span>{new Date().toLocaleDateString('ko-KR')}</span>
+                  <span className="ml-5">작성자 : {profile.name || 'O O O'} (인)</span>
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* 1. 한국 모던 자기소개서 (KR) */}
           {selectedStyle === 'KR' && (
             <div 
@@ -589,8 +725,8 @@ const CoverLetterDownload = () => {
                 </div>
 
                 <div className="w-24 h-32 bg-gray-100 rounded border border-gray-300 shadow-sm shrink-0 flex items-center justify-center overflow-hidden">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt="프로필" className="w-full h-full object-cover" />
+                  {avatarSrc ? (
+                    <img src={avatarSrc} alt="프로필" crossOrigin="anonymous" className="w-full h-full object-cover object-top" />
                   ) : (
                     <User className="w-10 h-10 text-gray-400" />
                   )}
@@ -688,8 +824,8 @@ const CoverLetterDownload = () => {
                 </div>
 
                 <div className="w-20 h-24 bg-black/25 rounded border border-white/25 shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  {avatarSrc ? (
+                    <img src={avatarSrc} alt="Profile" crossOrigin="anonymous" className="w-full h-full object-cover object-top" />
                   ) : (
                     <User className="w-8 h-8 text-white/60" />
                   )}
@@ -756,8 +892,8 @@ const CoverLetterDownload = () => {
                       <td className="border border-black bg-gray-100 font-bold w-[60px]">성 별</td>
                       <td className="border border-black w-[40px]">{profile.gender === 'M' ? '남' : '여'}</td>
                       <td rowSpan={3} className="border border-black w-[80px] h-[95px] p-1 align-middle">
-                        {profile.avatar_url ? (
-                          <img src={profile.avatar_url} alt="사진" className="w-full h-full object-cover max-h-[90px]" />
+                        {avatarSrc ? (
+                          <img src={avatarSrc} alt="사진" crossOrigin="anonymous" className="w-full h-full object-cover object-top max-h-[90px]" />
                         ) : (
                           <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-400 text-[10px]">사진</div>
                         )}
