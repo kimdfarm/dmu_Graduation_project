@@ -383,16 +383,22 @@ const ResumeDownload = () => {
     <div className="min-h-screen bg-[#070b19] text-slate-100 p-6 md:p-10 font-sans">
       
       <style>{`
-        @page { size: A4 portrait; margin: 8mm; }
-        @media print {
-          body { background: #ffffff !important; }
-          .no-print { display: none !important; }
-          .print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
-        }
-        .resume-paper { background-color: #ffffff !important; color: #111827 !important; }
-        .resume-section { page-break-inside: avoid !important; break-inside: avoid !important; }
-        .resume-paper td, .resume-paper th, .resume-paper div, .resume-paper p { word-break: keep-all !important; word-wrap: break-word !important; }
-      `}</style>
+  @page { size: A4 portrait; margin: 8mm; }
+  @media print {
+    body { background: #ffffff !important; }
+    .no-print { display: none !important; }
+    .print-area { width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
+    
+    /* 긴 섹션은 1페이지 하단부터 바로 채우고, 행(tr) 단위만 중간 잘림 방지 */
+    .resume-table { page-break-inside: auto !important; break-inside: auto !important; }
+    .resume-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
+    .resume-heading { page-break-after: avoid !important; break-after: avoid !important; }
+  }
+  .resume-section { page-break-inside: avoid; break-inside: avoid; }
+.resume-table { page-break-inside: auto; break-inside: auto; }
+.resume-table tr { page-break-inside: avoid; break-inside: avoid; }
+.resume-heading { page-break-after: avoid; break-after: avoid; }
+`}</style>
 
       {/* 상단 헤더 */}
       <div className="max-w-7xl mx-auto flex items-center justify-between mb-6 no-print bg-[#0f152d] px-6 py-4 rounded-3xl border border-emerald-950/60 shadow-xl">
